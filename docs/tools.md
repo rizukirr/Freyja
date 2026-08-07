@@ -1,0 +1,197 @@
+# Tool calling
+
+Tool calling lets the model ask you to run a function and then use the result. In Freya the full round trip works on both providers, and it is the foundation the agent loop will be built on.
+
+There is no automatic execution yet. You declare the tools, you run them, you feed the results back. A `Tool` trait and a registry that does the dispatch for you are Phase 2 work.
+
+## The shape of a round trip
+
+1. You send a request with `tools` declared.
+2. The model answers with one or more `OutputContent::ToolCall`.
+3. You run each call and produce a result string.
+4. You append the assistant turn and a `Role::Tool` turn per result.
+5. You send the request again. The model uses the results to answer.
+
+Steps 2 through 5 repeat as long as the model keeps asking for tools, which is why real loops need a bound on the number of rounds.
+
+## Declaring a tool
+
+```rust
+pub struct ToolDefinition {
+    pub name: String,
+    pub description: Option<String>,
+    pub parameters: Value,
+    pub strict: Option<bool>,
+}
+```
+
+```rust
+let add = ToolDefinition::new("add", "adds two numbers together")
+    .parameters(serde_json::json!({
+        "type": "object",
+        "properties": {
+            "a": {"type": "integer"},
+            "b": {"type": "integer"}
+        },
+        "required": ["a", "b"]
+    }));
+
+let request = GenerateRequest::new()
+    .message(Message::text(Role::User, "What is 20 + 22?"))
+    .tools([add]);
+```
+
+| Method | Effect |
+|---|---|
+| `ToolDefinition::new(name, description)` | Creates a tool with `parameters` set to `Value::Null` |
+| `.parameters(Value)` | Sets the JSON Schema for the arguments |
+| `.strict(bool)` | Asks the provider to enforce the schema exactly |
+
+The description is what the model reads to decide when to call the tool. Write it for the model, not for other developers. Schemas are hand written JSON Schema today. Deriving them from a Rust type is Phase 1 work.
+
+## Constraining the choice
+
+```rust
+pub enum ToolChoice {
+    Auto,
+    None,
+    Required,
+    Named(String),
+}
+```
+
+| Variant | Effect |
+|---|---|
+| `Auto` | The model decides whether to call a tool |
+| `None` | The model may not call any tool |
+| `Required` | The model must call some tool |
+| `Named(name)` | The model must call this specific tool |
+
+```rust
+let request = request.tool_choice(ToolChoice::Required);
+```
+
+Leave `tool_choice` unset unless you need it. Unset means the provider's own default, which is normally `Auto`, and it keeps the request portable. Gemini currently rejects this field entirely, so setting it makes the request OpenAI only.
+
+## Reading the calls
+
+A response carries tool calls as `OutputContent::ToolCall`:
+
+```rust
+pub enum OutputContent {
+    Text(String),
+    Refusal(String),
+    ToolCall { id: String, name: String, arguments: String },
+}
+```
+
+`arguments` is a raw JSON string, not a parsed value, because that is what the transcript has to replay verbatim. Parse it yourself:
+
+```rust
+if response.has_tool_calls() {
+    for (id, name, arguments) in response.tool_calls() {
+        let args: serde_json::Value = serde_json::from_str(arguments)?;
+        println!("{name} wants {args}");
+    }
+}
+```
+
+| Helper | Returns |
+|---|---|
+| `has_tool_calls()` | `bool`, whether the model asked for at least one call |
+| `tool_calls()` | An iterator of `(&str, &str, &str)`, being id, name, arguments |
+
+## Sending results back
+
+Two turns go back for each round: the assistant turn showing what the model asked for, then one `Role::Tool` turn per result.
+
+```rust
+let results: Vec<Message> = response
+    .tool_calls()
+    .map(|(id, name, arguments)| {
+        let output = run_tool(name, arguments);
+        Message::tool_result(id, output)
+    })
+    .collect();
+
+request = request
+    .message(response.to_message())
+    .extend_messages(results);
+```
+
+The assistant turn matters. Providers correlate a result to a call by id, and a result whose call is missing from the transcript is an error. `to_message()` builds that turn for you, including every tool call the response contained.
+
+Order matters too. The assistant turn has to come before the results.
+
+## A complete loop
+
+This is the pattern in `src/main.rs`, reduced to its essentials:
+
+```rust
+let mut request = GenerateRequest::new()
+    .message(Message::text(Role::User, "What is 20 + 22?"))
+    .tools([add_tool]);
+
+for _ in 0..5 {
+    let response = client.generate(&request).await?;
+
+    if !response.has_tool_calls() {
+        println!("{}", response.output_text());
+        break;
+    }
+
+    let results: Vec<Message> = response
+        .tool_calls()
+        .map(|(id, name, arguments)| Message::tool_result(id, dispatch(name, arguments)))
+        .collect();
+
+    request = request
+        .message(response.to_message())
+        .extend_messages(results);
+}
+```
+
+The bound is not optional. A model can keep requesting tools indefinitely, and without a cap the loop can run until your budget is gone.
+
+## Returning errors to the model
+
+A failed tool is not an error in your program. Report it as the tool's output and let the model recover:
+
+```rust
+fn dispatch(name: &str, arguments: &str) -> String {
+    let parsed: Value = match serde_json::from_str(arguments) {
+        Ok(value) => value,
+        Err(error) => return format!("error: arguments were not valid JSON: {error}"),
+    };
+
+    match name {
+        "add" => match (parsed["a"].as_i64(), parsed["b"].as_i64()) {
+            (Some(a), Some(b)) => (a + b).to_string(),
+            _ => "error: both 'a' and 'b' must be integers".to_string(),
+        },
+        other => format!("error: unknown tool '{other}'"),
+    }
+}
+```
+
+Never unwrap on arguments. They come from a model, and a schema is guidance rather than a guarantee, even with `strict` set.
+
+## Result formatting
+
+`output` is a string. Send JSON when the result is structured, plain text otherwise. Keep it small, since every result becomes part of the prompt on the next round and is billed as input tokens on every subsequent turn.
+
+## Provider differences
+
+**OpenAI** maps this onto flat Responses API input items. A tool call becomes a top level `function_call` item and a result becomes a `function_call_output` item, both siblings of the message items rather than nested inside them. Freya splits your messages accordingly and preserves transcript order.
+
+**Gemini** maps it onto per turn content parts, `function_call` on a model turn and `function_result` on a user turn. This mapping has not been verified against a live endpoint. See [Gemini](providers/gemini.md).
+
+## What does not exist yet
+
+- No `Tool` trait, no registry, no automatic dispatch by name
+- No macro to derive a schema from a function signature
+- No parallel execution of tool calls
+- No per tool timeouts or approval hooks
+- No enforcement that a result's `call_id` matches a real call
+
+These are Phase 2 items on the [roadmap](../README.md#roadmap-to-mvp).

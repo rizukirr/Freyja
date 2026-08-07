@@ -1,90 +1,96 @@
-mod provider;
+//! Example: a one-tool agent loop.
+//!
+//! Asks a question the model cannot answer alone, executes the tool it asks
+//! for, feeds the result back, and prints the final answer.
 
-use crate::provider::openai::create::create;
-use crate::provider::openai::model::{ResponseRequest, ResponseType, TextFormat, Tool};
-use dotenvy::dotenv;
+use freya::{Client, GenerateRequest, Message, OutputContent, ProviderType, Role, ToolDefinition};
+use serde_json::Value;
 
-#[derive(serde::Deserialize)]
-struct AddArguments {
-    a: i32,
-    b: i32,
+/// The single tool this example exposes to the model.
+fn add(a: i64, b: i64) -> i64 {
+    a + b
 }
 
-fn add(a: i32, b: i32) -> i32 {
-    a + b
+/// Runs a tool call and returns the output to send back to the model.
+fn dispatch(name: &str, arguments: &str) -> String {
+    let parsed: Value = match serde_json::from_str(arguments) {
+        Ok(value) => value,
+        Err(error) => return format!("error: arguments were not valid JSON: {error}"),
+    };
+
+    match name {
+        "add" => match (parsed["a"].as_i64(), parsed["b"].as_i64()) {
+            (Some(a), Some(b)) => add(a, b).to_string(),
+            _ => "error: both 'a' and 'b' must be integers".to_string(),
+        },
+        other => format!("error: unknown tool '{other}'"),
+    }
 }
 
 #[tokio::main]
 async fn main() {
-    dotenv().ok();
+    dotenvy::dotenv().ok();
 
-    let mut request = ResponseRequest::new()
-        .input("What is 20 + 22? Use the add function.")
-        .max_output_tokens(100)
-        .tools(vec![Tool::Function {
-            name: "add".to_string(),
-            description: Some("Adds two numbers together".to_string()),
-            parameters: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "a": { "type": "integer" },
-                    "b": { "type": "integer" }
-                },
-                "required": ["a", "b"],
-                "additionalProperties": false
-            }),
-            strict: Some(true),
-        }])
-        .text_format(TextFormat::text());
+    let provider = ProviderType::OpenAi;
+    let Some(client) = Client::from_env(provider) else {
+        eprintln!("{} is missing or empty", provider.api_key_env());
+        return;
+    };
 
-    let api_key = match std::env::var("OPENAI_API_KEY") {
-        Ok(key) => {
-            if key.is_empty() {
-                eprintln!("OPENAI_API_KEY is empty. Add it to .env");
+    let add_tool =
+        ToolDefinition::new("add", "adds two numbers together").parameters(serde_json::json!({
+            "type": "object",
+            "properties": {
+                "a": {"type": "integer"},
+                "b": {"type": "integer"}
+            },
+            "required": ["a", "b"]
+        }));
+
+    let mut request = GenerateRequest::new()
+        .message(Message::text(Role::User, "What is 20 + 22?"))
+        .tools([add_tool]);
+
+    // Bounded loop: call, run whatever tools the model asks for, call again.
+    for _ in 0..5 {
+        let response = match client.generate(&request).await {
+            Ok(response) => response,
+            Err(error) => {
+                eprintln!("request failed: {error}");
                 return;
             }
-            key
+        };
+
+        for content in &response.content {
+            match content {
+                OutputContent::Text(text) => println!("assistant: {text}"),
+                OutputContent::Refusal(text) => eprintln!("refusal: {text}"),
+                OutputContent::ToolCall {
+                    name, arguments, ..
+                } => println!("tool call: {name}({arguments})"),
+            }
         }
-        Err(_) => {
-            eprintln!("OPENAI_API_KEY is missing. Add it to .env");
+
+        if !response.has_tool_calls() {
+            if let Some(usage) = response.usage {
+                println!("usage: {} tokens", usage.total_tokens);
+            }
             return;
         }
-    };
-    match create(&api_key, &mut request).await {
-        Ok(response) => {
-            if let Some(error) = &response.error {
-                eprintln!("Response error: {}", error.message);
-                return;
-            }
 
-            let mut items = response.items().peekable();
+        let results: Vec<Message> = response
+            .tool_calls()
+            .map(|(id, name, arguments)| {
+                let output = dispatch(name, arguments);
+                println!("tool result: {output}");
+                Message::tool_result(id, output)
+            })
+            .collect();
 
-            if items.peek().is_none() {
-                println!("Response contains no supported output");
-                return;
-            }
-
-            for item in items {
-                match item {
-                    ResponseType::Text(text) => println!("Assistant: {text}"),
-                    ResponseType::Refusal(reason) => {
-                        eprintln!("Request refused: {reason}");
-                    }
-                    ResponseType::FunctionCall(call) => match call.name {
-                        "add" => match call.parse_arguments::<AddArguments>() {
-                            Ok(arguments) => {
-                                let result = add(arguments.a, arguments.b);
-                                println!("Function {} returned: {result}", call.name);
-                            }
-                            Err(error) => {
-                                eprintln!("Invalid arguments for {}: {error}", call.name);
-                            }
-                        },
-                        name => eprintln!("Unknown function requested: {name}"),
-                    },
-                }
-            }
-        }
-        Err(error) => eprintln!("Request failed: {error}"),
+        request = request
+            .message(response.to_message())
+            .extend_messages(results);
     }
+
+    eprintln!("stopped: reached the maximum number of tool-calling rounds");
 }

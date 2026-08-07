@@ -1,15 +1,16 @@
-//! OpenAI backend, speaking the Responses API.
+//! Gemini backend, speaking the Interactions API.
 
 mod types;
 
 use crate::provider::{GenerateRequest, GenerateResponse, Provider, ProviderError};
 
-const RESPONSE_URL: &str = "https://api.openai.com/v1/responses";
-const PROVIDER: &str = "OpenAI";
+const INTERACTIONS_URL: &str = "https://generativelanguage.googleapis.com/v1beta/interactions";
+const API_REVISION: &str = "2026-05-20";
+const PROVIDER: &str = "Gemini";
 
-pub(crate) struct OpenAiProvider;
+pub(crate) struct GeminiProvider;
 
-impl Provider for OpenAiProvider {
+impl Provider for GeminiProvider {
     async fn generate(
         &self,
         http: &reqwest::Client,
@@ -19,8 +20,9 @@ impl Provider for OpenAiProvider {
         let wire_request = types::Request::try_from(request)?;
 
         let response = http
-            .post(RESPONSE_URL)
-            .bearer_auth(api_key)
+            .post(INTERACTIONS_URL)
+            .header("x-goog-api-key", api_key)
+            .header("Api-Revision", API_REVISION)
             .json(&wire_request)
             .send()
             .await

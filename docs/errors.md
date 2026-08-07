@@ -1,0 +1,133 @@
+# Errors
+
+Every fallible call returns `Result<_, ProviderError>`. There is one error type, with five variants covering the five distinct ways a request can fail.
+
+```rust
+pub enum ProviderError {
+    UnsupportedCapability { provider: &'static str, capability: &'static str },
+    InvalidRequest { provider: &'static str, message: String },
+    Http(String),
+    Api { provider: &'static str, status: u16, body: String },
+    InvalidResponse { provider: &'static str, message: String },
+}
+```
+
+Implements `Debug`, `Display`, and `std::error::Error`, so it works with `?`, `anyhow`, `thiserror`, and anything else expecting a standard error.
+
+Every variant except `Http` carries the provider name, so an error from a multi provider application says which backend produced it.
+
+## The variants
+
+### UnsupportedCapability
+
+The request asked for something this provider cannot express. Freya refuses rather than silently dropping the field, because a quietly ignored `tool_choice` produces a plausible looking answer that is wrong in a way you cannot see.
+
+```
+Gemini does not support portable reasoning effort levels
+```
+
+Raised before any network call. Current cases:
+
+| Provider | Capability |
+|---|---|
+| Gemini | `portable reasoning effort levels` |
+| Gemini | `portable tool choice` |
+| both | `non-text content in system/developer messages` |
+| both | `images outside user messages` |
+
+Recovery means removing the field or switching providers. Retrying is pointless.
+
+There is no way to ask in advance whether a capability is supported. A `Provider::capabilities()` method is Phase 1 work.
+
+### InvalidRequest
+
+The request is malformed and was rejected before leaving the process.
+
+```
+invalid request for OpenAI: tool messages may only contain tool results
+```
+
+This is a bug in your code, not a provider limitation, and switching providers will not help. The current case is text content on a `Role::Tool` turn. See [Messages and content](messages.md).
+
+### Http
+
+The HTTP request never completed: DNS failure, connection refused, TLS failure, or timeout. Carries the underlying `reqwest` message.
+
+```
+HTTP request failed: error sending request for url (...)
+```
+
+Usually transient and worth retrying with backoff. Note that a timeout is indistinguishable from other transport failures here, so a retry may duplicate a request the provider already accepted.
+
+### Api
+
+The provider answered with a non success status. The raw body is preserved rather than parsed, so nothing is lost.
+
+```
+OpenAI returned HTTP 429: {"error":{"message":"Rate limit reached",...}}
+```
+
+Branch on `status` to decide what to do:
+
+| Status | Meaning | Action |
+|---|---|---|
+| 400 | Malformed request | Fix the request, do not retry |
+| 401, 403 | Bad or missing credentials | Fix the key, do not retry |
+| 404 | Unknown model or endpoint | Fix the model, do not retry |
+| 429 | Rate limited | Back off and retry |
+| 5xx | Provider side failure | Back off and retry |
+
+Typed variants for rate limits, auth failures, context length, and content filters are Phase 1 work. Today you parse `body` yourself when you need the detail.
+
+### InvalidResponse
+
+The provider answered successfully but the body could not be parsed. The message includes the parse error and the body.
+
+```
+invalid OpenAI response: missing field `id`; body: {...}
+```
+
+This means the vendor changed something Freya models as required. Unknown fields, unknown output types, and unknown status strings are all tolerated already, so this only fires on a genuine break. Retrying will not help. Report it as a bug.
+
+## Handling errors
+
+Propagate with `?` when the caller decides:
+
+```rust
+async fn ask(client: &Client, question: &str) -> Result<String, ProviderError> {
+    let request = GenerateRequest::new().message(Message::text(Role::User, question));
+    Ok(client.generate(&request).await?.output_text())
+}
+```
+
+Or branch on what is worth retrying:
+
+```rust
+match client.generate(&request).await {
+    Ok(response) => println!("{}", response.output_text()),
+
+    // Transient, retry with backoff.
+    Err(ProviderError::Http(_)) => retry_later(),
+    Err(ProviderError::Api { status: 429 | 500..=599, .. }) => retry_later(),
+
+    // Permanent, fix the request.
+    Err(error @ ProviderError::UnsupportedCapability { .. }) => {
+        eprintln!("not portable: {error}");
+    }
+    Err(error @ ProviderError::InvalidRequest { .. }) => {
+        eprintln!("bug in the request: {error}");
+    }
+
+    Err(error) => eprintln!("failed: {error}"),
+}
+```
+
+## Retries
+
+Freya does not retry. A 429 or a 5xx surfaces to you exactly once. Automatic backoff honoring `Retry-After` is Phase 1 work.
+
+Until then, retry at the call site, and only on `Http` and on `Api` with a 429 or 5xx status. Retrying the other variants wastes the call, since the outcome cannot change.
+
+## What is not an error
+
+A non `Completed` `ResponseStatus` is not an error. A truncated answer, a refusal, or a response waiting on tool results all come back as `Ok`, because the call succeeded and the response is real. Check `response.status` for those. See [Responses](responses.md).
