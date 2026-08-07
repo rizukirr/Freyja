@@ -48,7 +48,20 @@ impl TryFrom<&GenerateRequest> for Request {
         }
 
         let mut system = Vec::new();
-        let mut turns: Vec<Value> = Vec::new();
+        let mut steps: Vec<Value> = Vec::new();
+
+        // A function_result must carry the name of the tool it answers, but the
+        // neutral model only records the call id, so resolve the name from the
+        // matching tool call earlier in the transcript.
+        let mut tool_names: std::collections::HashMap<&str, &str> =
+            std::collections::HashMap::new();
+        for message in &value.messages {
+            for part in &message.content {
+                if let InputContent::ToolCall { id, name, .. } = part {
+                    tool_names.insert(id.as_str(), name.as_str());
+                }
+            }
+        }
 
         for message in &value.messages {
             if matches!(message.role, Role::System | Role::Developer) {
@@ -66,16 +79,19 @@ impl TryFrom<&GenerateRequest> for Request {
                 continue;
             }
 
-            let role = match message.role {
-                Role::Assistant => "model",
-                // Tool results are reported on a user turn, the same way the
-                // model's own output comes back on a model turn.
-                _ => "user",
+            // Text and images accumulate into one user_input or model_output
+            // step; tool calls, tool results, and opaque reasoning are steps of
+            // their own, so the pending step is flushed before each of them to
+            // keep transcript order intact.
+            let step_type = if message.role == Role::Assistant {
+                "model_output"
+            } else {
+                "user_input"
             };
+            let mut pending: Vec<Value> = Vec::new();
 
-            let mut content = Vec::with_capacity(message.content.len());
             for part in &message.content {
-                content.push(match part {
+                match part {
                     InputContent::Text(text) => {
                         if message.role == Role::Tool {
                             return Err(ProviderError::InvalidRequest {
@@ -83,7 +99,7 @@ impl TryFrom<&GenerateRequest> for Request {
                                 message: "tool messages may only contain tool results".into(),
                             });
                         }
-                        serde_json::json!({"type": "text", "text": text})
+                        pending.push(serde_json::json!({"type": "text", "text": text}));
                     }
                     InputContent::ImageUrl(url) => {
                         if message.role != Role::User {
@@ -92,39 +108,59 @@ impl TryFrom<&GenerateRequest> for Request {
                                 capability: "images outside user messages",
                             });
                         }
-                        serde_json::json!({"type": "image", "uri": url})
+                        pending.push(serde_json::json!({"type": "image", "uri": url}));
                     }
                     InputContent::ToolCall {
                         id,
                         name,
                         arguments,
-                    } => serde_json::json!({
-                        "type": "function_call",
-                        "id": id,
-                        "name": name,
-                        "arguments": parse_json_or_string(arguments),
-                    }),
-                    InputContent::ToolResult { call_id, output } => serde_json::json!({
-                        "type": "function_result",
-                        "id": call_id,
-                        "result": parse_json_or_string(output),
-                    }),
-                });
+                    } => {
+                        flush(&mut steps, step_type, &mut pending);
+                        steps.push(serde_json::json!({
+                            "type": "function_call",
+                            "id": id,
+                            "name": name,
+                            "arguments": parse_json_or_string(arguments),
+                        }));
+                    }
+                    InputContent::ToolResult { call_id, output } => {
+                        flush(&mut steps, step_type, &mut pending);
+                        let Some(name) = tool_names.get(call_id.as_str()) else {
+                            return Err(ProviderError::InvalidRequest {
+                                provider: PROVIDER,
+                                message: format!(
+                                    "no tool call with id '{call_id}' in the transcript; \
+                                     Gemini requires the tool name alongside its result"
+                                ),
+                            });
+                        };
+                        steps.push(serde_json::json!({
+                            "type": "function_result",
+                            "call_id": call_id,
+                            "name": name,
+                            "result": result_value(output),
+                        }));
+                    }
+                    InputContent::Reasoning { data } => {
+                        flush(&mut steps, step_type, &mut pending);
+                        steps.push(data.clone());
+                    }
+                }
             }
 
-            turns.push(serde_json::json!({"role": role, "content": content}));
+            flush(&mut steps, step_type, &mut pending);
         }
 
-        // A lone plain-text user turn may be sent as a bare string.
-        let input = if turns.len() == 1
-            && turns[0]["role"] == "user"
-            && turns[0]["content"]
+        // A lone plain-text user step may be sent as a bare string.
+        let input = if steps.len() == 1
+            && steps[0]["type"] == "user_input"
+            && steps[0]["content"]
                 .as_array()
                 .is_some_and(|content| content.len() == 1 && content[0]["type"] == "text")
         {
-            turns[0]["content"][0]["text"].clone()
+            steps[0]["content"][0]["text"].clone()
         } else {
-            Value::Array(turns)
+            Value::Array(steps)
         };
 
         let response_format = value.response_format.as_ref().map(|format| match format {
@@ -173,11 +209,32 @@ impl TryFrom<&GenerateRequest> for Request {
     }
 }
 
-/// Tool arguments and results travel as strings in the neutral model but as
-/// structured values on the wire. Anything that is not valid JSON is sent as a
-/// JSON string rather than being rejected.
+/// Emits the accumulated text and image parts as one step, if any.
+fn flush(steps: &mut Vec<Value>, step_type: &str, pending: &mut Vec<Value>) {
+    if pending.is_empty() {
+        return;
+    }
+    steps.push(serde_json::json!({
+        "type": step_type,
+        "content": std::mem::take(pending),
+    }));
+}
+
+/// Tool arguments travel as strings in the neutral model but as structured
+/// values on the wire. Anything that is not valid JSON is sent as a JSON string
+/// rather than being rejected.
 fn parse_json_or_string(raw: &str) -> Value {
     serde_json::from_str(raw).unwrap_or_else(|_| Value::String(raw.to_string()))
+}
+
+/// A function_result payload must be an object or a string. Numbers, booleans,
+/// and arrays are rejected by the API, so anything that is not a JSON object is
+/// sent as the original string.
+fn result_value(raw: &str) -> Value {
+    match serde_json::from_str::<Value>(raw) {
+        Ok(value @ Value::Object(_)) => value,
+        _ => Value::String(raw.to_string()),
+    }
 }
 
 #[derive(Deserialize)]
@@ -186,36 +243,13 @@ pub struct Response {
     #[serde(default)]
     model: String,
     status: String,
+    /// Steps stay as raw values so unrecognized ones, thought signatures above
+    /// all, can be replayed verbatim on the next request.
     #[serde(default)]
-    steps: Vec<Step>,
+    steps: Vec<Value>,
     usage: Option<UsageWire>,
     #[serde(flatten)]
     extra: serde_json::Map<String, Value>,
-}
-
-#[derive(Deserialize)]
-#[serde(tag = "type")]
-enum Step {
-    #[serde(rename = "model_output")]
-    ModelOutput { content: Vec<ContentWire> },
-    #[serde(rename = "function_call")]
-    FunctionCall {
-        #[serde(default)]
-        id: String,
-        name: String,
-        arguments: Value,
-    },
-    #[serde(other)]
-    Unknown,
-}
-
-#[derive(Deserialize)]
-#[serde(tag = "type")]
-enum ContentWire {
-    #[serde(rename = "text")]
-    Text { text: String },
-    #[serde(other)]
-    Unknown,
 }
 
 #[derive(Deserialize)]
@@ -230,29 +264,7 @@ struct UsageWire {
 
 impl From<Response> for GenerateResponse {
     fn from(value: Response) -> Self {
-        let content = value
-            .steps
-            .into_iter()
-            .flat_map(|step| match step {
-                Step::ModelOutput { content } => content
-                    .into_iter()
-                    .filter_map(|item| match item {
-                        ContentWire::Text { text } => Some(OutputContent::Text(text)),
-                        ContentWire::Unknown => None,
-                    })
-                    .collect(),
-                Step::FunctionCall {
-                    id,
-                    name,
-                    arguments,
-                } => vec![OutputContent::ToolCall {
-                    id,
-                    name,
-                    arguments: arguments.to_string(),
-                }],
-                Step::Unknown => vec![],
-            })
-            .collect();
+        let content = value.steps.into_iter().flat_map(convert_step).collect();
 
         Self {
             id: value.id,
@@ -272,6 +284,49 @@ impl From<Response> for GenerateResponse {
             }),
             provider_metadata: Some(Value::Object(value.extra)),
         }
+    }
+}
+
+/// Converts one response step into neutral output parts.
+///
+/// Anything Freya does not model becomes [`OutputContent::Reasoning`] rather
+/// than being dropped. Gemini rejects a follow-up request whose thought steps
+/// are missing or rebuilt, so preserving them verbatim is what makes multi-turn
+/// tool calling work at all.
+fn convert_step(step: Value) -> Vec<OutputContent> {
+    match step.get("type").and_then(Value::as_str) {
+        Some("model_output") => step
+            .get("content")
+            .and_then(Value::as_array)
+            .map(|content| {
+                content
+                    .iter()
+                    .filter_map(|part| match part.get("type").and_then(Value::as_str) {
+                        Some("text") => part
+                            .get("text")
+                            .and_then(Value::as_str)
+                            .map(|text| OutputContent::Text(text.to_string())),
+                        _ => None,
+                    })
+                    .collect()
+            })
+            .unwrap_or_default(),
+        Some("function_call") => {
+            let name = step.get("name").and_then(Value::as_str).unwrap_or_default();
+            vec![OutputContent::ToolCall {
+                id: step
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string(),
+                name: name.to_string(),
+                arguments: step
+                    .get("arguments")
+                    .map(Value::to_string)
+                    .unwrap_or_else(|| "{}".to_string()),
+            }]
+        }
+        _ => vec![OutputContent::Reasoning { data: step }],
     }
 }
 
@@ -296,45 +351,90 @@ mod tests {
     }
 
     #[test]
+    fn multi_turn_uses_the_step_list_format() {
+        let request = GenerateRequest::new()
+            .message(Message::text(Role::User, "Hi"))
+            .message(Message::text(Role::Assistant, "Hello"))
+            .message(Message::text(Role::User, "Bye"));
+
+        let json = serde_json::to_value(Request::try_from(&request).unwrap()).unwrap();
+        let steps = json["input"].as_array().unwrap();
+
+        assert_eq!(steps.len(), 3);
+        assert_eq!(steps[0]["type"], "user_input");
+        assert_eq!(steps[0]["content"][0]["type"], "text");
+        assert_eq!(steps[1]["type"], "model_output");
+        assert_eq!(steps[2]["type"], "user_input");
+    }
+
+    #[test]
     fn maps_a_full_tool_round_trip() {
         let request = GenerateRequest::new()
             .message(Message::text(Role::User, "What is 20 + 22?"))
             .message(Message::new(
                 Role::Assistant,
-                vec![InputContent::ToolCall {
-                    id: "call_1".into(),
-                    name: "add".into(),
-                    arguments: "{\"a\":20,\"b\":22}".into(),
-                }],
+                vec![
+                    InputContent::Reasoning {
+                        data: serde_json::json!({"type": "thought", "signature": "abc"}),
+                    },
+                    InputContent::ToolCall {
+                        id: "call_1".into(),
+                        name: "add".into(),
+                        arguments: "{\"a\":20,\"b\":22}".into(),
+                    },
+                ],
             ))
             .message(Message::tool_result("call_1", "42"));
 
         let json = serde_json::to_value(Request::try_from(&request).unwrap()).unwrap();
-        let turns = json["input"].as_array().unwrap();
+        let steps = json["input"].as_array().unwrap();
 
-        assert_eq!(turns.len(), 3);
-        assert_eq!(turns[0]["role"], "user");
+        assert_eq!(steps.len(), 4);
+        assert_eq!(steps[0]["type"], "user_input");
 
-        assert_eq!(turns[1]["role"], "model");
-        assert_eq!(turns[1]["content"][0]["type"], "function_call");
-        assert_eq!(turns[1]["content"][0]["id"], "call_1");
-        assert_eq!(turns[1]["content"][0]["arguments"]["a"], 20);
+        // The thought signature is replayed verbatim, ahead of the call.
+        assert_eq!(steps[1]["type"], "thought");
+        assert_eq!(steps[1]["signature"], "abc");
 
-        assert_eq!(turns[2]["role"], "user");
-        assert_eq!(turns[2]["content"][0]["type"], "function_result");
-        assert_eq!(turns[2]["content"][0]["id"], "call_1");
-        assert_eq!(turns[2]["content"][0]["result"], 42);
+        assert_eq!(steps[2]["type"], "function_call");
+        assert_eq!(steps[2]["id"], "call_1");
+        assert_eq!(steps[2]["arguments"]["a"], 20);
+
+        // A result carries call_id and the tool name, and its payload is a
+        // string because 42 is not a JSON object.
+        assert_eq!(steps[3]["type"], "function_result");
+        assert_eq!(steps[3]["call_id"], "call_1");
+        assert_eq!(steps[3]["name"], "add");
+        assert_eq!(steps[3]["result"], "42");
     }
 
     #[test]
-    fn sends_non_json_tool_output_as_a_string() {
+    fn sends_an_object_result_as_a_struct() {
         let request = GenerateRequest::new()
-            .message(Message::text(Role::User, "Hi"))
-            .message(Message::tool_result("call_1", "not json"));
+            .message(Message::new(
+                Role::Assistant,
+                vec![InputContent::ToolCall {
+                    id: "call_1".into(),
+                    name: "add".into(),
+                    arguments: "{}".into(),
+                }],
+            ))
+            .message(Message::tool_result("call_1", "{\"sum\":42}"));
 
         let json = serde_json::to_value(Request::try_from(&request).unwrap()).unwrap();
+        let steps = json["input"].as_array().unwrap();
 
-        assert_eq!(json["input"][1]["content"][0]["result"], "not json");
+        assert_eq!(steps[1]["result"]["sum"], 42);
+    }
+
+    #[test]
+    fn rejects_a_result_with_no_matching_call() {
+        let request = GenerateRequest::new().message(Message::tool_result("missing", "42"));
+
+        assert!(matches!(
+            Request::try_from(&request),
+            Err(ProviderError::InvalidRequest { .. })
+        ));
     }
 
     #[test]
@@ -353,32 +453,35 @@ mod tests {
     }
 
     #[test]
-    fn round_trips_a_tool_call_back_into_a_request() {
+    fn preserves_thought_steps_as_reasoning() {
         let wire: Response = serde_json::from_value(serde_json::json!({
             "id": "int_1", "model": "gemini-test", "status": "requires_action",
-            "steps": [{
-                "type": "function_call",
-                "id": "call_1",
-                "name": "add",
-                "arguments": {"a": 20, "b": 22}
-            }]
+            "steps": [
+                {"type": "thought", "signature": "opaque-blob"},
+                {"type": "function_call", "id": "call_1", "name": "add",
+                 "arguments": {"a": 20, "b": 22}}
+            ]
         }))
         .unwrap();
 
         let response = GenerateResponse::from(wire);
+
+        assert_eq!(
+            response.content[0],
+            OutputContent::Reasoning {
+                data: serde_json::json!({"type": "thought", "signature": "opaque-blob"}),
+            }
+        );
         assert!(response.has_tool_calls());
 
-        let follow_up = GenerateRequest::new()
-            .message(Message::text(Role::User, "What is 20 + 22?"))
-            .message(response.to_message())
-            .message(Message::tool_result("call_1", "42"));
-
-        let json = serde_json::to_value(Request::try_from(&follow_up).unwrap()).unwrap();
-        let turns = json["input"].as_array().unwrap();
-
-        assert_eq!(turns.len(), 3);
-        assert_eq!(turns[1]["content"][0]["name"], "add");
-        assert_eq!(turns[2]["content"][0]["result"], 42);
+        // to_message carries the signature into the next request unchanged.
+        let message = response.to_message();
+        assert_eq!(
+            message.content[0],
+            InputContent::Reasoning {
+                data: serde_json::json!({"type": "thought", "signature": "opaque-blob"}),
+            }
+        );
     }
 
     #[test]

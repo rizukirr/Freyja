@@ -93,9 +93,26 @@ The same neutral transcript maps onto two structurally different formats.
 
 Since a neutral `Message` can hold text and a tool call together, the converter accumulates text and image parts and flushes them as a message item before emitting each tool item, which keeps transcript order intact.
 
-**Gemini** nests content parts inside turns, so a tool call is a part of a model turn and a result is a part of a user turn.
+**Gemini** uses a flat list of typed steps with no role field, where the step type carries the role:
+
+```json
+[
+  {"type": "user_input", "content": [{"type": "text", "text": "..."}]},
+  {"type": "thought", "signature": "..."},
+  {"type": "function_call", "id": "...", "name": "add", "arguments": {"a": 20, "b": 22}},
+  {"type": "function_result", "call_id": "...", "name": "add", "result": "42"}
+]
+```
 
 Both reach the same neutral shape. This is the clearest case for keeping wire types private: the difference is invisible to callers.
+
+### Opaque state is carried, not modeled
+
+One provider requirement does reach the neutral model. Reasoning models emit signed internal state and reject a follow-up request that drops it or rebuilds it by hand, so it cannot live in `provider_metadata` where it would be lost at the next turn.
+
+`InputContent::Reasoning` and `OutputContent::Reasoning` hold that blob as an opaque `Value`. Freya never inspects it. Any output item a provider returns that Freya does not model becomes one of these, so it survives into the next request.
+
+The alternative designs were a provider-side cache keyed by response id, rejected because it adds hidden state and breaks the moment a transcript is persisted or moved between processes, and relying on server-side continuation, rejected because it makes the agent loop behave differently per provider.
 
 ## Testing
 

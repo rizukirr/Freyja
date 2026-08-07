@@ -6,27 +6,13 @@ A multi-LLM agent orchestration framework written from scratch in Rust.
 > This project is under active development and is **not ready for production use**.
 > The public API is unstable and will change without notice before `0.1.0`.
 
-Freya's goal is to be everything you need to build an AI agent in Rust: one neutral
-request/response model, pluggable providers, tools, memory, and an execution loop —
-with no hidden magic and no dependency on any single vendor's SDK.
+Freya's goal is to be everything you need to build an AI agent in Rust: one neutral request/response model, pluggable providers, tools, memory, and an execution loop, with no hidden magic and no dependency on any single vendor's SDK.
 
 ---
 
 ## Documentation
 
-Full reference lives in [`docs/`](docs/README.md), one page per feature:
-[getting started](docs/getting-started.md),
-[architecture](docs/architecture.md),
-[client](docs/client.md),
-[requests](docs/requests.md),
-[messages](docs/messages.md),
-[tool calling](docs/tools.md),
-[responses](docs/responses.md),
-[errors](docs/errors.md),
-and the provider pages for
-[OpenAI](docs/providers/openai.md),
-[Gemini](docs/providers/gemini.md),
-and [adding a provider](docs/providers/adding-a-provider.md).
+Full reference lives in [`docs/`](docs/README.md), one page per feature: [getting started](docs/getting-started.md), [architecture](docs/architecture.md), [client](docs/client.md), [requests](docs/requests.md), [messages](docs/messages.md), [tool calling](docs/tools.md), [responses](docs/responses.md), [errors](docs/errors.md), and the provider pages for [OpenAI](docs/providers/openai.md), [Gemini](docs/providers/gemini.md), and [adding a provider](docs/providers/adding-a-provider.md). The native wire formats are documented too, so you do not have to read vendor docs: [OpenAI wire format](docs/providers/openai-wire.md) and [Gemini wire format](docs/providers/gemini-wire.md).
 
 ## Table of contents
 
@@ -45,20 +31,16 @@ and [adding a provider](docs/providers/adding-a-provider.md).
 
 | Area | State |
 |---|---|
-| Neutral request/response model | ✅ Stable |
-| OpenAI provider (Responses API) | ✅ Implemented |
-| Gemini provider (Interactions API) | 🟡 Implemented, partial capability coverage |
-| Function / tool calling | ✅ Full round trip, both providers |
-| Pooled HTTP client, timeouts | ✅ Implemented |
-| Rustdoc on the public API | ✅ `#![deny(missing_docs)]` |
-| Streaming | ❌ Not started |
-| Agent loop, memory, orchestration | ❌ Not started |
+| Neutral request/response model | Stable |
+| OpenAI provider (Responses API) | Implemented |
+| Gemini provider (Interactions API) | Implemented and verified live, partial capability coverage |
+| Function / tool calling | Full round trip, verified live on both providers |
+| Pooled HTTP client, timeouts | Implemented |
+| Rustdoc on the public API | `#![deny(missing_docs)]` |
+| Streaming | Not started |
+| Agent loop, memory, orchestration | Not started |
 
-**Phase 0 is complete** — the core is stable enough to add a third provider
-against. `cargo test`: 16 unit tests + 4 doctests, all passing. `cargo clippy
---all-targets -- -D warnings` is clean.
-
-Legend: ✅ done · 🟡 partial · ❌ not started
+**Phase 0 is complete**, the core is stable enough to add a third provider against. `cargo test`: 18 unit tests + 4 doctests, all passing. Both providers complete a real tool round trip end to end. `cargo clippy --all-targets -- -D warnings` is clean.
 
 ---
 
@@ -67,10 +49,8 @@ Legend: ✅ done · 🟡 partial · ❌ not started
 ### Provider abstraction
 
 - `Provider` trait with a single async `generate` method, implemented per vendor.
-- `ProviderType` enum (`OpenAi`, `Gemini`) and a `Client` façade that dispatches to
-  the right backend — call sites never touch a vendor type.
-- Vendor wire formats live behind private `types` modules, so the neutral model is
-  the only thing consumers see.
+- `ProviderType` enum (`OpenAi`, `Gemini`) and a `Client` façade that dispatches to the right backend, call sites never touch a vendor type.
+- Vendor wire formats live behind private `types` modules, so the neutral model is the only thing consumers see.
 
 ### Neutral request model (`GenerateRequest`)
 
@@ -88,81 +68,51 @@ Builder-style, chainable, with `Default`:
 | `previous_response_id` | Server-side conversation continuation |
 | `metadata` | Free-form provider metadata / labels |
 
-Builder methods exist for every field: `model`, `message`, `messages`,
-`extend_messages`, `max_tokens`, `temperature`, `top_p`, `tools`, `tool_choice`,
-`reasoning_effort`, `response_format`, `previous_response_id`, and `metadata`.
+Builder methods exist for every field: `model`, `message`, `messages`, `extend_messages`, `max_tokens`, `temperature`, `top_p`, `tools`, `tool_choice`, `reasoning_effort`, `response_format`, `previous_response_id`, and `metadata`.
 
-`GenerateRequest::new()` sets **no** defaults. A `None` field means "the provider
-decides" — Freya does not invent values, because a value that looks harmless on one
-provider may be rejected outright by another.
+`GenerateRequest::new()` sets **no** defaults. A `None` field means "the provider decides", Freya does not invent values, because a value that looks harmless on one provider may be rejected outright by another.
 
 ### Messages and content
 
 - `Role`: `System`, `Developer`, `User`, `Assistant`, `Tool`.
-- `InputContent`: `Text`, `ImageUrl`, `ToolCall { id, name, arguments }`, and
-  `ToolResult { call_id, output }`.
-- Constructors: `Message::new(role, parts)`, `Message::text(role, text)`, and
-  `Message::tool_result(call_id, output)`.
-- System/developer turns are automatically hoisted into the provider's native
-  system-instruction field (`instructions` for OpenAI, `system_instruction` for Gemini)
-  rather than being sent as ordinary turns.
-- Misplaced content is rejected up front: images outside user turns, non-text in
-  system turns, and text in tool turns all fail before a request leaves the process.
+- `InputContent`: `Text`, `ImageUrl`, `ToolCall { id, name, arguments }`, and `ToolResult { call_id, output }`.
+- Constructors: `Message::new(role, parts)`, `Message::text(role, text)`, and `Message::tool_result(call_id, output)`.
+- System/developer turns are automatically hoisted into the provider's native system-instruction field (`instructions` for OpenAI, `system_instruction` for Gemini) rather than being sent as ordinary turns.
+- Misplaced content is rejected up front: images outside user turns, non-text in system turns, and text in tool turns all fail before a request leaves the process.
 
 ### Tools
 
-- `ToolDefinition` with `name`, `description`, JSON Schema `parameters`, and an
-  optional `strict` flag, built via `ToolDefinition::new(..).parameters(..).strict(..)`.
+- `ToolDefinition` with `name`, `description`, JSON Schema `parameters`, and an optional `strict` flag, built via `ToolDefinition::new(..).parameters(..).strict(..)`.
 - `ToolChoice`: `Auto`, `None`, `Required`, `Named(String)`.
-- Tool calls come back as `OutputContent::ToolCall { id, name, arguments }` with
-  `arguments` as a raw JSON string, ready for the caller to dispatch.
-- **The full round trip works.** `GenerateResponse::to_message()` turns the model's
-  answer into the assistant turn, `Message::tool_result(id, output)` carries the
-  result back, and each provider maps both onto its own wire format — OpenAI's
-  flat `function_call` / `function_call_output` input items, Gemini's per-turn
-  content parts. This is the prerequisite for every agent loop.
+- Tool calls come back as `OutputContent::ToolCall { id, name, arguments }` with `arguments` as a raw JSON string, ready for the caller to dispatch.
+- **The full round trip works.** `GenerateResponse::to_message()` turns the model's answer into the assistant turn, `Message::tool_result(id, output)` carries the result back, and each provider maps both onto its own wire format, OpenAI's flat `function_call` / `function_call_output` input items, Gemini's per-turn content parts. This is the prerequisite for every agent loop.
 
 ### Neutral response model (`GenerateResponse`)
 
 - `id`, `model`, `status`, `content`, `usage`, `provider_metadata`.
 - `OutputContent`: `Text`, `Refusal`, `ToolCall`.
-- `ResponseStatus`: `Completed`, `Incomplete`, `RequiresAction`, `Failed`,
-  `Other(String)` — provider status strings are normalized, unknown ones preserved.
+- `ResponseStatus`: `Completed`, `Incomplete`, `RequiresAction`, `Failed`, `Other(String)`, provider status strings are normalized, unknown ones preserved.
 - `Usage` with input/output/total token counts, normalized across providers.
-- Helpers: `output_text()` concatenates all text parts, `tool_calls()` iterates
-  `(id, name, arguments)`, `has_tool_calls()` short-circuits the loop, and
-  `to_message()` folds the response back into the transcript.
-- Unrecognized provider fields are captured into `provider_metadata` instead of
-  being dropped, and unknown output/content variants are skipped rather than
-  failing deserialization — so a provider adding a new block type doesn't break you.
+- Helpers: `output_text()` concatenates all text parts, `tool_calls()` iterates `(id, name, arguments)`, `has_tool_calls()` short-circuits the loop, and `to_message()` folds the response back into the transcript.
+- Unrecognized provider fields are captured into `provider_metadata` instead of being dropped, and unknown output/content variants are skipped rather than failing deserialization, so a provider adding a new block type doesn't break you.
 
 ### Errors
 
 `ProviderError` covers the five real failure modes, all with provider attribution:
 
-- `UnsupportedCapability { provider, capability }` — the request asked for something
-  this provider can't express, refused up front instead of silently dropped.
-- `InvalidRequest { provider, message }` — the request is malformed and was rejected
-  before leaving the process.
-- `Http(String)` — transport failure.
-- `Api { provider, status, body }` — non-2xx with the raw body preserved.
-- `InvalidResponse { provider, message }` — deserialization failure, with the body
-  included for debugging.
+- `UnsupportedCapability { provider, capability }`, the request asked for something this provider can't express, refused up front instead of silently dropped.
+- `InvalidRequest { provider, message }`, the request is malformed and was rejected before leaving the process.
+- `Http(String)`, transport failure.
+- `Api { provider, status, body }`, non-2xx with the raw body preserved.
+- `InvalidResponse { provider, message }`, deserialization failure, with the body included for debugging.
 
 Implements `Display` and `std::error::Error`.
 
 ### Transport
 
-- One pooled `reqwest::Client` per `Client`, with a 120 second default timeout —
-  connections are reused instead of rebuilt per request.
+- One pooled `reqwest::Client` per `Client`, with a 120 second default timeout, connections are reused instead of rebuilt per request.
 - `Client::with_http_client` to supply your own (custom timeouts, proxies, TLS).
 - `Client::from_env(provider)` reads the key from `ProviderType::api_key_env()`.
-
-### Tests
-
-16 unit tests and 4 doctests covering request mapping, response normalization,
-capability rejection, malformed-request rejection, and full tool round trips
-(response → assistant turn → tool result → next request) for both providers.
 
 ---
 
@@ -215,121 +165,86 @@ async fn main() {
 }
 ```
 
-`src/main.rs` contains a runnable version with a bounded multi-round loop and real
-error handling.
-
----
-
-## Architecture
-
-```
-src/
-├── lib.rs                  # public re-exports
-├── main.rs                 # runnable example binary
-└── provider/
-    ├── mod.rs              # Provider trait, ProviderType, Client
-    ├── model.rs            # neutral request/response/error types
-    ├── openai/
-    │   ├── mod.rs          # HTTP transport for /v1/responses
-    │   └── types.rs        # wire types + From/TryFrom conversions
-    └── gemini/
-        ├── mod.rs          # HTTP transport for /v1beta/interactions
-        └── types.rs        # wire types + From/TryFrom conversions
-```
-
-The design rule: **the neutral model never bends to a vendor**. Each provider owns
-its own wire structs and converts in both directions via `TryFrom<&GenerateRequest>`
-and `From<Response>`. If a capability can't be translated faithfully, the provider
-returns `UnsupportedCapability` rather than silently degrading the request.
+`src/main.rs` contains a runnable version with a bounded multi-round loop and real error handling.
 
 ---
 
 ## Known issues
 
-- **Gemini's tool-result wire format is unverified.** The Interactions API mapping
-  for `function_call` / `function_result` content parts mirrors the shape of the
-  response format Freya already parses, but it has not been confirmed against a live
-  endpoint. The OpenAI path is the one currently exercised end to end. If Gemini
-  rejects these parts, the fix is contained to `src/provider/gemini/types.rs`.
-- **Gemini rejects `tool_choice` and `reasoning_effort`.** Both are refused with
-  `UnsupportedCapability` rather than being silently dropped. This is now only hit
-  when a caller explicitly asks for them — it no longer fires on default requests.
+- **Gemini rejects `tool_choice` and `reasoning_effort`.** Both are refused with `UnsupportedCapability` rather than silently dropped. Only hit when a caller explicitly asks for them.
+- **Gemini tool results need the tool name**, which the neutral `ToolResult` does not carry, so Freya resolves it from the matching call in the transcript. Continuing through `previous_response_id` without replaying the call fails locally with `InvalidRequest`.
 - **No streaming.** `generate` buffers the whole response.
 - **No retries.** A 429 or 5xx surfaces as `Api { .. }` for the caller to handle.
-- **No capability introspection.** You discover an unsupported capability by getting
-  an error back, not by asking first. That is Phase 1.
+- **No capability introspection.** You discover an unsupported capability by getting an error back, not by asking first. That is Phase 1.
 
 ---
 
 ## Roadmap to MVP
 
-The MVP target: *everything you need to build an AI agent* — a developer can define
-tools, hand Freya a goal, and get a correct multi-step agent loop with memory,
-observability, and no vendor lock-in.
+The MVP target: *everything you need to build an AI agent*, a developer can define tools, hand Freya a goal, and get a correct multi-step agent loop with memory, observability, and no vendor lock-in.
 
-### Phase 0 — Stabilize the core ✅ complete
+### Phase 0, Stabilize the core ✅ complete
 
-- [x] Remove the capability defaults from `GenerateRequest::new()` so a default
-      request is portable across providers
+- [x] Remove the capability defaults from `GenerateRequest::new()` so a default request is portable across providers
 - [x] `cargo test` green, `cargo clippy --all-targets -- -D warnings` clean
 - [x] Share one `reqwest::Client` per provider, with configurable timeouts
-- [x] Add `Role::Tool`, `InputContent::ToolCall`, and `InputContent::ToolResult`
-      so tool results can be fed back — the prerequisite for every agent loop
+- [x] Add `Role::Tool`, `InputContent::ToolCall`, and `InputContent::ToolResult` so tool results can be fed back, the prerequisite for every agent loop
 - [x] `GenerateResponse::to_message`, `tool_calls`, and `has_tool_calls` helpers
 - [x] `ProviderError::InvalidRequest` for malformed requests caught before dispatch
-- [x] Round-trip conversation tests on both providers: prompt → tool call →
-      tool result → follow-up request
+- [x] Round-trip conversation tests on both providers
 - [x] Rustdoc on every public item, enforced with `#![deny(missing_docs)]`
-- [ ] Verify the Gemini tool-result mapping against the live endpoint
+- [x] Verify both providers against the live API, prompt to tool call to result to answer
+- [x] Add `InputContent::Reasoning` and `OutputContent::Reasoning` so opaque provider state (Gemini thought signatures, OpenAI reasoning items) is replayed verbatim instead of dropped
+- [x] Correct the Gemini input format from `turn_list` to `step_list`, which had left every multi-turn Gemini conversation broken
 
-### Phase 1 — Production-grade provider layer
+### Phase 1, Production-grade provider layer
 
-- [ ] **Anthropic provider** (Messages API) as the third backend — the core is now
-      stable enough that this is an additive change: one `types.rs`, one transport
-      module, one `ProviderType` variant, no edits to the neutral model
+- [ ] **Anthropic provider** (Messages API) as the third backend, the core is now
+stable enough that this is an additive change: one `types.rs`, one transport
+module, one `ProviderType` variant, no edits to the neutral model
 - [ ] **Streaming**: `generate_stream` returning a `Stream<Item = StreamEvent>`
-      (text deltas, tool-call deltas, usage, completion)
+(text deltas, tool-call deltas, usage, completion)
 - [ ] **Capability introspection**: `Provider::capabilities()` so callers can query
-      support instead of discovering it via `UnsupportedCapability` at runtime
+support instead of discovering it via `UnsupportedCapability` at runtime
 - [ ] **Retries and backoff**: honor `Retry-After`, exponential backoff on 429/5xx
 - [ ] **Typed API errors**: rate-limit / auth / context-length / content-filter variants
-      parsed out of `Api { body }`
+parsed out of `Api { body }`
 - [ ] **Structured output ergonomics**: derive-based `schema_of::<T>()` and
-      `response.parse::<T>()` instead of hand-written JSON Schema
+`response.parse::<T>()` instead of hand-written JSON Schema
 - [ ] **Configurable base URL** per provider (proxies, gateways, Azure, self-hosted)
 
-### Phase 2 — The agent
+### Phase 2, The agent
 
 - [ ] **`Tool` trait**: a Rust function plus its schema, registered in a `ToolRegistry`,
-      invoked by name with JSON in / JSON out
+invoked by name with JSON in / JSON out
 - [ ] **`#[tool]` proc macro** deriving name, description, and JSON Schema from the
-      function signature and doc comment
+function signature and doc comment
 - [ ] **`Agent`**: system prompt + model config + tool registry + memory
 - [ ] **Agent loop**: call → detect tool calls → execute (concurrently) → append
-      results → repeat until `Completed`, bounded by max-steps and a token budget
+results → repeat until `Completed`, bounded by max-steps and a token budget
 - [ ] **Tool execution policy**: per-tool timeouts, parallel vs. serial, approval hooks
-      for side-effecting tools, error-to-model formatting so the agent can self-correct
+for side-effecting tools, error-to-model formatting so the agent can self-correct
 - [ ] **`AgentResult`**: final output, full step trace, aggregate usage, stop reason
 
-### Phase 3 — Memory and context
+### Phase 3, Memory and context
 
 - [ ] **`Memory` trait** with an in-memory conversation buffer as the default
 - [ ] **Context-window management**: token counting, truncation and summarization
-      strategies when history exceeds the window
+strategies when history exceeds the window
 - [ ] **Persistent memory**: pluggable backends behind feature flags
 - [ ] **Retrieval**: embeddings API in the provider trait, a `VectorStore` trait, and
-      a retrieval tool that plugs straight into the registry
+a retrieval tool that plugs straight into the registry
 
-### Phase 4 — Orchestration (the namesake)
+### Phase 4, Orchestration (the namesake)
 
 - [ ] **Multi-agent handoff**: an agent can delegate to another agent as a tool
 - [ ] **Workflow primitives**: sequential chains, parallel fan-out/fan-in, routing,
-      and a supervisor that plans and dispatches sub-agents
+and a supervisor that plans and dispatches sub-agents
 - [ ] **Shared state** across agents in a run, with clear ownership rules
 - [ ] **Cancellation and budgets** propagated through the whole tree
 - [ ] **Human-in-the-loop**: pause, surface a decision, resume from a serialized run
 
-### Phase 5 — Observability and release
+### Phase 5, Observability and release
 
 - [ ] **`tracing` instrumentation** on every request, tool call, and agent step
 - [ ] **Cost accounting** from normalized usage, per model and per run
@@ -340,8 +255,7 @@ observability, and no vendor lock-in.
 
 ### Explicitly out of scope for MVP
 
-Prompt-template DSLs, a built-in vector database, a web UI or server, fine-tuning
-orchestration, and framework-specific integrations. Freya is a library, not a platform.
+Prompt-template DSLs, a built-in vector database, a web UI or server, fine-tuning orchestration, and framework-specific integrations. Freya is a library, not a platform.
 
 ---
 

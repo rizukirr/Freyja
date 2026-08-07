@@ -16,8 +16,7 @@ Derives `Debug` and `Clone`. Cloning is cheap for the HTTP client, since `reqwes
 pub fn new(provider: ProviderType, api_key: impl Into<String>) -> Self
 ```
 
-Builds a client with a pooled `reqwest::Client` and a 120 second per request
-timeout.
+Builds a client with a pooled `reqwest::Client` and a 120 second per request timeout.
 
 ```rust
 let client = Client::new(ProviderType::OpenAi, "sk-...");

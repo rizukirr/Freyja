@@ -37,8 +37,18 @@ pub struct Request {
 /// Responses API input items are a flat list: messages, tool calls, and tool
 /// results all sit at the top level rather than nesting inside a message.
 #[derive(Serialize)]
-#[serde(tag = "type")]
+#[serde(untagged)]
 enum InputItemWire {
+    /// An item Freya models.
+    Item(TypedItemWire),
+    /// An item preserved from a previous response and replayed verbatim, such
+    /// as a reasoning item that the model requires back unchanged.
+    Raw(Value),
+}
+
+#[derive(Serialize)]
+#[serde(tag = "type")]
+enum TypedItemWire {
     #[serde(rename = "message")]
     Message { role: Role, content: Vec<InputWire> },
     #[serde(rename = "function_call")]
@@ -136,18 +146,22 @@ impl TryFrom<&GenerateRequest> for Request {
                         arguments,
                     } => {
                         flush(&mut input, message.role, &mut pending);
-                        input.push(InputItemWire::FunctionCall {
+                        input.push(InputItemWire::Item(TypedItemWire::FunctionCall {
                             call_id: id.clone(),
                             name: name.clone(),
                             arguments: arguments.clone(),
-                        });
+                        }));
                     }
                     InputContent::ToolResult { call_id, output } => {
                         flush(&mut input, message.role, &mut pending);
-                        input.push(InputItemWire::FunctionCallOutput {
+                        input.push(InputItemWire::Item(TypedItemWire::FunctionCallOutput {
                             call_id: call_id.clone(),
                             output: output.clone(),
-                        });
+                        }));
+                    }
+                    InputContent::Reasoning { data } => {
+                        flush(&mut input, message.role, &mut pending);
+                        input.push(InputItemWire::Raw(data.clone()));
                     }
                 }
             }
@@ -222,10 +236,10 @@ fn flush(input: &mut Vec<InputItemWire>, role: Role, pending: &mut Vec<InputWire
     if pending.is_empty() {
         return;
     }
-    input.push(InputItemWire::Message {
+    input.push(InputItemWire::Item(TypedItemWire::Message {
         role,
         content: std::mem::take(pending),
-    });
+    }));
 }
 
 #[derive(Deserialize)]
@@ -233,37 +247,13 @@ pub struct Response {
     id: String,
     model: String,
     status: String,
+    /// Output items stay as raw values so unrecognized ones, reasoning items
+    /// above all, can be replayed verbatim on the next request.
     #[serde(default)]
-    output: Vec<OutputWire>,
+    output: Vec<Value>,
     usage: Option<UsageWire>,
     #[serde(flatten)]
     extra: serde_json::Map<String, Value>,
-}
-
-#[derive(Deserialize)]
-#[serde(tag = "type")]
-enum OutputWire {
-    #[serde(rename = "message")]
-    Message { content: Vec<ContentWire> },
-    #[serde(rename = "function_call")]
-    FunctionCall {
-        call_id: String,
-        name: String,
-        arguments: String,
-    },
-    #[serde(other)]
-    Unknown,
-}
-
-#[derive(Deserialize)]
-#[serde(tag = "type")]
-enum ContentWire {
-    #[serde(rename = "output_text")]
-    Text { text: String },
-    #[serde(rename = "refusal")]
-    Refusal { refusal: String },
-    #[serde(other)]
-    Unknown,
 }
 
 #[derive(Deserialize)]
@@ -275,30 +265,7 @@ struct UsageWire {
 
 impl From<Response> for GenerateResponse {
     fn from(value: Response) -> Self {
-        let content = value
-            .output
-            .into_iter()
-            .flat_map(|item| match item {
-                OutputWire::Message { content } => content
-                    .into_iter()
-                    .filter_map(|item| match item {
-                        ContentWire::Text { text } => Some(OutputContent::Text(text)),
-                        ContentWire::Refusal { refusal } => Some(OutputContent::Refusal(refusal)),
-                        ContentWire::Unknown => None,
-                    })
-                    .collect(),
-                OutputWire::FunctionCall {
-                    call_id,
-                    name,
-                    arguments,
-                } => vec![OutputContent::ToolCall {
-                    id: call_id,
-                    name,
-                    arguments,
-                }],
-                OutputWire::Unknown => vec![],
-            })
-            .collect();
+        let content = value.output.into_iter().flat_map(convert_item).collect();
 
         Self {
             id: value.id,
@@ -312,6 +279,54 @@ impl From<Response> for GenerateResponse {
             }),
             provider_metadata: Some(Value::Object(value.extra)),
         }
+    }
+}
+
+/// Converts one output item into neutral output parts.
+///
+/// Anything Freya does not model becomes [`OutputContent::Reasoning`] rather
+/// than being dropped, so reasoning items survive into the next request. Models
+/// that emit them reject a follow-up transcript that leaves them out.
+fn convert_item(item: Value) -> Vec<OutputContent> {
+    match item.get("type").and_then(Value::as_str) {
+        Some("message") => item
+            .get("content")
+            .and_then(Value::as_array)
+            .map(|content| {
+                content
+                    .iter()
+                    .filter_map(|part| match part.get("type").and_then(Value::as_str) {
+                        Some("output_text") => part
+                            .get("text")
+                            .and_then(Value::as_str)
+                            .map(|text| OutputContent::Text(text.to_string())),
+                        Some("refusal") => part
+                            .get("refusal")
+                            .and_then(Value::as_str)
+                            .map(|text| OutputContent::Refusal(text.to_string())),
+                        _ => None,
+                    })
+                    .collect()
+            })
+            .unwrap_or_default(),
+        Some("function_call") => vec![OutputContent::ToolCall {
+            id: item
+                .get("call_id")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string(),
+            name: item
+                .get("name")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string(),
+            arguments: item
+                .get("arguments")
+                .and_then(Value::as_str)
+                .unwrap_or("{}")
+                .to_string(),
+        }],
+        _ => vec![OutputContent::Reasoning { data: item }],
     }
 }
 

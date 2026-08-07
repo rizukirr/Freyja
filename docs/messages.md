@@ -49,6 +49,7 @@ pub enum InputContent {
     ImageUrl(String),
     ToolCall { id: String, name: String, arguments: String },
     ToolResult { call_id: String, output: String },
+    Reasoning { data: Value },
 }
 ```
 
@@ -58,9 +59,9 @@ pub enum InputContent {
 | `ImageUrl` | `User` only | An image, by URL or data URI |
 | `ToolCall` | `Assistant` | A call the model made, echoed back into the transcript |
 | `ToolResult` | `Tool` | The output of running that call |
+| `Reasoning` | `Assistant` | Opaque provider state, replayed verbatim |
 
-`ToolCall` and `ToolResult` exist so a tool round trip can be replayed to the model
-on the next request. See [Tool calling](tools.md).
+`ToolCall` and `ToolResult` exist so a tool round trip can be replayed to the model on the next request. See [Tool calling](tools.md).
 
 ## Constructors
 
@@ -122,8 +123,7 @@ Data URIs work the same way, which is how you send local files:
 InputContent::ImageUrl(format!("data:image/png;base64,{encoded}"))
 ```
 
-Images are only accepted on `Role::User`. On any other role Freya returns
-`UnsupportedCapability` with the capability `"images outside user messages"`.
+Images are only accepted on `Role::User`. On any other role Freya returns `UnsupportedCapability` with the capability `"images outside user messages"`.
 
 ## Validation done before the network
 

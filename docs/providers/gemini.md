@@ -30,11 +30,11 @@ This backend is less complete than OpenAI. Read the gaps below before relying on
 | `response_format` | yes | Mapped onto `response_format` |
 | Tool declarations | yes | |
 | `tool_choice` | **no** | Rejected with `UnsupportedCapability` |
-| Tool round trip | unverified | Mapping is implemented but untested against the live API |
+| Tool round trip | yes | Verified live, requires thought-signature replay |
 | `previous_response_id` | yes | Sent as `previous_interaction_id` |
 | `metadata` | yes | Sent as `labels` |
 | Usage reporting | yes | Field names normalized |
-| Refusals | no | Not parsed as a distinct block |
+| Refusals | no | Not carried as a distinct block |
 | Streaming | no | Not implemented in Freya |
 
 ## Two capabilities are rejected outright
@@ -54,24 +54,38 @@ Freya refuses rather than dropping the field, because a silently ignored `tool_c
 
 This is why `GenerateRequest::new()` sets no defaults. An earlier version defaulted both fields, so every default constructed request failed against Gemini. If you need either capability, use OpenAI.
 
-## The tool mapping is unverified
+## Input uses a step list, not turns
 
-Tool calls and tool results are mapped onto per turn content parts:
+The Interactions API at `Api-Revision: 2026-05-20` rejects the older turn-based shape outright:
 
-```json
-{"role": "model", "content": [
-  {"type": "function_call", "id": "call_1", "name": "add", "arguments": {"a": 20, "b": 22}}
-]}
-{"role": "user", "content": [
-  {"type": "function_result", "id": "call_1", "result": 42}
-]}
+```
+When using the steps-based API version, use step_list input format instead of turn_list.
 ```
 
-This mirrors the shape of the response format Freya already parses, but it has **not been confirmed against a live endpoint**. The Interactions API and its `Api-Revision: 2026-05-20` are newer than the reference material this mapping was written from.
+So `input` is a flat array of typed steps, `user_input`, `model_output`, `function_call`, `function_result`, rather than an array of `{role, content}` turns. A single plain text user turn may still be sent as a bare string, which Freya does automatically.
 
-If Gemini rejects these parts, the fix is contained to `src/provider/gemini/types.rs`, in the `InputContent::ToolCall` and `InputContent::ToolResult` arms of `TryFrom<&GenerateRequest>`. Nothing in the neutral model or in the OpenAI backend is affected.
+Gemini examples elsewhere that use `role` and `parts` target the older `generateContent` endpoint and do not apply. Full detail in [Gemini wire format](gemini-wire.md).
 
-Verifying this is the one open item left in Phase 0.
+## Thought signatures must be replayed
+
+A tool-calling response includes a `thought` step carrying an opaque `signature`. When you send the tool result back, that step has to come along unchanged and in position. Dropping it, or rebuilding the `function_call` without it, fails with `Request contains an invalid argument`.
+
+Freya handles this through `OutputContent::Reasoning`, which preserves any step it does not model, and `GenerateResponse::to_message()`, which carries it into the next request. As long as you append `response.to_message()` before your tool results, the round trip works.
+
+This is the one place where a provider requirement reaches into the neutral model, and it is not Gemini specific. Anthropic thinking blocks and OpenAI reasoning items have the same property.
+
+## Tool results need the tool name
+
+A `function_result` must carry `call_id`, `name`, and a `result` that is an object or a string. The neutral `InputContent::ToolResult` only records the call id, so Freya resolves the name from the matching `ToolCall` earlier in the transcript.
+
+If no matching call is present, for instance because you are continuing through `previous_response_id` without replaying the call, the request fails locally with `InvalidRequest`:
+
+```
+invalid request for Gemini: no tool call with id 'call_1' in the transcript;
+Gemini requires the tool name alongside its result
+```
+
+A bare number is also rejected as a `result`, so Freya sends a JSON object through unchanged and anything else as a string.
 
 ## Field mapping
 
@@ -81,7 +95,7 @@ Verifying this is the one open item left in Phase 0.
 |---|---|
 | `model` | `model`, defaulting to `gemini-3.5-flash` |
 | system and developer turns | `system_instruction`, joined with a blank line |
-| other turns | `input` |
+| other turns | `input` step list |
 | `max_tokens` | `max_output_tokens` |
 | `temperature` | `temperature` |
 | `top_p` | `top_p` |
@@ -136,8 +150,7 @@ Message::tool_result("call_1", "42")          // sent as 42
 Message::tool_result("call_1", "not json")    // sent as "not json"
 ```
 
-Coming back, `arguments` arrives as a JSON value and Freya stringifies it, so
-`OutputContent::ToolCall::arguments` is a string on both providers.
+Coming back, `arguments` arrives as a JSON value and Freya stringifies it, so `OutputContent::ToolCall::arguments` is a string on both providers.
 
 ## Status mapping
 

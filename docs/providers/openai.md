@@ -140,9 +140,7 @@ Read the result with `response.output_text()` and parse it yourself.
 
 ## Default model
 
-`gpt-5.6-sol` is used when `model` is unset. It is a constant in
-`src/provider/openai/types.rs`, and it will drift as OpenAI ships new models. Set
-`model` explicitly for anything you need to stay stable.
+`gpt-5.6-sol` is used when `model` is unset. It is a constant in `src/provider/openai/types.rs`, and it will drift as OpenAI ships new models. Set `model` explicitly for anything you need to stay stable.
 
 ## Errors
 

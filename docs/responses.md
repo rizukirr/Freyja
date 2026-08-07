@@ -31,6 +31,7 @@ pub enum OutputContent {
     Text(String),
     Refusal(String),
     ToolCall { id: String, name: String, arguments: String },
+    Reasoning { data: Value },
 }
 ```
 
@@ -39,6 +40,7 @@ pub enum OutputContent {
 | `Text` | Generated text. A response can contain several parts |
 | `Refusal` | The model declined to answer |
 | `ToolCall` | The model wants a tool executed. `arguments` is a raw JSON string |
+| `Reasoning` | Opaque provider state that must be replayed verbatim |
 
 `Refusal` is distinct from `Text` on purpose. A refusal is not an answer, and folding it into text would hide that from callers. Note that `output_text()` excludes refusals, so a refusal shows up as an empty string there. Check `content` directly when you need to tell the two apart.
 
@@ -73,6 +75,8 @@ pub fn has_tool_calls(&self) -> bool
 ```
 
 Whether the model asked for at least one call. This is the loop condition in an agent loop, and it is more reliable than checking `status`, since providers differ in whether they report `requires_action`.
+
+`Reasoning` is where anything Freya does not model ends up, rather than being dropped. Gemini thought signatures and OpenAI reasoning items both land here. Ignore it unless you are assembling a transcript by hand, in which case preserve it exactly and in order. See [Tool calling](tools.md).
 
 ### `to_message`
 

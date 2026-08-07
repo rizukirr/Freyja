@@ -27,7 +27,9 @@ Freya is at Phase 0: the provider neutral core is stable, two providers are impl
 | Page | What it covers |
 |---|---|
 | [OpenAI](providers/openai.md) | Responses API mapping, defaults, capability notes |
+| [OpenAI wire format](providers/openai-wire.md) | The native Responses API JSON, field by field |
 | [Gemini](providers/gemini.md) | Interactions API mapping, defaults, known gaps |
+| [Gemini wire format](providers/gemini-wire.md) | The native Interactions API JSON, field by field |
 | [Adding a provider](providers/adding-a-provider.md) | What it takes to add a third backend |
 
 ## Conventions used in these docs
@@ -38,5 +40,4 @@ Code samples assume the following imports unless stated otherwise:
 use freya::{Client, GenerateRequest, Message, ProviderType, Role};
 ```
 
-Samples that make a network call are written as if inside an `async fn` that
-returns `Result<(), freya::ProviderError>`.
+Samples that make a network call are written as if inside an `async fn` that returns `Result<(), freya::ProviderError>`.

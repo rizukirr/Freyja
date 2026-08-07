@@ -67,6 +67,8 @@ pub enum ToolChoice {
 | `Required` | The model must call some tool |
 | `Named(name)` | The model must call this specific tool |
 
+Do not use `Required` inside a loop. It forces a call on every round, so the model can never produce a final answer and the loop runs until your bound stops it. Use it for a single shot, and `Auto` for agent loops.
+
 ```rust
 let request = request.tool_choice(ToolChoice::Required);
 ```
@@ -119,7 +121,9 @@ request = request
     .extend_messages(results);
 ```
 
-The assistant turn matters. Providers correlate a result to a call by id, and a result whose call is missing from the transcript is an error. `to_message()` builds that turn for you, including every tool call the response contained.
+The assistant turn matters, and for more than one reason. Providers correlate a result to a call by id, and a result whose call is missing from the transcript is an error. It also carries opaque reasoning state, which reasoning models require back verbatim. `to_message()` builds that turn for you, including every tool call and every reasoning block the response contained.
+
+Do not hand-assemble this turn. A `Message` you build yourself from the tool calls alone will be missing the reasoning parts, and Gemini rejects the request outright with `Request contains an invalid argument`. Rebuilding an identical looking tool call is not enough, since the signature is what gets validated.
 
 Order matters too. The assistant turn has to come before the results.
 
@@ -184,7 +188,9 @@ Never unwrap on arguments. They come from a model, and a schema is guidance rath
 
 **OpenAI** maps this onto flat Responses API input items. A tool call becomes a top level `function_call` item and a result becomes a `function_call_output` item, both siblings of the message items rather than nested inside them. Freya splits your messages accordingly and preserves transcript order.
 
-**Gemini** maps it onto per turn content parts, `function_call` on a model turn and `function_result` on a user turn. This mapping has not been verified against a live endpoint. See [Gemini](providers/gemini.md).
+**Gemini** maps it onto a flat list of typed steps, `function_call` and `function_result` sitting alongside `user_input` and `model_output`. A result must also repeat the tool `name`, which Freya resolves from the matching call in the transcript. Verified against the live API. See [Gemini](providers/gemini.md) and [Gemini wire format](providers/gemini-wire.md).
+
+Both native formats are documented in full, so you do not have to read vendor docs to debug a request body.
 
 ## What does not exist yet
 

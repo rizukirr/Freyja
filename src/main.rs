@@ -68,6 +68,8 @@ async fn main() {
                 OutputContent::ToolCall {
                     name, arguments, ..
                 } => println!("tool call: {name}({arguments})"),
+                // Opaque provider state, carried back by to_message().
+                OutputContent::Reasoning { .. } => {}
             }
         }
 

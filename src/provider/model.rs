@@ -221,6 +221,21 @@ pub enum InputContent {
         /// The tool's output — JSON or plain text.
         output: String,
     },
+    /// Opaque provider state that must be replayed verbatim.
+    ///
+    /// Reasoning models emit signed internal state (Gemini thought signatures,
+    /// Anthropic thinking blocks, OpenAI reasoning items) and reject a follow-up
+    /// request that drops it or rebuilds an equivalent by hand. Freya cannot
+    /// model the contents, so it carries the blob through untouched.
+    ///
+    /// You never construct these. They arrive as [`OutputContent::Reasoning`]
+    /// and reach the next request through [`GenerateResponse::to_message`].
+    /// Preserve their position within `content`, since providers care about the
+    /// order relative to the tool calls they precede.
+    Reasoning {
+        /// The provider's own representation, replayed as received.
+        data: Value,
+    },
 }
 
 /// How much internal reasoning the model should spend before answering.
@@ -378,6 +393,7 @@ impl GenerateResponse {
                     name: name.clone(),
                     arguments: arguments.clone(),
                 },
+                OutputContent::Reasoning { data } => InputContent::Reasoning { data: data.clone() },
             })
             .collect();
         Message {
@@ -417,6 +433,19 @@ pub enum OutputContent {
         name: String,
         /// Arguments, as a raw JSON string.
         arguments: String,
+    },
+    /// Opaque provider state that must be replayed verbatim on the next request.
+    ///
+    /// Gemini thought signatures, Anthropic thinking blocks, and OpenAI
+    /// reasoning items all land here. Providers reject a follow-up request that
+    /// drops these or rebuilds them by hand, so they are preserved as received
+    /// and carried back by [`GenerateResponse::to_message`].
+    ///
+    /// Ignore them unless you are assembling a transcript yourself, in which
+    /// case keep them in place and in order.
+    Reasoning {
+        /// The provider's own representation, preserved as received.
+        data: Value,
     },
 }
 
