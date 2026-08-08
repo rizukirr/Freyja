@@ -36,7 +36,7 @@ pub struct Request {
 #[derive(Serialize)]
 #[serde(untagged)]
 enum InputItemWire {
-    /// An item Freya models.
+    /// An item Freyja models.
     Item(TypedItemWire),
     /// An item preserved from a previous response and replayed verbatim, such
     /// as a reasoning item that the model requires back unchanged.
@@ -280,7 +280,7 @@ impl From<Response> for GenerateResponse {
 
 /// Converts one output item into neutral output parts.
 ///
-/// Anything Freya does not model becomes [`OutputContent::Reasoning`] rather
+/// Anything Freyja does not model becomes [`OutputContent::Reasoning`] rather
 /// than being dropped, so reasoning items survive into the next request. Models
 /// that emit them reject a follow-up transcript that leaves them out.
 fn convert_item(item: Value) -> Vec<OutputContent> {

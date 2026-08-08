@@ -1,6 +1,6 @@
 # Tool calling
 
-Tool calling lets the model ask you to run a function and then use the result. In Freya the full round trip works on every provider, and it is the foundation the agent loop will be built on.
+Tool calling lets the model ask you to run a function and then use the result. In Freyja the full round trip works on every provider, and it is the foundation the agent loop will be built on.
 
 There is no automatic execution yet. You declare the tools, you run them, you feed the results back. A `Tool` trait and a registry that does the dispatch for you are Phase 2 work.
 
@@ -186,9 +186,9 @@ Never unwrap on arguments. They come from a model, and a schema is guidance rath
 
 ## Provider differences
 
-**OpenAI** maps this onto flat Responses API input items. A tool call becomes a top level `function_call` item and a result becomes a `function_call_output` item, both siblings of the message items rather than nested inside them. Freya splits your messages accordingly and preserves transcript order.
+**OpenAI** maps this onto flat Responses API input items. A tool call becomes a top level `function_call` item and a result becomes a `function_call_output` item, both siblings of the message items rather than nested inside them. Freyja splits your messages accordingly and preserves transcript order.
 
-**Gemini** maps it onto a flat list of typed steps, `function_call` and `function_result` sitting alongside `user_input` and `model_output`. A result must also repeat the tool `name`, which Freya resolves from the matching call in the transcript. Verified against the live API. See [Gemini](../providers/gemini.md) and [Gemini wire format](../reference/wire/gemini.md).
+**Gemini** maps it onto a flat list of typed steps, `function_call` and `function_result` sitting alongside `user_input` and `model_output`. A result must also repeat the tool `name`, which Freyja resolves from the matching call in the transcript. Verified against the live API. See [Gemini](../providers/gemini.md) and [Gemini wire format](../reference/wire/gemini.md).
 
 **Anthropic** is the one that nests. A tool call is a `tool_use` block inside an assistant message and a result is a `tool_result` block inside a user message, rather than either sitting beside the messages. Because nesting already preserves order, this mapping needs no splitting pass at all. The correlation field is spelled `tool_use_id`, a third spelling after two rounds of `call_id`. Not yet verified against the live API. See [Anthropic](../providers/anthropic.md) and [Anthropic wire format](../reference/wire/anthropic.md).
 
@@ -196,7 +196,7 @@ Never unwrap on arguments. They come from a model, and a schema is guidance rath
 
 All four native formats are documented in full, so you do not have to read vendor docs to debug a request body.
 
-Two things differ per provider in the tool arguments themselves. OpenAI sends `arguments` as a JSON string, while Gemini and Anthropic both want a structured object, and Freya converts in each direction so `OutputContent::ToolCall::arguments` is a string everywhere. Anthropic additionally requires that object to be a real object, so a tool call whose arguments are a bare number fails locally with `InvalidRequest` rather than at the API.
+Two things differ per provider in the tool arguments themselves. OpenAI sends `arguments` as a JSON string, while Gemini and Anthropic both want a structured object, and Freyja converts in each direction so `OutputContent::ToolCall::arguments` is a string everywhere. Anthropic additionally requires that object to be a real object, so a tool call whose arguments are a bare number fails locally with `InvalidRequest` rather than at the API.
 
 ## What does not exist yet
 

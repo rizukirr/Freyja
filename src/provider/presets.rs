@@ -1,6 +1,6 @@
-//! Endpoints Freya ships knowledge of.
+//! Endpoints Freyja ships knowledge of.
 //!
-//! Deliberately only the three first-party vendors whose dialects Freya
+//! Deliberately only the three first-party vendors whose dialects Freyja
 //! implements and tests against. A preset is a standing promise that a base URL
 //! and a default model are still current, and third-party endpoints change both
 //! faster than this crate could verify. Shipping a stale preset is worse than
@@ -13,7 +13,7 @@
 //! `docs/providers/custom-endpoints.md`.
 //!
 //! ```
-//! use freya::{ProviderConfig, ProviderDialect};
+//! use freyja::{ProviderConfig, ProviderDialect};
 //!
 //! // Any endpoint offering a drop-in Claude API.
 //! let config = ProviderConfig::new(
@@ -117,7 +117,7 @@ mod tests {
     fn presets_cover_only_first_party_vendors() {
         // Third-party endpoints are reached through ProviderConfig, not shipped
         // here, so this list stays short on purpose. Adding to it means taking
-        // on responsibility for a URL and a model name Freya does not test.
+        // on responsibility for a URL and a model name Freyja does not test.
         assert_eq!(ALL.len(), 3);
     }
 

@@ -14,7 +14,7 @@ This is not the same as the [OpenAI](../providers/openai.md) page. That one cove
 
 ## There is no preset for this dialect
 
-Freya ships presets only for the three first-party vendors it tests against. Every endpoint speaking this dialect is third party, so you point at it yourself:
+Freyja ships presets only for the three first-party vendors it tests against. Every endpoint speaking this dialect is third party, so you point at it yourself:
 
 ```rust
 let client = Client::custom(
@@ -49,11 +49,11 @@ The reason is maintenance honesty rather than effort. A preset is a standing pro
 | `metadata` | yes | Forwarded unchanged |
 | Usage reporting | yes | Field names normalized |
 | Refusals | yes | From the message's `refusal` field |
-| Streaming | no | Not implemented in Freya |
+| Streaming | no | Not implemented in Freyja |
 
 ## System turns are not hoisted
 
-This is the one behavioural difference visible to callers, and the only place where Freya's handling of system turns changes by dialect.
+This is the one behavioural difference visible to callers, and the only place where Freyja's handling of system turns changes by dialect.
 
 OpenAI Responses hoists them into `instructions`, Gemini into `system_instruction`, Anthropic into `system`. Here `system` is a real message role, so the turns stay in the array in the position you put them:
 
@@ -95,11 +95,11 @@ This dialect has no standard place for opaque reasoning state, and no replay req
 
 So `InputContent::Reasoning` is **skipped** rather than rejected. That matters when a transcript moves between providers: a conversation started on Anthropic or Gemini carries signed blocks that this dialect cannot express, and refusing them would make switching endpoints mid-conversation impossible.
 
-This is the one deliberate exception to the no-silent-degradation rule, and it is narrow. Freya is dropping state the target format neither accepts nor requires, not a capability you asked for. Anthropic behaves the same way when a Claude thinking block reaches a different model.
+This is the one deliberate exception to the no-silent-degradation rule, and it is narrow. Freyja is dropping state the target format neither accepts nor requires, not a capability you asked for. Anthropic behaves the same way when a Claude thinking block reaches a different model.
 
 ## `max_tokens` may need renaming
 
-Freya sends `max_tokens`, which is what the compatible ecosystem understands.
+Freyja sends `max_tokens`, which is what the compatible ecosystem understands.
 
 OpenAI's own newer models have deprecated it in favour of `max_completion_tokens` and may reject the old spelling. If you are pointing this dialect at `api.openai.com` and get a 400 naming the field, that is why. Use [OpenAI](../providers/openai.md) with the Responses API instead, which is the better fit for OpenAI's own endpoint anyway.
 

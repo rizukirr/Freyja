@@ -24,7 +24,7 @@ Derives `Debug`, `Clone`, `Default`, `PartialEq`.
 
 `GenerateRequest::new()` is exactly `Default::default()`. It sets nothing.
 
-This is deliberate. A `None` field means "let the provider decide", which keeps a request portable. If `new()` populated `reasoning_effort` or `tool_choice`, a request built without thinking about it would carry capabilities that some providers reject, and a plain "say hello" call would fail on a backend that cannot express them. Freya never fills in a value you did not ask for.
+This is deliberate. A `None` field means "let the provider decide", which keeps a request portable. If `new()` populated `reasoning_effort` or `tool_choice`, a request built without thinking about it would carry capabilities that some providers reject, and a plain "say hello" call would fail on a backend that cannot express them. Freyja never fills in a value you did not ask for.
 
 The practical consequence: only set a field when you actually care about it.
 
@@ -77,7 +77,7 @@ An upper bound on generated tokens. It does not limit the prompt. Hitting it usu
 
 ### `temperature` and `top_p`
 
-Sampling controls, forwarded as given. Freya does not clamp or validate the range, so an out of range value comes back as a provider `Api` error.
+Sampling controls, forwarded as given. Freyja does not clamp or validate the range, so an out of range value comes back as a provider `Api` error.
 
 ### `reasoning_effort`
 
@@ -135,13 +135,13 @@ Covered in [Tool calling](../reference/tools.md).
 
 ### `previous_response_id`
 
-Continues a server side conversation instead of resending the transcript. Pass the `id` from an earlier `GenerateResponse`. Providers name this differently on the wire, `previous_response_id` for OpenAI and `previous_interaction_id` for Gemini, and Freya maps it for you.
+Continues a server side conversation instead of resending the transcript. Pass the `id` from an earlier `GenerateResponse`. Providers name this differently on the wire, `previous_response_id` for OpenAI and `previous_interaction_id` for Gemini, and Freyja maps it for you.
 
 Anthropic rejects this field with `UnsupportedCapability`, because it keeps no server side transcript at all. Every request carries the full history, so there is nothing to continue from. Code that relies on this field is not portable to Anthropic and has to keep the transcript itself.
 
 ### `metadata`
 
-Arbitrary JSON forwarded to the provider, for labels and trace identifiers. Sent as `metadata` to OpenAI and Anthropic, and as `labels` to Gemini. Freya does not read it.
+Arbitrary JSON forwarded to the provider, for labels and trace identifiers. Sent as `metadata` to OpenAI and Anthropic, and as `labels` to Gemini. Freyja does not read it.
 
 ## Reusing a request across turns
 

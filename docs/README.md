@@ -1,4 +1,4 @@
-# Freya documentation
+# Freyja documentation
 
 A Rust library for talking to large language models, and for building agents on top of them. One request type, four wire formats, any compatible endpoint.
 
@@ -10,7 +10,7 @@ Read these in order the first time. About twenty minutes end to end.
 
 | | |
 |---|---|
-| [Introduction](introduction.md) | What Freya is, what it is not, and why it exists |
+| [Introduction](introduction.md) | What Freyja is, what it is not, and why it exists |
 | [Features](features.md) | What works today, and what does not |
 | [Getting started](getting-started.md) | Install, set a key, make a call |
 | [Concepts](concepts.md) | The five ideas everything else follows from |
@@ -25,7 +25,7 @@ Read these in order the first time. About twenty minutes end to end.
 | [Gemini](providers/gemini.md) | Interactions API |
 | [Anthropic](providers/anthropic.md) | Messages API |
 | [OpenAI Chat Completions](providers/openai-chat.md) | The format most third-party vendors speak |
-| [Custom providers](providers/custom.md) | Reaching any endpoint Freya does not ship |
+| [Custom providers](providers/custom.md) | Reaching any endpoint Freyja does not ship |
 
 ## Reference
 
@@ -44,7 +44,7 @@ Wire formats, for debugging an `Api` error against the native JSON: [OpenAI](ref
 
 ## Contributing
 
-For working on Freya itself rather than with it.
+For working on Freyja itself rather than with it.
 
 | | |
 |---|---|
@@ -56,10 +56,10 @@ For working on Freya itself rather than with it.
 Samples assume these imports unless stated otherwise:
 
 ```rust
-use freya::{Client, GenerateRequest, Message, ProviderType, Role};
+use freyja::{Client, GenerateRequest, Message, ProviderType, Role};
 ```
 
-Samples that make a network call are written as if inside an `async fn` returning `Result<(), freya::ProviderError>`.
+Samples that make a network call are written as if inside an `async fn` returning `Result<(), freyja::ProviderError>`.
 
 ## Status
 

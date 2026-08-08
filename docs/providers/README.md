@@ -1,6 +1,6 @@
 # Providers
 
-Freya reaches a provider in one of two ways. Both use the same code paths, and neither is more supported than the other.
+Freyja reaches a provider in one of two ways. Both use the same code paths, and neither is more supported than the other.
 
 | | Use when | How |
 |---|---|---|
@@ -9,7 +9,7 @@ Freya reaches a provider in one of two ways. Both use the same code paths, and n
 
 ## Built-in providers
 
-Three, because these are the vendors Freya implements a wire format for and tests against.
+Three, because these are the vendors Freyja implements a wire format for and tests against.
 
 | Provider | Key variable | Default model | Notes |
 |---|---|---|---|
@@ -25,7 +25,7 @@ All three complete a live tool round trip. Read the provider page before relying
 
 ## Everything else
 
-Most hosted inference APIs copy a format Freya already speaks, so they need no code at all:
+Most hosted inference APIs copy a format Freyja already speaks, so they need no code at all:
 
 ```rust
 let client = Client::custom(
@@ -68,6 +68,6 @@ Set none of them and your request runs anywhere. Each is refused before the netw
 
 ## Debugging a provider
 
-When a request fails with `ProviderError::Api` and the vendor's message is not enough, the wire reference documents the native JSON Freya sends and receives, so you do not have to read vendor documentation to interpret a body.
+When a request fails with `ProviderError::Api` and the vendor's message is not enough, the wire reference documents the native JSON Freyja sends and receives, so you do not have to read vendor documentation to interpret a body.
 
 [OpenAI](../reference/wire/openai.md) · [Chat Completions](../reference/wire/openai-chat.md) · [Gemini](../reference/wire/gemini.md) · [Anthropic](../reference/wire/anthropic.md)

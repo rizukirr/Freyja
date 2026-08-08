@@ -34,7 +34,7 @@ This is the more complete of the two backends and the one exercised end to end.
 | `metadata` | yes | Sent as `metadata` |
 | Usage reporting | yes | |
 | Refusals | yes | Parsed as `OutputContent::Refusal` |
-| Streaming | no | Not implemented in Freya |
+| Streaming | no | Not implemented in Freyja |
 
 Nothing in the neutral model currently returns `UnsupportedCapability` on OpenAI except misplaced content, covered below.
 
@@ -76,7 +76,7 @@ Unset fields are omitted from the body rather than sent as null, and empty `tool
 
 Unknown output item types and unknown content block types are skipped rather than failing the parse.
 
-Note that the wire field is `call_id`, and Freya exposes it as `id` on `OutputContent::ToolCall`. Quote it back unchanged in `Message::tool_result`.
+Note that the wire field is `call_id`, and Freyja exposes it as `id` on `OutputContent::ToolCall`. Quote it back unchanged in `Message::tool_result`.
 
 ## Input items are flat
 
@@ -102,7 +102,7 @@ A neutral `Message` can hold text and a tool call together, so the converter acc
 
 ## Text block types differ by role
 
-User turns use `input_text`, assistant turns replayed as input use `output_text`. Freya picks the right one from the role, so you do not have to think about it.
+User turns use `input_text`, assistant turns replayed as input use `output_text`. Freyja picks the right one from the role, so you do not have to think about it.
 
 Images use `input_image` with an `image_url` field, and are only accepted on user turns.
 
@@ -150,4 +150,4 @@ Read the result with `response.output_text()` and parse it yourself.
 OpenAI returned HTTP 429: {"error":{"message":"Rate limit reached",...}}
 ```
 
-Freya does not parse the error body into typed variants and does not retry. Both are Phase 1 work. See [Errors](../reference/errors.md).
+Freyja does not parse the error body into typed variants and does not retry. Both are Phase 1 work. See [Errors](../reference/errors.md).

@@ -13,7 +13,7 @@
     └── provider/
         ├── mod.rs          # ProviderDialect, ProviderConfig, Auth, Provider, Client
         ├── model.rs        # the neutral request, response, and error types
-        ├── presets.rs      # ProviderType, the endpoints Freya ships
+        ├── presets.rs      # ProviderType, the endpoints Freyja ships
         ├── openai_responses/   # dialect: /v1/responses
         │   ├── mod.rs      # the Provider impl, about 25 lines
         │   └── types.rs    # wire types and conversions
@@ -28,7 +28,7 @@
             └── types.rs
 ```
 
-There is no `main.rs`. Freya is a library, so the runnable code lives in `examples/`, which keeps the binary out of downstream builds and keeps `tokio` and `dotenvy` in `[dev-dependencies]` where a consumer does not inherit them.
+There is no `main.rs`. Freyja is a library, so the runnable code lives in `examples/`, which keeps the binary out of downstream builds and keeps `tokio` and `dotenvy` in `[dev-dependencies]` where a consumer does not inherit them.
 
 Dialect modules are `pub(crate)`. Their wire types never escape the crate, so `types::Request` and everything like it are invisible to callers. The only thing consumers see is the neutral model.
 
@@ -157,7 +157,7 @@ The same argument applies to hoisting system turns. Three dialects lift them int
 
 One provider requirement does reach the neutral model. Reasoning models emit signed internal state and reject a follow-up request that drops it or rebuilds it by hand, so it cannot live in `provider_metadata` where it would be lost at the next turn.
 
-`InputContent::Reasoning` and `OutputContent::Reasoning` hold that blob as an opaque `Value`. Freya never inspects it. Any output item a provider returns that Freya does not model becomes one of these, so it survives into the next request.
+`InputContent::Reasoning` and `OutputContent::Reasoning` hold that blob as an opaque `Value`. Freyja never inspects it. Any output item a provider returns that Freyja does not model becomes one of these, so it survives into the next request.
 
 The alternative designs were a provider-side cache keyed by response id, rejected because it adds hidden state and breaks the moment a transcript is persisted or moved between processes, and relying on server-side continuation, rejected because it makes the agent loop behave differently per provider.
 

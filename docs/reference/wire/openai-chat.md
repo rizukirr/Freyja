@@ -1,6 +1,6 @@
 # OpenAI Chat Completions wire format
 
-The native JSON of the Chat Completions API, as Freya speaks it. This page exists so you do not have to read vendor documentation to understand what is going over the wire, or to debug a `ProviderError::Api` body.
+The native JSON of the Chat Completions API, as Freyja speaks it. This page exists so you do not have to read vendor documentation to understand what is going over the wire, or to debug a `ProviderError::Api` body.
 
 This is the format most third party vendors implement. The shapes below were confirmed against DeepSeek; other endpoints implement the same format with varying completeness.
 
@@ -12,7 +12,7 @@ Authorization: Bearer <key>
 Content-Type: application/json
 ```
 
-There is no version header. The base URL is whatever the vendor documents, `https://api.groq.com/openai/v1` or `http://localhost:11434/v1`, and Freya appends `/chat/completions`.
+There is no version header. The base URL is whatever the vendor documents, `https://api.groq.com/openai/v1` or `http://localhost:11434/v1`, and Freyja appends `/chat/completions`.
 
 ## Request body
 
@@ -31,7 +31,7 @@ There is no version header. The base URL is whatever the vendor documents, `http
 }
 ```
 
-Only `model` and `messages` are required. Freya omits every unset field rather than sending null.
+Only `model` and `messages` are required. Freyja omits every unset field rather than sending null.
 
 Note what is absent: no `system` field, no `instructions`, and no continuation token. System instructions are a message role, and the API is fully stateless, so the whole transcript goes on every request.
 
@@ -67,9 +67,9 @@ Structurally this sits between the other formats. Tool calls nest inside the ass
 ]
 ```
 
-Freya sends the **string form whenever it can**, because the simpler compatible endpoints accept only that, and switches to the array form only when an image is present. A data URI goes in the same `url` field, unlike Anthropic which needs it split out.
+Freyja sends the **string form whenever it can**, because the simpler compatible endpoints accept only that, and switches to the array form only when an image is present. A data URI goes in the same `url` field, unlike Anthropic which needs it split out.
 
-`"content": null` is correct and expected on an assistant turn that carries only tool calls. Freya sends the key explicitly rather than omitting it.
+`"content": null` is correct and expected on an assistant turn that carries only tool calls. Freyja sends the key explicitly rather than omitting it.
 
 ## Tool calling
 
@@ -117,7 +117,7 @@ Bare strings for the first three, matching the Responses API, unlike Anthropic w
 }
 ```
 
-`arguments` is a **JSON string**, not an object. Freya keeps it as a string, so parse it yourself. Some endpoints return an empty string when a tool takes no arguments; Freya normalizes that to `{}`.
+`arguments` is a **JSON string**, not an object. Freyja keeps it as a string, so parse it yourself. Some endpoints return an empty string when a tool takes no arguments; Freyja normalizes that to `{}`.
 
 ### The result, as sent back
 
@@ -158,9 +158,9 @@ Bare strings for the first three, matching the Responses API, unlike Anthropic w
 }
 ```
 
-Output arrives in `choices`, an array, rather than `output` on the Responses API, `steps` on Gemini, or `content` on Anthropic. Freya reads `choices[0]` only, since the neutral request has no way to ask for more than one.
+Output arrives in `choices`, an array, rather than `output` on the Responses API, `steps` on Gemini, or `content` on Anthropic. Freyja reads `choices[0]` only, since the neutral request has no way to ask for more than one.
 
-Everything Freya does not model, including `object`, `created`, and `logprobs`, stays reachable through `response.provider_metadata`.
+Everything Freyja does not model, including `object`, `created`, and `logprobs`, stays reachable through `response.provider_metadata`.
 
 ### finish_reason
 
@@ -186,7 +186,7 @@ Some endpoints add extra fields. DeepSeek reports `prompt_cache_hit_tokens` and 
 
 ## Non-standard fields you may see
 
-This is where "compatible" starts to fray. None of these are read by Freya, and all remain reachable through `provider_metadata`:
+This is where "compatible" starts to fray. None of these are read by Freyja, and all remain reachable through `provider_metadata`:
 
 | Field | Where | What it is |
 |---|---|---|
@@ -210,6 +210,6 @@ The absence of a standard reasoning field is why this dialect drops `InputConten
 }
 ```
 
-Freya preserves the whole body in `ProviderError::Api` alongside the HTTP status, attributed to the endpoint's configured name rather than to the dialect, so a Groq failure reports Groq.
+Freyja preserves the whole body in `ProviderError::Api` alongside the HTTP status, attributed to the endpoint's configured name rather than to the dialect, so a Groq failure reports Groq.
 
 Status codes mostly follow the OpenAI convention, 400 for a bad request, 401 for a bad key, 429 for rate limiting, 5xx for the endpoint's own trouble. Compatible vendors vary here more than anywhere else, and some return 200 with an error body. Read the body when the status alone is not enough.

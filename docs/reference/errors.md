@@ -20,7 +20,7 @@ Every variant except `Http` carries the endpoint's configured name, so an error 
 
 ### UnsupportedCapability
 
-The request asked for something this provider cannot express. Freya refuses rather than silently dropping the field, because a quietly ignored `tool_choice` produces a plausible looking answer that is wrong in a way you cannot see.
+The request asked for something this provider cannot express. Freyja refuses rather than silently dropping the field, because a quietly ignored `tool_choice` produces a plausible looking answer that is wrong in a way you cannot see.
 
 ```
 Gemini does not support portable reasoning effort levels
@@ -104,7 +104,7 @@ The provider answered successfully but the body could not be parsed. The message
 invalid OpenAI response: missing field `id`; body: {...}
 ```
 
-This means the vendor changed something Freya models as required. Unknown fields, unknown output types, and unknown status strings are all tolerated already, so this only fires on a genuine break. Retrying will not help. Report it as a bug.
+This means the vendor changed something Freyja models as required. Unknown fields, unknown output types, and unknown status strings are all tolerated already, so this only fires on a genuine break. Retrying will not help. Report it as a bug.
 
 ## Handling errors
 
@@ -141,7 +141,7 @@ match client.generate(&request).await {
 
 ## Retries
 
-Freya does not retry. A 429 or a 5xx surfaces to you exactly once. Automatic backoff honoring `Retry-After` is Phase 1 work.
+Freyja does not retry. A 429 or a 5xx surfaces to you exactly once. Automatic backoff honoring `Retry-After` is Phase 1 work.
 
 Until then, retry at the call site, and only on `Http` and on `Api` with a 429 or 5xx status. Retrying the other variants wastes the call, since the outcome cannot change.
 

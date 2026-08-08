@@ -1,6 +1,6 @@
 # Gemini wire format
 
-The native JSON of the Gemini Interactions API, as Freya speaks it. This page exists so you do not have to read Google's documentation to understand what is going over the wire, or to debug a `ProviderError::Api` body.
+The native JSON of the Gemini Interactions API, as Freyja speaks it. This page exists so you do not have to read Google's documentation to understand what is going over the wire, or to debug a `ProviderError::Api` body.
 
 Everything here was verified against the live endpoint at `Api-Revision: 2026-05-20`. Where behavior was surprising, it is called out.
 
@@ -32,7 +32,7 @@ The `Api-Revision` header selects the API generation. It is what puts the endpoi
 }
 ```
 
-Only `model` and `input` are required. Freya omits every unset field rather than sending null.
+Only `model` and `input` are required. Freyja omits every unset field rather than sending null.
 
 Note the naming: `system_instruction` rather than a system turn, `max_output_tokens` rather than `max_tokens`, `previous_interaction_id` rather than `previous_response_id`, and `labels` rather than `metadata`.
 
@@ -46,7 +46,7 @@ For a single plain text user turn, `input` is just a string:
 { "model": "gemini-3.5-flash", "input": "What is 20 + 22?" }
 ```
 
-Freya uses this automatically when the conversation is one text-only user message.
+Freyja uses this automatically when the conversation is one text-only user message.
 
 ### A step list
 
@@ -89,7 +89,7 @@ playback_interruption, content, mcp_server_tool_call, image, thought,
 playback_complete
 ```
 
-Freya emits five of these: `user_input`, `model_output`, `function_call`, `function_result`, and whatever opaque steps it replays, in practice `thought`.
+Freyja emits five of these: `user_input`, `model_output`, `function_call`, `function_result`, and whatever opaque steps it replays, in practice `thought`.
 
 ### Content part types
 
@@ -127,7 +127,7 @@ The accepted part types are `text`, `image`, `audio`, `video`, `document`, `thou
 { "type": "function_call", "id": "mbbykw8q", "name": "add", "arguments": { "a": 20, "b": 22 } }
 ```
 
-`arguments` is a **structured object**, not a JSON string. Freya stringifies it so `OutputContent::ToolCall::arguments` behaves the same across providers.
+`arguments` is a **structured object**, not a JSON string. Freyja stringifies it so `OutputContent::ToolCall::arguments` behaves the same across providers.
 
 ### The result, as sent back
 
@@ -143,7 +143,7 @@ Three requirements, each of which the API enforces:
 | `name` | Required. The tool's name, repeated | `Missing name in content of type function_result` |
 | `result` | Must be an object, a `FunctionResultSubcontent[]`, or a string | `'result' must be a Struct, FunctionResultSubcontent[], or string` |
 
-That last one catches people out. A bare number or boolean is rejected, so `42` fails and `"42"` succeeds. Freya sends a JSON object through unchanged and sends anything else as a string.
+That last one catches people out. A bare number or boolean is rejected, so `42` fails and `"42"` succeeds. Freyja sends a JSON object through unchanged and sends anything else as a string.
 
 ### Ordering is enforced
 
@@ -177,7 +177,7 @@ When you send the tool result back, that `thought` step must be included, verbat
 
 A semantically identical call is not good enough. The signature is what the API validates, and it cannot be reconstructed.
 
-Freya handles this with `OutputContent::Reasoning { data }`, which preserves any step it does not model, and `GenerateResponse::to_message()`, which carries it into the next request. As long as you append `response.to_message()` before your tool results, it works. See [Tool calling](../../reference/tools.md).
+Freyja handles this with `OutputContent::Reasoning { data }`, which preserves any step it does not model, and `GenerateResponse::to_message()`, which carries it into the next request. As long as you append `response.to_message()` before your tool results, it works. See [Tool calling](../../reference/tools.md).
 
 ## Response body
 
@@ -223,7 +223,7 @@ Output arrives in `steps`, not `output` or `candidates`. Text lives inside a `mo
 
 ### Usage
 
-Gemini reports more detail than the neutral `Usage` models. Freya maps `total_input_tokens`, `total_output_tokens`, and `total_tokens`, and the rest, including `total_thought_tokens` and the per-modality breakdown, stays available through `response.provider_metadata`.
+Gemini reports more detail than the neutral `Usage` models. Freyja maps `total_input_tokens`, `total_output_tokens`, and `total_tokens`, and the rest, including `total_thought_tokens` and the per-modality breakdown, stays available through `response.provider_metadata`.
 
 Note that thinking tokens are billed. The 190 total above includes 105 thought tokens for a one-line arithmetic question.
 
@@ -233,10 +233,10 @@ Note that thinking tokens are billed. The 190 total above includes 105 thought t
 { "error": { "message": "Unknown parameter 'id' at 'input[2].content[0]'.", "code": "invalid_request" } }
 ```
 
-The messages are precise and include a JSON path, which makes them the fastest way to debug a mapping problem. Freya preserves the whole body in `ProviderError::Api`, so nothing is lost.
+The messages are precise and include a JSON path, which makes them the fastest way to debug a mapping problem. Freyja preserves the whole body in `ProviderError::Api`, so nothing is lost.
 
 The exception is `Request contains an invalid argument`, a generic protobuf-level rejection with no path. In practice that one usually means a missing or malformed thought signature.
 
-## What Freya does not send
+## What Freyja does not send
 
 `reasoning_effort` and `tool_choice` are refused with `UnsupportedCapability` before the request is built, because no portable mapping onto this API has been established. See [Gemini](../../providers/gemini.md).

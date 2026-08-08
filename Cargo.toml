@@ -1,20 +1,16 @@
 [package]
-name = "freya-rs"
+name = "freyja"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.85"
 license = "MIT"
 description = "A provider-neutral LLM client: one request model, four wire dialects, any compatible endpoint."
 repository = "https://github.com/rizukirr/Freya"
-documentation = "https://docs.rs/freya-rs"
+documentation = "https://docs.rs/freyja"
 readme = "README.md"
 keywords = ["llm", "ai", "openai", "anthropic", "gemini"]
 categories = ["api-bindings", "asynchronous"]
 
-# The package is `freya-rs` because `freya` is taken on crates.io, but the
-# library keeps the short name so callers still write `use freya::...`.
-[lib]
-name = "freya"
 
 # The library itself needs only serialization and HTTP. It exposes `async fn`
 # and never spawns, so it pulls in no runtime of its own; the caller chooses.

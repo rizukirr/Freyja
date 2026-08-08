@@ -4,12 +4,12 @@
 //! Built toward agent orchestration, see the roadmap in the repository README.
 //! Today it is the client layer and the tool-calling round trip that layer needs.
 //!
-//! Freya's core is a provider-neutral request/response model. You describe what
+//! Freyja's core is a provider-neutral request/response model. You describe what
 //! you want once, and any backend can serve it:
 //!
 //! ```no_run
-//! # async fn run() -> Result<(), freya::ProviderError> {
-//! use freya::{Client, GenerateRequest, Message, ProviderType, Role};
+//! # async fn run() -> Result<(), freyja::ProviderError> {
+//! use freyja::{Client, GenerateRequest, Message, ProviderType, Role};
 //!
 //! let client = Client::from_env(ProviderType::OpenAi).expect("OPENAI_API_KEY");
 //! let response = client
@@ -38,8 +38,8 @@
 //! model's answer into the assistant turn that must precede the result.
 //!
 //! ```no_run
-//! # async fn run(client: freya::Client, request: freya::GenerateRequest) -> Result<(), freya::ProviderError> {
-//! use freya::Message;
+//! # async fn run(client: freyja::Client, request: freyja::GenerateRequest) -> Result<(), freyja::ProviderError> {
+//! use freyja::Message;
 //!
 //! let mut request = request;
 //! let response = client.generate(&request).await?;

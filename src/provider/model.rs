@@ -12,13 +12,13 @@ use std::sync::Arc;
 /// A provider-neutral generation request.
 ///
 /// Every field is optional except [`messages`](Self::messages). A field left as
-/// `None` means "use the provider's own default". Freya does not invent values,
+/// `None` means "use the provider's own default". Freyja does not invent values,
 /// because a value that looks harmless on one provider may be rejected by another.
 ///
 /// Build one with the chainable setters:
 ///
 /// ```
-/// use freya::{GenerateRequest, Message, Role};
+/// use freyja::{GenerateRequest, Message, Role};
 ///
 /// let request = GenerateRequest::new()
 ///     .message(Message::text(Role::System, "Be concise."))
@@ -226,7 +226,7 @@ pub enum InputContent {
     ///
     /// Reasoning models emit signed internal state (Gemini thought signatures,
     /// Anthropic thinking blocks, OpenAI reasoning items) and reject a follow-up
-    /// request that drops it or rebuilds an equivalent by hand. Freya cannot
+    /// request that drops it or rebuilds an equivalent by hand. Freyja cannot
     /// model the contents, so it carries the blob through untouched.
     ///
     /// You never construct these. They arrive as [`OutputContent::Reasoning`]
@@ -341,7 +341,7 @@ pub struct GenerateResponse {
     pub content: Vec<OutputContent>,
     /// Token accounting, when the provider reports it.
     pub usage: Option<Usage>,
-    /// Provider fields Freya does not model, preserved verbatim.
+    /// Provider fields Freyja does not model, preserved verbatim.
     pub provider_metadata: Option<Value>,
 }
 
@@ -415,7 +415,7 @@ pub enum ResponseStatus {
     RequiresAction,
     /// The provider failed to produce a response.
     Failed,
-    /// A status Freya does not model, preserved verbatim.
+    /// A status Freyja does not model, preserved verbatim.
     Other(String),
 }
 
@@ -468,7 +468,7 @@ pub struct Usage {
 /// "Anthropic".
 #[derive(Debug)]
 pub enum ProviderError {
-    /// The request asked for something this provider cannot express. Freya
+    /// The request asked for something this provider cannot express. Freyja
     /// refuses rather than silently dropping the capability.
     UnsupportedCapability {
         /// Endpoint that refused.

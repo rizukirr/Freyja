@@ -1,6 +1,6 @@
 # Features
 
-What Freya does today, and what it does not. The second list matters as much as the first, so it is on the same page rather than hidden.
+What Freyja does today, and what it does not. The second list matters as much as the first, so it is on the same page rather than hidden.
 
 ## What works
 
@@ -38,7 +38,7 @@ The round trip is the load-bearing feature. A model asks for a function, you run
 | Any other endpoint | One `Client::custom` call, no code change |
 | Local runtimes | Yes, no credentials required |
 
-Built-in means Freya ships and tests the URL and default model. It does not mean the others are second class: DeepSeek, Groq, OpenRouter, Ollama, and a long tail of others work through [Custom providers](providers/custom.md) with the same code paths.
+Built-in means Freyja ships and tests the URL and default model. It does not mean the others are second class: DeepSeek, Groq, OpenRouter, Ollama, and a long tail of others work through [Custom providers](providers/custom.md) with the same code paths.
 
 ### Operational
 
@@ -61,12 +61,12 @@ Be sure none of these is on your critical path before adopting.
 | **Automatic tool dispatch** | Not implemented | You match on the tool name and call your function. There is no registry or `Tool` trait yet. |
 | **Schema derivation** | Not implemented | Tool parameter schemas are hand-written JSON. |
 | **Capability introspection** | Not implemented | You discover an unsupported capability by getting an error, not by asking first. |
-| **Embeddings, memory, RAG** | Not implemented | Freya is a generation client today. |
+| **Embeddings, memory, RAG** | Not implemented | Freyja is a generation client today. |
 | **Agent orchestration** | Not implemented | You write the loop. It is about fifteen lines. |
 
 ## Per-provider gaps
 
-Capability coverage is not uniform, and Freya refuses rather than pretending.
+Capability coverage is not uniform, and Freyja refuses rather than pretending.
 
 | Capability | OpenAI | Gemini | Anthropic | Chat Completions |
 |---|---|---|---|---|
@@ -79,7 +79,7 @@ A **No** means `UnsupportedCapability` before any network call, so you find out 
 
 ## Verification status
 
-Freya distinguishes "the tests pass" from "a real vendor accepted it", because the two came apart once already and cost three bugs.
+Freyja distinguishes "the tests pass" from "a real vendor accepted it", because the two came apart once already and cost three bugs.
 
 | Endpoint | Live tool round trip |
 |---|---|

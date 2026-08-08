@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 /// Anthropic is the only supported provider that *requires* `max_tokens` on
-/// every request, so this is the one place Freya has to invent a value. It is a
+/// every request, so this is the one place Freyja has to invent a value. It is a
 /// cap, not a target: the model stops early on its own. Set
 /// [`GenerateRequest::max_tokens`] to override.
 const DEFAULT_MAX_TOKENS: u32 = 16_000;
@@ -46,7 +46,7 @@ struct MessageWire {
 #[derive(Serialize)]
 #[serde(untagged)]
 enum BlockWire {
-    /// A block Freya models.
+    /// A block Freyja models.
     Typed(TypedBlockWire),
     /// A block preserved from a previous response and replayed verbatim, such
     /// as a signed `thinking` block the model requires back unchanged.
@@ -348,7 +348,7 @@ impl From<Response> for GenerateResponse {
 
 /// Converts one content block into neutral output parts.
 ///
-/// Anything Freya does not model becomes [`OutputContent::Reasoning`] rather
+/// Anything Freyja does not model becomes [`OutputContent::Reasoning`] rather
 /// than being dropped. `thinking` blocks carry a signature the API validates on
 /// the next request, and a transcript that omits or rebuilds one is rejected.
 fn convert_block(block: Value) -> Vec<OutputContent> {
@@ -616,7 +616,7 @@ mod tests {
         assert_eq!(response.status, ResponseStatus::Completed);
         let usage = response.usage.unwrap();
         assert_eq!(usage.total_tokens, 3);
-        // Fields Freya does not model stay reachable.
+        // Fields Freyja does not model stay reachable.
         assert_eq!(response.provider_metadata.unwrap()["role"], "assistant");
     }
 

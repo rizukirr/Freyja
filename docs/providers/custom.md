@@ -1,6 +1,6 @@
 # Custom endpoints
 
-Most hosted inference APIs do not invent a wire format. They copy one, usually OpenAI's or Anthropic's, so that existing client libraries work unchanged. Freya separates the format from the endpoint so you can take advantage of that without waiting for a preset.
+Most hosted inference APIs do not invent a wire format. They copy one, usually OpenAI's or Anthropic's, so that existing client libraries work unchanged. Freyja separates the format from the endpoint so you can take advantage of that without waiting for a preset.
 
 ## The two types
 
@@ -16,7 +16,7 @@ A preset is only a `ProviderConfig` with the fields filled in. There is nothing 
 When all you need is a dialect, a name, a URL, and a key:
 
 ```rust
-use freya::{Client, ProviderDialect};
+use freyja::{Client, ProviderDialect};
 
 let client = Client::custom(
     ProviderDialect::OpenAiChat,
@@ -31,7 +31,7 @@ Auth follows the dialect, so this is `Authorization: Bearer` without saying so. 
 ## Pointing at a compatible endpoint
 
 ```rust
-use freya::{Client, ProviderConfig, ProviderDialect};
+use freyja::{Client, ProviderConfig, ProviderDialect};
 
 let config = ProviderConfig::new(
         ProviderDialect::Anthropic,
@@ -123,13 +123,13 @@ invalid request for my-gateway: no model set on the request and no default_model
 
 "Compatible" is a spectrum. An endpoint may implement the format but not tools, ignore `strict`, omit `usage`, or reject a field the real vendor accepts.
 
-Freya's `UnsupportedCapability` errors are raised by the *dialect*, so they tell you what the format cannot express, not what a particular endpoint declined to implement. Anything in the second category arrives as a `ProviderError::Api` with the endpoint's own message. That is deliberate: Freya will not pretend to know the capabilities of an endpoint it has never seen.
+Freyja's `UnsupportedCapability` errors are raised by the *dialect*, so they tell you what the format cannot express, not what a particular endpoint declined to implement. Anything in the second category arrives as a `ProviderError::Api` with the endpoint's own message. That is deliberate: Freyja will not pretend to know the capabilities of an endpoint it has never seen.
 
 Capability introspection is Phase 1 work. Until then, the honest test of a compatible endpoint is a real request.
 
 ## Starting from a preset
 
-When an endpoint is nearly one Freya ships, start there and change what differs:
+When an endpoint is nearly one Freyja ships, start there and change what differs:
 
 ```rust
 let config = ProviderType::Anthropic.config()

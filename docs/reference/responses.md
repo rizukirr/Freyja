@@ -22,7 +22,7 @@ Derives `Debug`, `Clone`, `PartialEq`.
 | `status` | Why the response ended |
 | `content` | The parts the model produced, in order |
 | `usage` | Token accounting, when the provider reports it |
-| `provider_metadata` | Provider fields Freya does not model, preserved verbatim |
+| `provider_metadata` | Provider fields Freyja does not model, preserved verbatim |
 
 ## OutputContent
 
@@ -44,7 +44,7 @@ pub enum OutputContent {
 
 `Refusal` is distinct from `Text` on purpose. A refusal is not an answer, and folding it into text would hide that from callers. Note that `output_text()` excludes refusals, so a refusal shows up as an empty string there. Check `content` directly when you need to tell the two apart.
 
-Only OpenAI emits `Refusal` today. Gemini's response format carries no separate refusal block that Freya parses. Anthropic signals a refusal through `stop_reason` instead, which arrives as `ResponseStatus::Other("refusal")` with `content` empty or partial, so check `status` before reading `content` or you will mistake a refusal for an empty answer.
+Only OpenAI emits `Refusal` today. Gemini's response format carries no separate refusal block that Freyja parses. Anthropic signals a refusal through `stop_reason` instead, which arrives as `ResponseStatus::Other("refusal")` with `content` empty or partial, so check `status` before reading `content` or you will mistake a refusal for an empty answer.
 
 ## Helpers
 
@@ -76,7 +76,7 @@ pub fn has_tool_calls(&self) -> bool
 
 Whether the model asked for at least one call. This is the loop condition in an agent loop, and it is more reliable than checking `status`, since providers differ in whether they report `requires_action`.
 
-`Reasoning` is where anything Freya does not model ends up, rather than being dropped. Gemini thought signatures and OpenAI reasoning items both land here. Ignore it unless you are assembling a transcript by hand, in which case preserve it exactly and in order. See [Tool calling](../reference/tools.md).
+`Reasoning` is where anything Freyja does not model ends up, rather than being dropped. Gemini thought signatures and OpenAI reasoning items both land here. Ignore it unless you are assembling a transcript by hand, in which case preserve it exactly and in order. See [Tool calling](../reference/tools.md).
 
 ### `to_message`
 
@@ -110,7 +110,7 @@ pub enum ResponseStatus {
 | `Incomplete` | Cut short, typically by `max_tokens` |
 | `RequiresAction` | Waiting on tool results |
 | `Failed` | The provider could not produce a response |
-| `Other(String)` | A status Freya does not model, preserved verbatim |
+| `Other(String)` | A status Freyja does not model, preserved verbatim |
 
 `Other` exists so a provider adding a new status does not break parsing. When you match on status, handle it rather than assuming the four known variants are exhaustive.
 
@@ -155,15 +155,15 @@ if let Some(usage) = response.usage {
 }
 ```
 
-Field names are normalized. Gemini reports `total_input_tokens` and `total_output_tokens` on the wire, and Freya maps them onto the same three fields so cost accounting does not have to branch per provider.
+Field names are normalized. Gemini reports `total_input_tokens` and `total_output_tokens` on the wire, and Freyja maps them onto the same three fields so cost accounting does not have to branch per provider.
 
-Anthropic needs more than renaming. It reports no total at all, so Freya computes one, and its `input_tokens` counts only the *uncached* part of the prompt, with cached tokens reported in two separate fields. Freya sums all three, so `input_tokens` means the same thing on every provider. The unsummed fields stay in `provider_metadata`, which matters if you price cache reads and cache writes separately, since they do not cost the same. See [Anthropic](../providers/anthropic.md).
+Anthropic needs more than renaming. It reports no total at all, so Freyja computes one, and its `input_tokens` counts only the *uncached* part of the prompt, with cached tokens reported in two separate fields. Freyja sums all three, so `input_tokens` means the same thing on every provider. The unsummed fields stay in `provider_metadata`, which matters if you price cache reads and cache writes separately, since they do not cost the same. See [Anthropic](../providers/anthropic.md).
 
-Cost calculation is not included. Freya reports tokens, not money.
+Cost calculation is not included. Freyja reports tokens, not money.
 
 ## provider_metadata
 
-Anything in the response body Freya does not model is captured here rather than dropped, using serde's flatten. Use it to read provider specific fields without waiting for Freya to add support:
+Anything in the response body Freyja does not model is captured here rather than dropped, using serde's flatten. Use it to read provider specific fields without waiting for Freyja to add support:
 
 ```rust
 if let Some(meta) = &response.provider_metadata {
@@ -173,7 +173,7 @@ if let Some(meta) = &response.provider_metadata {
 }
 ```
 
-The same forward compatibility applies inside `content`. Unknown output item types and unknown content block types are skipped rather than failing deserialization, so a provider shipping a new block type does not break your build. The tradeoff is that new content silently disappears until Freya models it. Check `provider_metadata` when output looks shorter than expected.
+The same forward compatibility applies inside `content`. Unknown output item types and unknown content block types are skipped rather than failing deserialization, so a provider shipping a new block type does not break your build. The tradeoff is that new content silently disappears until Freyja models it. Check `provider_metadata` when output looks shorter than expected.
 
 ## Handling a response
 

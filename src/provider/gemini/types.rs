@@ -285,7 +285,7 @@ impl From<Response> for GenerateResponse {
 
 /// Converts one response step into neutral output parts.
 ///
-/// Anything Freya does not model becomes [`OutputContent::Reasoning`] rather
+/// Anything Freyja does not model becomes [`OutputContent::Reasoning`] rather
 /// than being dropped. Gemini rejects a follow-up request whose thought steps
 /// are missing or rebuilt, so preserving them verbatim is what makes multi-turn
 /// tool calling work at all.

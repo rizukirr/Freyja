@@ -35,13 +35,13 @@ Verified against the live endpoint: a full tool round trip completes, prompt to 
 | `metadata` | yes | Forwarded unchanged |
 | Usage reporting | yes | Total computed, cached tokens folded in |
 | Refusals | partly | Surfaced as `ResponseStatus::Other("refusal")` |
-| Streaming | no | Not implemented in Freya |
+| Streaming | no | Not implemented in Freyja |
 
-## The one place Freya invents a value
+## The one place Freyja invents a value
 
-Anthropic is the only supported provider that requires `max_tokens` on every request. OpenAI and Gemini both treat it as optional, so Freya's usual rule of never inventing a default cannot hold here.
+Anthropic is the only supported provider that requires `max_tokens` on every request. OpenAI and Gemini both treat it as optional, so Freyja's usual rule of never inventing a default cannot hold here.
 
-When `max_tokens` is unset, Freya sends `16000`. It is a cap and not a target, so the model still stops when it is finished, but it is a real number chosen by the library rather than by you or by the vendor. Set it explicitly on any request where the ceiling matters:
+When `max_tokens` is unset, Freyja sends `16000`. It is a cap and not a target, so the model still stops when it is finished, but it is a real number chosen by the library rather than by you or by the vendor. Set it explicitly on any request where the ceiling matters:
 
 ```rust
 GenerateRequest::new()
@@ -65,7 +65,7 @@ There are also only two roles on the wire, `user` and `assistant`. Everything el
 
 `temperature`, `top_p`, and `top_k` were removed on Claude Opus 5, Claude Fable 5, Claude Opus 4.8, and Claude Opus 4.7. Sending any of them to those models returns HTTP 400. Older models such as Claude Sonnet 4.5 still accept them.
 
-This is a per model restriction rather than a per API one, and Freya does not track which model supports what. So `temperature` and `top_p` are forwarded unchanged and the provider decides. If you get a 400 mentioning one of them, remove the field rather than changing the model.
+This is a per model restriction rather than a per API one, and Freyja does not track which model supports what. So `temperature` and `top_p` are forwarded unchanged and the provider decides. If you get a 400 mentioning one of them, remove the field rather than changing the model.
 
 ```
 Anthropic returned HTTP 400: {"type":"error","error":{"type":"invalid_request_error", ...}}
@@ -99,7 +99,7 @@ The `name` and `strict` fields on `JsonSchema` are dropped, because Anthropic's 
 
 A response from a reasoning model contains `thinking` blocks carrying an opaque `signature`, and `redacted_thinking` blocks carrying an opaque `data` field. When you continue the conversation on the same model, those blocks have to come back unchanged and in position. Editing or reconstructing one is rejected.
 
-This is the same requirement Gemini has with thought signatures, and Freya solves it the same way. Any block it does not model becomes `OutputContent::Reasoning`, and `GenerateResponse::to_message()` carries it into the next request untouched:
+This is the same requirement Gemini has with thought signatures, and Freyja solves it the same way. Any block it does not model becomes `OutputContent::Reasoning`, and `GenerateResponse::to_message()` carries it into the next request untouched:
 
 ```rust
 request = request
@@ -124,7 +124,7 @@ Anthropic reports four usage fields and no total:
 
 `input_tokens` is the uncached remainder only, not the whole prompt. A long running agent whose prompt is cached reports a small `input_tokens` while actually having sent a large prompt.
 
-Freya normalizes this by summing all three prompt fields:
+Freyja normalizes this by summing all three prompt fields:
 
 | Neutral | Computed as |
 |---|---|
@@ -180,7 +180,7 @@ A turn that produces no content blocks is dropped rather than sent, because the 
 
 ## Tool arguments are parsed
 
-The neutral model carries `arguments` as a string, but Anthropic expects a structured object in `tool_use.input`. Freya parses it on the way out.
+The neutral model carries `arguments` as a string, but Anthropic expects a structured object in `tool_use.input`. Freyja parses it on the way out.
 
 Unlike Gemini, which accepts a bare string as a tool result and so can fall back to sending one, Anthropic requires `input` to be an object. Anything else fails locally rather than at the API:
 
@@ -191,7 +191,7 @@ Anthropic rejects anything else, got '42'
 
 An empty or whitespace-only string is treated as `{}`, for tools that take no arguments.
 
-Coming back, `input` arrives as a JSON value and Freya stringifies it, so `OutputContent::ToolCall::arguments` is a string on every dialect.
+Coming back, `input` arrives as a JSON value and Freyja stringifies it, so `OutputContent::ToolCall::arguments` is a string on every dialect.
 
 ## Status mapping
 
@@ -209,7 +209,7 @@ Two of these deliberately stay as `Other` rather than being flattened.
 
 A `refusal` is not a `Failed`, the request succeeded and the model chose not to answer, and `content` may be empty. Check `status` before reading `content`, or you will read an empty response and think the model returned nothing.
 
-A `pause_turn` is not a `RequiresAction` either. `RequiresAction` in Freya means the model is waiting on a tool result you supply. A paused turn is resumed by re-sending the transcript unchanged, with no tool result involved, so treating it as `RequiresAction` would send an agent loop looking for tool calls that are not there.
+A `pause_turn` is not a `RequiresAction` either. `RequiresAction` in Freyja means the model is waiting on a tool result you supply. A paused turn is resumed by re-sending the transcript unchanged, with no tool result involved, so treating it as `RequiresAction` would send an agent loop looking for tool calls that are not there.
 
 Unlike Gemini, `has_tool_calls()` and `status` agree here: a response with tool calls always carries `stop_reason: "tool_use"`. `has_tool_calls()` is still the right loop condition, for consistency across providers.
 

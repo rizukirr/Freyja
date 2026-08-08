@@ -7,7 +7,7 @@ There are two different jobs behind that phrase, and they cost very different am
 | A vendor whose API copies OpenAI or Anthropic | Nothing, just `Client::custom` | One call |
 | A vendor with its own wire format | A **dialect**, a new module | A day |
 
-Most hosted inference APIs fall in the first row. They copy an existing format so that existing client libraries work unchanged, so Freya usually already speaks to them and only needs the URL.
+Most hosted inference APIs fall in the first row. They copy an existing format so that existing client libraries work unchanged, so Freyja usually already speaks to them and only needs the URL.
 
 ## Reaching a compatible endpoint
 
@@ -23,7 +23,7 @@ let client = Client::from_env(config).expect("GATEWAY_API_KEY");
 
 Full detail in [Custom endpoints](../providers/custom.md).
 
-Do not send a pull request adding it to `src/provider/presets.rs`. That file covers the three first-party vendors Freya tests against, deliberately, because a preset is a standing promise that a URL and a default model are still current. Widely used endpoints belong in the table in [Custom endpoints](../providers/custom.md), where the caveat that nothing verifies them can be stated honestly.
+Do not send a pull request adding it to `src/provider/presets.rs`. That file covers the three first-party vendors Freyja tests against, deliberately, because a preset is a standing promise that a URL and a default model are still current. Widely used endpoints belong in the table in [Custom endpoints](../providers/custom.md), where the caveat that nothing verifies them can be stated honestly.
 
 ## Adding a dialect
 
@@ -142,7 +142,7 @@ pub enum ProviderDialect {
 }
 ```
 
-Then `path()`, `default_auth()`, and `required_headers()` each gain an arm, and `Client::generate` gains one dispatch arm. That is all. A preset is only warranted if the dialect belongs to a vendor Freya can test against, which so far means it usually is not.
+Then `path()`, `default_auth()`, and `required_headers()` each gain an arm, and `Client::generate` gains one dispatch arm. That is all. A preset is only warranted if the dialect belongs to a vendor Freyja can test against, which so far means it usually is not.
 
 ### 7. Test it
 
@@ -165,7 +165,7 @@ Cover, at minimum: a plain request, a full tool round trip, capabilities the for
 
 ### 8. Verify it live
 
-**Offline tests prove Freya sends the JSON it meant to send, not that the vendor accepts it.** The Gemini dialect shipped with passing tests and three real bugs, including an input format that broke every multi-turn conversation. Point `examples/tool_loop.rs` at the new endpoint and run `cargo run --example tool_loop` before calling it done.
+**Offline tests prove Freyja sends the JSON it meant to send, not that the vendor accepts it.** The Gemini dialect shipped with passing tests and three real bugs, including an input format that broke every multi-turn conversation. Point `examples/tool_loop.rs` at the new endpoint and run `cargo run --example tool_loop` before calling it done.
 
 ### 9. Document it
 

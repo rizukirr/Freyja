@@ -31,7 +31,7 @@ pub struct Request {
     metadata: Option<Value>,
 }
 
-/// Unlike every other dialect Freya speaks, `system` is a real message role
+/// Unlike every other dialect Freyja speaks, `system` is a real message role
 /// here rather than a separate top-level field, so system turns stay in the
 /// array instead of being hoisted out of it.
 #[derive(Serialize)]
@@ -46,7 +46,7 @@ struct MessageWire {
     tool_call_id: Option<String>,
 }
 
-/// Content is a bare string or an array of parts. Freya sends the string form
+/// Content is a bare string or an array of parts. Freyja sends the string form
 /// whenever it can, because the simpler compatible endpoints accept only that.
 #[derive(Serialize)]
 #[serde(untagged)]
@@ -319,7 +319,7 @@ impl From<Response> for GenerateResponse {
         let mut status = ResponseStatus::Completed;
         let mut extra = value.extra;
 
-        // Freya's neutral response models one answer, so the first choice wins.
+        // Freyja's neutral response models one answer, so the first choice wins.
         // `n > 1` is not expressible in the neutral request, so there is never
         // more than one in practice.
         if let Some(choice) = value.choices.into_iter().next() {

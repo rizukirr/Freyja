@@ -20,7 +20,7 @@ The model never runs anything. It asks, you execute, you report back. That bound
 A tool is a name, a description, and a JSON Schema for its arguments.
 
 ```rust
-use freya::ToolDefinition;
+use freyja::ToolDefinition;
 
 let add = ToolDefinition::new("add", "adds two numbers together")
     .parameters(serde_json::json!({

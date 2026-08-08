@@ -30,7 +30,7 @@ Builds a client with a pooled `reqwest::Client` and a 120 second per request tim
 let client = Client::new(ProviderType::OpenAi, "sk-...");
 ```
 
-If the HTTP client fails to build, Freya falls back to `reqwest::Client::default()` rather than panicking. The fallback has no timeout.
+If the HTTP client fails to build, Freyja falls back to `reqwest::Client::default()` rather than panicking. The fallback has no timeout.
 
 ### `Client::custom`
 
@@ -43,7 +43,7 @@ pub fn custom(
 ) -> Self
 ```
 
-Reaches an endpoint Freya does not ship, in one call. Shorthand for `ProviderConfig::new` followed by `Client::new`.
+Reaches an endpoint Freyja does not ship, in one call. Shorthand for `ProviderConfig::new` followed by `Client::new`.
 
 ```rust
 let client = Client::custom(
@@ -135,17 +135,17 @@ The endpoint this client talks to, including its dialect and resolved URL. Usefu
 
 ## Dialect and endpoint are separate
 
-Freya splits *how* a request is serialized from *where* it is sent, because most hosted inference APIs are wire-compatible with either OpenAI or Anthropic and differ only in URL, credentials, and model names.
+Freyja splits *how* a request is serialized from *where* it is sent, because most hosted inference APIs are wire-compatible with either OpenAI or Anthropic and differ only in URL, credentials, and model names.
 
 | Type | Answers |
 |---|---|
 | `ProviderDialect` | Which wire format. `OpenAiResponses`, `OpenAiChat`, `Gemini`, `Anthropic` |
 | `ProviderConfig` | Which endpoint. Base URL, auth style, key variable, default model, extra headers |
-| `ProviderType` | A preset that builds a `ProviderConfig` for an endpoint Freya ships |
+| `ProviderType` | A preset that builds a `ProviderConfig` for an endpoint Freyja ships |
 
 Anywhere a config is accepted a `ProviderType` is too, so the short form keeps working and nothing below changes for callers who only use the shipped endpoints.
 
-For pointing Freya at an endpoint it does not ship, see [Custom endpoints](../providers/custom.md).
+For pointing Freyja at an endpoint it does not ship, see [Custom endpoints](../providers/custom.md).
 
 ## ProviderType
 
@@ -159,7 +159,7 @@ pub enum ProviderType {
 
 Derives `Debug`, `Clone`, `Copy`, `PartialEq`, `Eq`.
 
-Only first-party vendors appear here. Freya implements a fourth dialect, `OpenAiChat`, with no preset at all, because every endpoint speaking it is third party. Reach those with `Client::custom`, see [Custom endpoints](../providers/custom.md).
+Only first-party vendors appear here. Freyja implements a fourth dialect, `OpenAiChat`, with no preset at all, because every endpoint speaking it is third party. Reach those with `Client::custom`, see [Custom endpoints](../providers/custom.md).
 
 ### `api_key_env`
 

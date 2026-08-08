@@ -1,10 +1,10 @@
 # Concepts
 
-Five ideas. Once these land, the rest of Freya is detail you can look up.
+Five ideas. Once these land, the rest of Freyja is detail you can look up.
 
 ## 1. One request, many wire formats
 
-You build a `GenerateRequest`. Freya converts it to whatever the endpoint expects.
+You build a `GenerateRequest`. Freyja converts it to whatever the endpoint expects.
 
 ```
                         ┌─→ OpenAI Responses   → flat item list
@@ -45,7 +45,7 @@ let client = Client::custom(
 );
 ```
 
-Freya ships **presets** for OpenAI, Gemini, and Anthropic only. That is deliberate: a preset is a promise that a URL and default model are current, and third-party endpoints change faster than this library could verify. A preset is nothing but a `ProviderConfig` with the fields filled in, so nothing is gated behind having one. See [Custom providers](providers/custom.md).
+Freyja ships **presets** for OpenAI, Gemini, and Anthropic only. That is deliberate: a preset is a promise that a URL and default model are current, and third-party endpoints change faster than this library could verify. A preset is nothing but a `ProviderConfig` with the fields filled in, so nothing is gated behind having one. See [Custom providers](providers/custom.md).
 
 ## 3. Unset means "the vendor decides"
 
@@ -65,7 +65,7 @@ This was learned painfully. An earlier version defaulted `tool_choice` to `Auto`
 
 ## 4. Refusal, never silent degradation
 
-When you ask for something the endpoint cannot express, Freya returns an error before sending anything.
+When you ask for something the endpoint cannot express, Freyja returns an error before sending anything.
 
 ```rust
 GenerateRequest::new().tool_choice(ToolChoice::Required);
@@ -82,7 +82,7 @@ Reasoning models emit signed internal state: Gemini calls them thought signature
 
 When you send the next request in a conversation, these have to come back **unchanged and in position**. Editing one, rebuilding an equivalent by hand, or dropping it gets the request rejected. The signature is what the vendor validates.
 
-Freya handles this for you, but only if you build the next turn the intended way:
+Freyja handles this for you, but only if you build the next turn the intended way:
 
 ```rust
 request = request
@@ -90,7 +90,7 @@ request = request
     .extend_messages(tool_results);
 ```
 
-`to_message()` preserves everything the response contained, including blocks Freya does not model. **Assembling that assistant turn by hand from the tool calls alone will drop the state and your next request will fail.**
+`to_message()` preserves everything the response contained, including blocks Freyja does not model. **Assembling that assistant turn by hand from the tool calls alone will drop the state and your next request will fail.**
 
 That is the whole rule. You do not need to know what is inside.
 
@@ -107,7 +107,7 @@ let request = GenerateRequest::new()
     .message(Message::text(Role::User, "What is 20 + 22?"))
     .tools([add_tool]);
 
-// 3. Send it. Freya converts, posts, and converts back.
+// 3. Send it. Freyja converts, posts, and converts back.
 let response = client.generate(&request).await?;
 
 // 4. Read a neutral response, whatever vendor produced it.

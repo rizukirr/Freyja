@@ -1,8 +1,8 @@
 # Introduction
 
-Freya is a Rust library for talking to large language models, and for building agents on top of them.
+Freyja is a Rust library for talking to large language models, and for building agents on top of them.
 
-You write one request. Freya translates it into whatever wire format the model you picked actually speaks, sends it, and translates the answer back into one response type. Changing model vendor is changing one line.
+You write one request. Freyja translates it into whatever wire format the model you picked actually speaks, sends it, and translates the answer back into one response type. Changing model vendor is changing one line.
 
 ```rust
 let client = Client::from_env(ProviderType::OpenAi)?;
@@ -16,13 +16,13 @@ Every vendor invented a different shape for the same idea.
 
 Asking a model to run a tool and feeding the answer back is one concept. On OpenAI's Responses API it is a flat list of items where tool calls sit beside messages. On Gemini it is a flat list of typed steps with no roles at all. On Anthropic it is blocks nested inside messages. On the Chat Completions format that most other vendors copy, it is a fourth arrangement with a dedicated `tool` role.
 
-Write against one of those directly and you have written a program that only works with one vendor. Write against Freya and you have written a program that works with all of them, including vendors that did not exist when you wrote it.
+Write against one of those directly and you have written a program that only works with one vendor. Write against Freyja and you have written a program that works with all of them, including vendors that did not exist when you wrote it.
 
-## What Freya is for
+## What Freyja is for
 
-**Building agents.** The library's centre of gravity is the tool-calling loop: the model asks for a function, you run it, you feed the result back, it continues. Everything else exists to make that loop work identically on every vendor. If you only want to send a prompt and print a string, Freya does that too, and a thinner library would also do.
+**Building agents.** The library's centre of gravity is the tool-calling loop: the model asks for a function, you run it, you feed the result back, it continues. Everything else exists to make that loop work identically on every vendor. If you only want to send a prompt and print a string, Freyja does that too, and a thinner library would also do.
 
-## What Freya is not
+## What Freyja is not
 
 Being clear about this saves you evaluating it for a job it does not do.
 
@@ -33,11 +33,11 @@ Being clear about this saves you evaluating it for a job it does not do.
 
 ## The three ideas
 
-Everything in Freya follows from these. [Concepts](concepts.md) covers them properly; here they are in a sentence each.
+Everything in Freyja follows from these. [Concepts](concepts.md) covers them properly; here they are in a sentence each.
 
 **One neutral model.** `GenerateRequest` and `GenerateResponse` describe generation in terms that make sense on their own, and never bend toward a vendor. Your code only ever names these.
 
-**Dialects and endpoints are different things.** A *dialect* is a wire format. An *endpoint* is a URL that speaks one. Most hosted inference APIs copy an existing format, so Freya reaches far more vendors than it has dialects.
+**Dialects and endpoints are different things.** A *dialect* is a wire format. An *endpoint* is a URL that speaks one. Most hosted inference APIs copy an existing format, so Freyja reaches far more vendors than it has dialects.
 
 **No invented defaults, no silent degradation.** An unset field means "let the vendor decide". A field the vendor cannot honour is an error, never a quiet omission.
 

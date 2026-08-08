@@ -125,7 +125,7 @@ Data URIs work the same way, which is how you send local files:
 InputContent::ImageUrl(format!("data:image/png;base64,{encoded}"))
 ```
 
-Images are only accepted on `Role::User`. On any other role Freya returns `UnsupportedCapability` with the capability `"images outside user messages"`.
+Images are only accepted on `Role::User`. On any other role Freyja returns `UnsupportedCapability` with the capability `"images outside user messages"`.
 
 ## Validation done before the network
 

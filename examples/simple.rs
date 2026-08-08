@@ -4,7 +4,7 @@
 //! cargo run --example simple
 //! ```
 
-use freya::{Client, GenerateRequest, Message, ProviderType, Role};
+use freyja::{Client, GenerateRequest, Message, ProviderType, Role};
 
 #[tokio::main]
 async fn main() {

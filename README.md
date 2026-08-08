@@ -1,11 +1,11 @@
-# Freya
+# Freyja
 
 A provider-neutral LLM client for Rust, and the foundation for building agents on top of it.
 
 > [!WARNING]
 > Under active development and **not ready for production use**. The public API is unstable and will change without notice before `0.1.0`.
 
-You write one request. Freya translates it into whatever wire format the model you picked actually speaks, sends it, and translates the answer back. Changing vendor is changing one line.
+You write one request. Freyja translates it into whatever wire format the model you picked actually speaks, sends it, and translates the answer back. Changing vendor is changing one line.
 
 ```rust
 let client = Client::from_env(ProviderType::OpenAi)?;
@@ -18,12 +18,12 @@ That matters because every vendor invented a different shape for the same ideas.
 
 ```toml
 [dependencies]
-freya-rs = { git = "https://github.com/rizukirr/Freya" }
+freyja = { git = "https://github.com/rizukirr/Freya" }
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ```
 
 ```rust
-use freya::{Client, GenerateRequest, Message, ProviderType, Role};
+use freyja::{Client, GenerateRequest, Message, ProviderType, Role};
 
 #[tokio::main]
 async fn main() {
@@ -53,13 +53,13 @@ Full docs in [`docs/`](docs/README.md), written to be read in order:
 
 | | |
 |---|---|
-| [Introduction](docs/introduction.md) | What Freya is, what it is not, and why it exists |
+| [Introduction](docs/introduction.md) | What Freyja is, what it is not, and why it exists |
 | [Features](docs/features.md) | What works today, and what does not |
 | [Getting started](docs/getting-started.md) | Install, set a key, make a call |
 | [Concepts](docs/concepts.md) | The five ideas everything else follows from |
 | [Building an agent](docs/building-an-agent.md) | Tools, the loop, and what will bite you |
 
-Then [providers](docs/providers/README.md), the [API reference](docs/README.md#reference), and [internals](docs/internals/architecture.md) for working on Freya itself.
+Then [providers](docs/providers/README.md), the [API reference](docs/README.md#reference), and [internals](docs/internals/architecture.md) for working on Freyja itself.
 
 ## Status
 
@@ -91,7 +91,7 @@ The goal: everything you need to build an AI agent in Rust, with no vendor lock-
 
 **Phase 5, observability and release.** `tracing` instrumentation, cost accounting, record and replay for deterministic tests, a mock provider, and publishing to crates.io.
 
-Out of scope: prompt-template DSLs, a built-in vector database, a web UI or server, and fine-tuning orchestration. Freya is a library, not a platform.
+Out of scope: prompt-template DSLs, a built-in vector database, a web UI or server, and fine-tuning orchestration. Freyja is a library, not a platform.
 
 ## Development
 

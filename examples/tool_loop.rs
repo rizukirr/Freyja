@@ -11,7 +11,7 @@
 //! same code against a different vendor. Nothing else changes, which is the
 //! point of the neutral model.
 
-use freya::{Client, GenerateRequest, Message, OutputContent, ProviderType, Role, ToolDefinition};
+use freyja::{Client, GenerateRequest, Message, OutputContent, ProviderType, Role, ToolDefinition};
 use serde_json::Value;
 
 /// The single tool this example exposes to the model.

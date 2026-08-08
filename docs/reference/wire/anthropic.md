@@ -1,6 +1,6 @@
 # Anthropic wire format
 
-The native JSON of the Anthropic Messages API, as Freya speaks it. This page exists so you do not have to read Anthropic's documentation to understand what is going over the wire, or to debug a `ProviderError::Api` body.
+The native JSON of the Anthropic Messages API, as Freyja speaks it. This page exists so you do not have to read Anthropic's documentation to understand what is going over the wire, or to debug a `ProviderError::Api` body.
 
 > The format below is confirmed: a live tool round trip completes against this endpoint. The individual payloads are illustrative rather than captured verbatim, unlike the [OpenAI](../../reference/wire/openai.md) and [Gemini](../../reference/wire/gemini.md) pages. See [Verification status](../../providers/anthropic.md#verification-status) for what the live run did and did not cover.
 
@@ -15,7 +15,7 @@ Content-Type: application/json
 
 `anthropic-version` is required on every request and is a date string, not a semantic version. `2023-06-01` is still the current value; it pins the response shape rather than the model generation.
 
-A fourth header, `anthropic-beta`, gates preview features. Freya sends none of them, so nothing here needs it.
+A fourth header, `anthropic-beta`, gates preview features. Freyja sends none of them, so nothing here needs it.
 
 ## Request body
 
@@ -35,7 +35,7 @@ A fourth header, `anthropic-beta`, gates preview features. Freya sends none of t
 }
 ```
 
-`model`, `max_tokens`, and `messages` are required. Freya omits every unset optional field rather than sending null.
+`model`, `max_tokens`, and `messages` are required. Freyja omits every unset optional field rather than sending null.
 
 Note the naming: `system` is a top level field rather than a message role, `max_tokens` is mandatory rather than optional, and there is no equivalent of OpenAI's `previous_response_id` or Gemini's `previous_interaction_id`. The API is fully stateless, so the whole transcript goes on every request.
 
@@ -64,7 +64,7 @@ This is the main structural difference from the flat formats, OpenAI Responses a
 
 Compare this with OpenAI, where the same exchange is four flat `input` items, and Gemini, where it is four flat steps. Here it is three messages, each holding its own blocks.
 
-One neutral `Message` maps to exactly one wire message, so Freya needs no reordering pass. `content` may also be a bare string as a shorthand for a single text block, which Freya does not use.
+One neutral `Message` maps to exactly one wire message, so Freyja needs no reordering pass. `content` may also be a bare string as a shorthand for a single text block, which Freyja does not use.
 
 ### Only two roles exist
 
@@ -79,7 +79,7 @@ There is no `system` role and no `tool` role. System instructions go in the top 
 
 ### Content block types
 
-Input blocks Freya sends:
+Input blocks Freyja sends:
 
 ```json
 { "type": "text",  "text": "hello" }
@@ -89,9 +89,9 @@ Input blocks Freya sends:
 { "type": "tool_result", "tool_use_id": "toolu_...", "content": "42" }
 ```
 
-Images take a nested `source` object rather than a flat URL field, and the two source shapes are distinct. A `data:` URI is not a valid `url`, it has to be split into `media_type` and `data` and sent as `base64`. Freya does that split for you.
+Images take a nested `source` object rather than a flat URL field, and the two source shapes are distinct. A `data:` URI is not a valid `url`, it has to be split into `media_type` and `data` and sent as `base64`. Freyja does that split for you.
 
-`tool_result` also accepts `"is_error": true`, which tells the model the tool failed rather than returning that text as a result. Freya does not model this, so a failing tool should return its error as ordinary output text.
+`tool_result` also accepts `"is_error": true`, which tells the model the tool failed rather than returning that text as a result. Freyja does not model this, so a failing tool should return its error as ordinary output text.
 
 ## Tool calling
 
@@ -111,7 +111,7 @@ Images take a nested `source` object rather than a flat URL field, and the two s
 ]
 ```
 
-The schema field is `input_schema`, not `parameters` as on OpenAI and Gemini, and there is no `"type": "function"` wrapper because custom tools are the default. Anthropic-defined server tools do carry a versioned `type`, for example `web_search_20260209`, and Freya does not expose those.
+The schema field is `input_schema`, not `parameters` as on OpenAI and Gemini, and there is no `"type": "function"` wrapper because custom tools are the default. Anthropic-defined server tools do carry a versioned `type`, for example `web_search_20260209`, and Freyja does not expose those.
 
 Optional `"strict": true` guarantees the input validates exactly, and requires `additionalProperties: false` plus every property listed in `required`.
 
@@ -143,7 +143,7 @@ Any of them also accepts `"disable_parallel_tool_use": true`, which caps the mod
 
 One id, not two. OpenAI returns both an item `id` and a correlation `call_id` and you must quote back the second; here `id` is the correlation handle and there is nothing else to confuse it with.
 
-`input` is a **structured object**, like Gemini and unlike OpenAI. Freya stringifies it so `OutputContent::ToolCall::arguments` behaves the same everywhere.
+`input` is a **structured object**, like Gemini and unlike OpenAI. Freyja stringifies it so `OutputContent::ToolCall::arguments` behaves the same everywhere.
 
 ### The result, as sent back
 
@@ -151,7 +151,7 @@ One id, not two. OpenAI returns both an item `id` and a correlation `call_id` an
 { "type": "tool_result", "tool_use_id": "toolu_01A09q90qw90lq917835lq9", "content": "42" }
 ```
 
-The field is `tool_use_id`, a third spelling after OpenAI's `call_id` and Gemini's `call_id`. Unlike Gemini, the tool's `name` is **not** required alongside the result, so Freya does not need the transcript prepass that the Gemini mapping performs.
+The field is `tool_use_id`, a third spelling after OpenAI's `call_id` and Gemini's `call_id`. Unlike Gemini, the tool's `name` is **not** required alongside the result, so Freyja does not need the transcript prepass that the Gemini mapping performs.
 
 `content` is a string or an array of blocks. A bare number is not valid, but `"42"` is, so unlike Gemini there is no type restriction to work around beyond quoting it.
 
@@ -177,7 +177,7 @@ Two details specific to Anthropic:
 - **The text may be empty.** `thinking.display` defaults to `"omitted"` on current models, so blocks arrive with an empty `thinking` string. Replay them anyway; the signature is what matters. Set `"thinking": {"type": "adaptive", "display": "summarized"}` to get readable text.
 - **Replaying to a different model is safe.** Other models drop the block from the prompt rather than erroring, and it is not billed. Gemini, by contrast, hard fails.
 
-Freya handles all of this with `OutputContent::Reasoning { data }`, which preserves any block it does not model, and `GenerateResponse::to_message()`, which carries it into the next request. Append `response.to_message()` before your tool results and it works. See [Tool calling](../../reference/tools.md).
+Freyja handles all of this with `OutputContent::Reasoning { data }`, which preserves any block it does not model, and `GenerateResponse::to_message()`, which carries it into the next request. Append `response.to_message()` before your tool results and it works. See [Tool calling](../../reference/tools.md).
 
 ## Response body
 
@@ -206,7 +206,7 @@ Freya handles all of this with `OutputContent::Reasoning { data }`, which preser
 
 Output arrives in `content`, not `output` as on OpenAI or `steps` as on Gemini. The top level shape is the same object you echo back as an assistant message, which is why the round trip is simpler here.
 
-Everything Freya does not model, including `type`, `role`, `stop_sequence`, and `stop_details`, stays reachable through `response.provider_metadata`.
+Everything Freyja does not model, including `type`, `role`, `stop_sequence`, and `stop_details`, stays reachable through `response.provider_metadata`.
 
 ### Output block types
 
@@ -249,7 +249,7 @@ Unlike OpenAI, where a pending tool call still reports `"status": "completed"`, 
 
 **There is no `total_tokens` field**, and `input_tokens` is the *uncached remainder only*. The true prompt size is `input_tokens + cache_creation_input_tokens + cache_read_input_tokens`, which is 1110 in the example above rather than 10.
 
-Freya sums them into `Usage::input_tokens` and computes `total_tokens` itself. The raw fields stay in `provider_metadata`, which matters because the three are priced differently: a cache read costs roughly a tenth of an uncached input token, while a cache write costs roughly 1.25 times one.
+Freyja sums them into `Usage::input_tokens` and computes `total_tokens` itself. The raw fields stay in `provider_metadata`, which matters because the three are priced differently: a cache read costs roughly a tenth of an uncached input token, while a cache write costs roughly 1.25 times one.
 
 If `cache_read_input_tokens` is zero across requests that share a prefix, caching is silently not happening, usually because something volatile such as a timestamp sits early in the prompt.
 
@@ -263,7 +263,7 @@ If `cache_read_input_tokens` is zero across requests that share a prefix, cachin
 }
 ```
 
-Freya preserves the whole body in `ProviderError::Api` alongside the HTTP status. It does not parse the body into typed variants yet, so branch on the status code and read `body` when you need the detail. See [Errors](../../reference/errors.md).
+Freyja preserves the whole body in `ProviderError::Api` alongside the HTTP status. It does not parse the body into typed variants yet, so branch on the status code and read `body` when you need the detail. See [Errors](../../reference/errors.md).
 
 `error.type` is finer grained than the status code, for instance `billing_error` and `permission_error` both arrive as 403. Include `request_id` when reporting a problem to Anthropic, it traces the request end to end.
 
@@ -280,6 +280,6 @@ Freya preserves the whole body in `ProviderError::Api` alongside the HTTP status
 
 529 is specific to Anthropic and means the service is temporarily saturated rather than broken. Back off and retry rather than failing the request.
 
-## What Freya does not send
+## What Freyja does not send
 
 `stream`, `stop_sequences`, `top_k`, `container`, `mcp_servers`, `context_management`, `fallbacks`, `speed`, and `cache_control` are all left off. Prompt caching in particular is worth knowing about if your prompts are long and stable, and it is the most likely thing to be added next. See [Anthropic](../../providers/anthropic.md) for the capability table.

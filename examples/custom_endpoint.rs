@@ -1,6 +1,6 @@
-//! Reaching an endpoint Freya ships no preset for.
+//! Reaching an endpoint Freyja ships no preset for.
 //!
-//! Freya implements four wire dialects but ships presets only for the three
+//! Freyja implements four wire dialects but ships presets only for the three
 //! first-party vendors it tests against. Everything else, and that is most of
 //! the hosted inference market, is one `Client::custom` call away.
 //!
@@ -8,7 +8,7 @@
 //! DEEPSEEK_API_KEY=... cargo run --example custom_endpoint
 //! ```
 
-use freya::{Auth, Client, GenerateRequest, Message, ProviderConfig, ProviderDialect, Role};
+use freyja::{Auth, Client, GenerateRequest, Message, ProviderConfig, ProviderDialect, Role};
 
 #[tokio::main]
 async fn main() {

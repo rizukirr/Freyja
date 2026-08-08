@@ -4,21 +4,19 @@ From nothing to a working call, then to an agent.
 
 ## Install
 
-Freya is not published to crates.io yet, so depend on the repository:
+Freyja is not published to crates.io yet, so depend on the repository:
 
 ```toml
 [dependencies]
-freya-rs = { git = "https://github.com/rizukirr/Freya" }
+freyja = { git = "https://github.com/rizukirr/Freya" }
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ```
 
-The package is `freya-rs` because `freya` was taken on crates.io, but the library keeps the short name, so imports are `use freya::...` as written throughout these docs.
-
-You supply the async runtime. Freya exposes `async fn` and never spawns, so it pulls in no runtime of its own and brings three dependencies with it: `reqwest`, `serde`, `serde_json`.
+You supply the async runtime. Freyja exposes `async fn` and never spawns, so it pulls in no runtime of its own and brings three dependencies with it: `reqwest`, `serde`, `serde_json`.
 
 ## Set a key
 
-Freya reads credentials from the environment.
+Freyja reads credentials from the environment.
 
 | Provider | Variable |
 |---|---|
@@ -33,12 +31,12 @@ OPENAI_API_KEY=sk-...
 
 Those three are the whole built-in list, on purpose. Every other endpoint, DeepSeek, Groq, OpenRouter, a local Ollama, or your own gateway, is reached with [`Client::custom`](providers/custom.md) and is no less supported for it.
 
-Add `dotenvy` as a dev-dependency if you want `.env` loaded automatically, as the examples do. Nothing in Freya requires it.
+Add `dotenvy` as a dev-dependency if you want `.env` loaded automatically, as the examples do. Nothing in Freyja requires it.
 
 ## Your first call
 
 ```rust
-use freya::{Client, GenerateRequest, Message, ProviderType, Role};
+use freyja::{Client, GenerateRequest, Message, ProviderType, Role};
 
 #[tokio::main]
 async fn main() {
@@ -70,14 +68,14 @@ Change one line:
 let provider = ProviderType::Anthropic;
 ```
 
-Nothing else moves. Freya translates the same neutral request into a completely different wire format.
+Nothing else moves. Freyja translates the same neutral request into a completely different wire format.
 
 Portable does not mean identical, though. Each provider refuses a different slice of the request, so one using `tool_choice` fails on Gemini and one using `previous_response_id` fails on Anthropic. You get an error before the network call rather than a wrong answer. The [provider pages](providers/README.md) say which is which.
 
 ## Reach a provider that is not built in
 
 ```rust
-use freya::{Client, ProviderDialect};
+use freyja::{Client, ProviderDialect};
 
 let client = Client::custom(
     ProviderDialect::OpenAiChat,
@@ -87,7 +85,7 @@ let client = Client::custom(
 );
 ```
 
-Four things: which wire format, a name for error messages, the root URL, and the key. That one call covers most of the hosted inference market, because most vendors copy a format Freya already speaks. See [Custom providers](providers/custom.md).
+Four things: which wire format, a name for error messages, the root URL, and the key. That one call covers most of the hosted inference market, because most vendors copy a format Freyja already speaks. See [Custom providers](providers/custom.md).
 
 ## Add a tool
 

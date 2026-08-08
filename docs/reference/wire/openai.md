@@ -1,6 +1,6 @@
 # OpenAI wire format
 
-The native JSON of the OpenAI Responses API, as Freya speaks it. This page exists so you do not have to read OpenAI's documentation to understand what is going over the wire, or to debug a `ProviderError::Api` body.
+The native JSON of the OpenAI Responses API, as Freyja speaks it. This page exists so you do not have to read OpenAI's documentation to understand what is going over the wire, or to debug a `ProviderError::Api` body.
 
 The request shapes and the response payload below were captured from live calls.
 
@@ -33,7 +33,7 @@ This is the Responses API, not Chat Completions. The two are different endpoints
 }
 ```
 
-Only `model` and `input` are required. Freya omits every unset field rather than sending null.
+Only `model` and `input` are required. Freyja omits every unset field rather than sending null.
 
 Note the naming: `instructions` rather than a system message, `max_output_tokens` rather than `max_tokens`, and response format nested under `text.format` rather than at the top level.
 
@@ -59,7 +59,7 @@ Note the naming: `instructions` rather than a system message, `max_output_tokens
 }
 ```
 
-This flatness is the main structural difference from Gemini, which nests parts inside typed steps. One neutral `Message` holding both text and a tool call becomes two items here, and Freya splits it while preserving order.
+This flatness is the main structural difference from Gemini, which nests parts inside typed steps. One neutral `Message` holding both text and a tool call becomes two items here, and Freyja splits it while preserving order.
 
 ### Content block types differ by role
 
@@ -68,7 +68,7 @@ This flatness is the main structural difference from Gemini, which nests parts i
 | `user` | `input_text` |
 | `assistant`, replayed as input | `output_text` |
 
-Sending `input_text` on an assistant turn is wrong. Freya picks the right one from the role automatically.
+Sending `input_text` on an assistant turn is wrong. Freyja picks the right one from the role automatically.
 
 Images use a third type, and only on user turns:
 
@@ -112,7 +112,7 @@ With `"strict": true`, OpenAI requires `additionalProperties: false` and every p
 "tool_choice": { "type": "function", "name": "add" }
 ```
 
-A string for the first three, an object to name a specific tool. Freya maps `ToolChoice` onto these directly.
+A string for the first three, an object to name a specific tool. Freyja maps `ToolChoice` onto these directly.
 
 Be careful with `required` inside a loop. It forces a tool call on **every** round, so the model can never produce a final answer and the loop runs until your bound stops it. Use `auto` for agent loops.
 
@@ -129,9 +129,9 @@ Be careful with `required` inside a loop. It forces a tool call on **every** rou
 }
 ```
 
-Two ids, and the distinction matters. `id` identifies the output item. `call_id` is the correlation handle you quote back in `function_call_output`. Freya exposes `call_id` as `OutputContent::ToolCall::id`.
+Two ids, and the distinction matters. `id` identifies the output item. `call_id` is the correlation handle you quote back in `function_call_output`. Freyja exposes `call_id` as `OutputContent::ToolCall::id`.
 
-`arguments` is a **JSON string**, not an object, the opposite of Gemini. Freya keeps it as a string, so parse it yourself.
+`arguments` is a **JSON string**, not an object, the opposite of Gemini. Freyja keeps it as a string, so parse it yourself.
 
 ### The result, as sent back
 
@@ -141,13 +141,13 @@ Two ids, and the distinction matters. `id` identifies the output item. `call_id`
 
 `output` is a string. Unlike Gemini there is no type restriction, so a bare number formatted as a string is fine.
 
-The `function_call` item must be present in the transcript before its output. Freya emits both from `GenerateResponse::to_message()` plus `Message::tool_result()`.
+The `function_call` item must be present in the transcript before its output. Freyja emits both from `GenerateResponse::to_message()` plus `Message::tool_result()`.
 
 ## Reasoning items
 
 Reasoning models emit `reasoning` items in `output`. Like Gemini's thought signatures, these are opaque and are expected back unchanged on the following request when the conversation continues with tool results.
 
-Freya preserves any output item it does not model as `OutputContent::Reasoning { data }` and replays it verbatim, so this is handled without you doing anything. See [Tool calling](../../reference/tools.md).
+Freyja preserves any output item it does not model as `OutputContent::Reasoning { data }` and replays it verbatim, so this is handled without you doing anything. See [Tool calling](../../reference/tools.md).
 
 The alternative is `previous_response_id`, which lets OpenAI keep the transcript server side so nothing needs replaying.
 
@@ -189,7 +189,7 @@ Trimmed from a live call:
 }
 ```
 
-Everything Freya does not model, and that is most of the above, stays reachable through `response.provider_metadata`.
+Everything Freyja does not model, and that is most of the above, stays reachable through `response.provider_metadata`.
 
 ### Output item types
 
@@ -220,4 +220,4 @@ Field names map straight onto the neutral `Usage`. Reasoning models add `output_
 { "error": { "message": "Rate limit reached ...", "type": "rate_limit_error", "code": "rate_limit_exceeded" } }
 ```
 
-Freya preserves the whole body in `ProviderError::Api` alongside the HTTP status. It does not parse the body into typed variants yet, so branch on the status code and read `body` when you need the detail. See [Errors](../../reference/errors.md).
+Freyja preserves the whole body in `ProviderError::Api` alongside the HTTP status. It does not parse the body into typed variants yet, so branch on the status code and read `body` when you need the detail. See [Errors](../../reference/errors.md).

@@ -1,12 +1,12 @@
 //! Provider abstraction: one neutral model, several wire dialects, many endpoints.
 //!
-//! Freya separates *how* a request is serialized from *where* it is sent. A
+//! Freyja separates *how* a request is serialized from *where* it is sent. A
 //! [`ProviderDialect`] is a wire format, and a [`ProviderConfig`] is an endpoint
 //! that speaks one. That split is what lets a single dialect serve a dozen
 //! vendors: most hosted inference APIs are wire-compatible with either OpenAI or
 //! Anthropic, and differ only in base URL, credentials, and model names.
 //!
-//! Reach for [`ProviderType`] first, it names the endpoints Freya knows about.
+//! Reach for [`ProviderType`] first, it names the endpoints Freyja knows about.
 //! Drop to [`ProviderConfig`] when yours is not on that list.
 
 pub(crate) mod anthropic;
@@ -101,7 +101,7 @@ pub enum Auth {
 /// default when the caller does not say.
 ///
 /// ```
-/// use freya::{Auth, ProviderConfig, ProviderDialect};
+/// use freyja::{Auth, ProviderConfig, ProviderDialect};
 ///
 /// let config = ProviderConfig::new(ProviderDialect::Anthropic, "Z.ai", "https://api.z.ai/api/anthropic/v1")
 ///     .api_key_env("ZAI_API_KEY")
@@ -223,8 +223,8 @@ pub trait Provider: Send + Sync {
 /// prefer sharing one `Client` behind an `Arc` when you need it in several tasks.
 ///
 /// ```no_run
-/// # async fn run() -> Result<(), freya::ProviderError> {
-/// use freya::{Client, GenerateRequest, Message, ProviderType, Role};
+/// # async fn run() -> Result<(), freyja::ProviderError> {
+/// use freyja::{Client, GenerateRequest, Message, ProviderType, Role};
 ///
 /// let client = Client::from_env(ProviderType::OpenAi).unwrap();
 /// let response = client
@@ -270,14 +270,14 @@ impl Client {
         Self::build(config.into(), Some(api_key.into()), default_http())
     }
 
-    /// Creates a client for an endpoint Freya does not ship, in one call.
+    /// Creates a client for an endpoint Freyja does not ship, in one call.
     ///
     /// Shorthand for [`ProviderConfig::new`] followed by [`Client::new`]. Reach
     /// for the config builder directly when you also need a default model, a
     /// key variable, extra headers, or a non-conventional auth style.
     ///
     /// ```no_run
-    /// use freya::{Client, ProviderDialect};
+    /// use freyja::{Client, ProviderDialect};
     ///
     /// let client = Client::custom(
     ///     ProviderDialect::OpenAiChat,
