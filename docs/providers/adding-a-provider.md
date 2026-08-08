@@ -4,7 +4,7 @@ There are two different jobs behind that phrase, and they cost very different am
 
 | You want to reach | You need | Effort |
 |---|---|---|
-| A vendor whose API copies OpenAI or Anthropic | A **preset**, or nothing at all | One match arm |
+| A vendor whose API copies OpenAI or Anthropic | Nothing, just `Client::custom` | One call |
 | A vendor with its own wire format | A **dialect**, a new module | A day |
 
 Most hosted inference APIs fall in the first row. They copy an existing format so that existing client libraries work unchanged, so Freya usually already speaks to them and only needs the URL.
@@ -23,7 +23,7 @@ let client = Client::from_env(config).expect("GATEWAY_API_KEY");
 
 Full detail in [Custom endpoints](custom-endpoints.md).
 
-If the endpoint is widely used, add it to `src/provider/presets.rs` so others get it for free. That is one arm on `ProviderType::config()` and nothing else, no new module, no change to the neutral model, no change to any dialect. That file is the intended target for contributions.
+Do not send a pull request adding it to `src/provider/presets.rs`. That file covers the three first-party vendors Freya tests against, deliberately, because a preset is a standing promise that a URL and a default model are still current. Widely used endpoints belong in the table in [Custom endpoints](custom-endpoints.md), where the caveat that nothing verifies them can be stated honestly.
 
 ## Adding a dialect
 
@@ -142,15 +142,16 @@ pub enum ProviderDialect {
 }
 ```
 
-Then `path()`, `default_auth()`, and `required_headers()` each gain an arm, and `Client::generate` gains one dispatch arm. Add at least one preset in `presets.rs` so the dialect is reachable without hand-building a config.
+Then `path()`, `default_auth()`, and `required_headers()` each gain an arm, and `Client::generate` gains one dispatch arm. That is all. A preset is only warranted if the dialect belongs to a vendor Freya can test against, which so far means it usually is not.
 
 ### 7. Test it
 
-Conversion tests need a config. Use the preset, so the test covers the real defaults rather than invented ones:
+Conversion tests need a config. Build one the way a caller would, unless the dialect has a preset:
 
 ```rust
 fn config() -> ProviderConfig {
-    ProviderType::MyVendor.config()
+    ProviderConfig::new(ProviderDialect::MyDialect, "test-endpoint", "https://api.test/v1")
+        .default_model("test-model")
 }
 
 #[test]
@@ -164,7 +165,7 @@ Cover, at minimum: a plain request, a full tool round trip, capabilities the for
 
 ### 8. Verify it live
 
-**Offline tests prove Freya sends the JSON it meant to send, not that the vendor accepts it.** The Gemini dialect shipped with passing tests and three real bugs, including an input format that broke every multi-turn conversation. Point `src/main.rs` at the new endpoint and run the tool loop before calling it done.
+**Offline tests prove Freya sends the JSON it meant to send, not that the vendor accepts it.** The Gemini dialect shipped with passing tests and three real bugs, including an input format that broke every multi-turn conversation. Point `examples/tool_loop.rs` at the new endpoint and run `cargo run --example tool_loop` before calling it done.
 
 ### 9. Document it
 
@@ -179,6 +180,6 @@ Two pages, matching the existing ones: a mapping page with the capability table 
 
 ## If the neutral model does not fit
 
-Stop and reconsider before editing `model.rs`. Three dialects have landed without changing it, which is the main evidence the abstraction is holding.
+Stop and reconsider before editing `model.rs`. Four dialects have landed without changing it, which is the main evidence the abstraction is holding.
 
 The one time it did change was for opaque reasoning state, where Gemini, OpenAI, and Anthropic all independently require signed blocks replayed verbatim. That is the bar: a requirement that shows up in several vendors and cannot be expressed any other way. A field only one vendor wants belongs in `provider_metadata`.

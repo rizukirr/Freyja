@@ -111,6 +111,16 @@ Builder methods exist for every field: `model`, `message`, `messages`, `extend_m
 
 Implements `Display` and `std::error::Error`.
 
+### Examples
+
+Freya is a library with no binary. Runnable code lives in `examples/`, so `tokio` and `dotenvy` stay in `[dev-dependencies]` and a consumer inherits only `reqwest`, `serde`, and `serde_json`.
+
+| Example | Shows |
+|---|---|
+| `tool_loop` | A bounded one tool agent loop, the pattern every larger agent is built from |
+| `simple` | One question, one answer, with no optional fields set |
+| `custom_endpoint` | Reaching an endpoint Freya ships no preset for |
+
 ### Transport
 
 - One pooled `reqwest::Client` per `Client`, with a 120 second default timeout, connections are reused instead of rebuilt per request.
@@ -171,7 +181,7 @@ async fn main() {
 }
 ```
 
-`src/main.rs` contains a runnable version with a bounded multi-round loop and real error handling.
+`examples/tool_loop.rs` contains a runnable version with a bounded multi-round loop and real error handling. Run it with `cargo run --example tool_loop`.
 
 ---
 
@@ -273,7 +283,9 @@ Prompt-template DSLs, a built-in vector database, a web UI or server, fine-tunin
 ```bash
 cargo build
 cargo test
-cargo run          # runs the example in src/main.rs (needs OPENAI_API_KEY)
+cargo run --example tool_loop      # a one tool agent loop (needs OPENAI_API_KEY)
+cargo run --example simple         # one question, one answer
+cargo run --example custom_endpoint # an endpoint Freya ships no preset for
 cargo clippy --all-targets
 ```
 

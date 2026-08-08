@@ -1,7 +1,15 @@
-//! Example: a one-tool agent loop.
+//! A one-tool agent loop, the pattern every larger agent is built from.
 //!
 //! Asks a question the model cannot answer alone, executes the tool it asks
 //! for, feeds the result back, and prints the final answer.
+//!
+//! ```sh
+//! cargo run --example tool_loop
+//! ```
+//!
+//! Swap `ProviderType::OpenAi` below for `Gemini` or `Anthropic` to run the
+//! same code against a different vendor. Nothing else changes, which is the
+//! point of the neutral model.
 
 use freya::{Client, GenerateRequest, Message, OutputContent, ProviderType, Role, ToolDefinition};
 use serde_json::Value;

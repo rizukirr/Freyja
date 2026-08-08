@@ -87,7 +87,7 @@ invalid request for DeepSeek: each tool message may answer only one tool call;
 send one message per result
 ```
 
-`Message::tool_result` builds exactly one per call, so the loop in `main.rs` already does the right thing. This only bites if you hand-assemble a tool turn.
+`Message::tool_result` builds exactly one per call, so the loop in `examples/tool_loop.rs` already does the right thing. This only bites if you hand-assemble a tool turn.
 
 ## Reasoning blocks are dropped, not replayed
 

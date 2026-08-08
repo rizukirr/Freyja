@@ -256,8 +256,8 @@ What it does not cover, and what is therefore still only as good as the offline 
 
 The thinking gap is the one worth knowing about, since it is the failure mode that cost the most on Gemini. The replay path is shared with Gemini and covered by `preserves_thinking_blocks_in_place`, but a signed Anthropic block has never made a round trip.
 
-To re-check after changes, point `src/main.rs` at the endpoint and run the tool loop:
+To re-check after changes, point `examples/tool_loop.rs` at the endpoint and run it:
 
-```rust
-let provider = ProviderType::Anthropic;
+```sh
+cargo run --example tool_loop
 ```

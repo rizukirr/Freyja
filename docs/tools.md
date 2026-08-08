@@ -129,7 +129,7 @@ Order matters too. The assistant turn has to come before the results.
 
 ## A complete loop
 
-This is the pattern in `src/main.rs`, reduced to its essentials:
+This is the pattern in `examples/tool_loop.rs`, reduced to its essentials:
 
 ```rust
 let mut request = GenerateRequest::new()

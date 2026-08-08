@@ -3,26 +3,32 @@
 ## Layout
 
 ```
-src/
-├── lib.rs                  # crate docs, public re-exports, #![deny(missing_docs)]
-├── main.rs                 # runnable example, a one tool agent loop
-└── provider/
-    ├── mod.rs              # ProviderDialect, ProviderConfig, Auth, Provider, Client
-    ├── model.rs            # the neutral request, response, and error types
-    ├── presets.rs          # ProviderType, the endpoints Freya ships
-    ├── openai_responses/   # dialect: /v1/responses
-    │   ├── mod.rs          # the Provider impl, about 25 lines
-    │   └── types.rs        # wire types and conversions
-    ├── openai_chat/        # dialect: /chat/completions, the compatible one
-    │   ├── mod.rs
-    │   └── types.rs
-    ├── gemini/             # dialect: /v1beta/interactions
-    │   ├── mod.rs
-    │   └── types.rs
-    └── anthropic/          # dialect: /v1/messages
-        ├── mod.rs
-        └── types.rs
+├── Cargo.toml              # three runtime deps: reqwest, serde, serde_json
+├── examples/               # runnable, compiled by cargo test
+│   ├── tool_loop.rs        # the one tool agent loop
+│   ├── simple.rs           # one question, one answer
+│   └── custom_endpoint.rs  # an endpoint with no preset
+└── src/
+    ├── lib.rs              # crate docs, public re-exports, #![deny(missing_docs)]
+    └── provider/
+        ├── mod.rs          # ProviderDialect, ProviderConfig, Auth, Provider, Client
+        ├── model.rs        # the neutral request, response, and error types
+        ├── presets.rs      # ProviderType, the endpoints Freya ships
+        ├── openai_responses/   # dialect: /v1/responses
+        │   ├── mod.rs      # the Provider impl, about 25 lines
+        │   └── types.rs    # wire types and conversions
+        ├── openai_chat/    # dialect: /chat/completions, the compatible one
+        │   ├── mod.rs
+        │   └── types.rs
+        ├── gemini/         # dialect: /v1beta/interactions
+        │   ├── mod.rs
+        │   └── types.rs
+        └── anthropic/      # dialect: /v1/messages
+            ├── mod.rs
+            └── types.rs
 ```
+
+There is no `main.rs`. Freya is a library, so the runnable code lives in `examples/`, which keeps the binary out of downstream builds and keeps `tokio` and `dotenvy` in `[dev-dependencies]` where a consumer does not inherit them.
 
 Dialect modules are `pub(crate)`. Their wire types never escape the crate, so `types::Request` and everything like it are invisible to callers. The only thing consumers see is the neutral model.
 

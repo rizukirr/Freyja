@@ -78,10 +78,10 @@ Requests stay portable as long as you do not ask for a capability the target pro
 
 ## Run the bundled example
 
-`src/main.rs` is a working one tool agent loop. It asks a question the model cannot answer alone, runs the tool the model requests, feeds the result back, and prints the final answer:
+`examples/tool_loop.rs` is a working one tool agent loop. It asks a question the model cannot answer alone, runs the tool the model requests, feeds the result back, and prints the final answer:
 
 ```bash
-cargo run
+cargo run --example tool_loop
 ```
 
 It needs `OPENAI_API_KEY`. Read [Tool calling](tools.md) for how it works.
