@@ -8,9 +8,11 @@ Freya is not published to crates.io yet, so depend on the repository:
 
 ```toml
 [dependencies]
-freya = { git = "https://github.com/rizukirr/Freya" }
+freya-rs = { git = "https://github.com/rizukirr/Freya" }
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ```
+
+The package is `freya-rs` because `freya` was taken on crates.io, but the library keeps the short name, so imports are `use freya::...` as written throughout these docs.
 
 You supply the async runtime. Freya exposes `async fn` and never spawns, so it pulls in no runtime of its own and brings three dependencies with it: `reqwest`, `serde`, `serde_json`.
 

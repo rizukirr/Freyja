@@ -18,7 +18,7 @@ That matters because every vendor invented a different shape for the same ideas.
 
 ```toml
 [dependencies]
-freya = { git = "https://github.com/rizukirr/Freya" }
+freya-rs = { git = "https://github.com/rizukirr/Freya" }
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ```
 
