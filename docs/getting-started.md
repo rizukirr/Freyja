@@ -12,6 +12,8 @@ freyja = { git = "https://github.com/rizukirr/Freyja" }
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ```
 
+Requires Rust 1.86 or later, a floor set by the dependency tree rather than by Freyja's own code.
+
 You supply the async runtime. Freyja exposes `async fn` and never spawns, so it pulls in no runtime of its own and brings three dependencies with it: `reqwest`, `serde`, `serde_json`.
 
 ## Set a key

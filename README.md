@@ -101,7 +101,7 @@ cargo clippy --all-targets -- -D warnings
 cargo fmt --check
 ```
 
-Rust edition 2024. `tokio` and `dotenvy` are dev-dependencies used only by the examples, so a consumer does not inherit them.
+Rust edition 2024, minimum toolchain 1.86, verified in CI. `tokio` and `dotenvy` are dev-dependencies used only by the examples, so a consumer does not inherit them.
 
 Contributions: [Architecture](docs/internals/architecture.md) explains the layout, [Adding a dialect](docs/internals/adding-a-dialect.md) covers new wire formats, and reaching a new vendor usually needs no code at all, see [Custom providers](docs/providers/custom.md).
 

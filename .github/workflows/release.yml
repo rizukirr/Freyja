@@ -1,0 +1,73 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing tag to build a release for
+        required: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  verify:
+    name: Verify (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: true
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+      - run: cargo build --release --all-targets
+      - run: cargo test --all-features
+
+  package:
+    name: Package
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      # Refuse to release a tag that disagrees with Cargo.toml.
+      - name: Check tag matches the crate version
+        run: |
+          tag="${{ inputs.tag || github.ref_name }}"
+          crate="v$(grep '^version' Cargo.toml | head -1 | cut -d'"' -f2)"
+          if [ "$tag" != "$crate" ]; then
+            echo "tag $tag does not match Cargo.toml $crate"
+            exit 1
+          fi
+
+      # A library's distributable is the .crate file, the same archive
+      # cargo publish uploads. There is no executable to ship.
+      - run: cargo package
+      - name: Attach the crate archive to the release
+        run: gh release upload "${{ inputs.tag || github.ref_name }}" target/package/*.crate --clobber
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+  publish:
+    name: Publish to crates.io
+    needs: package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+      # Skipped silently when the token is not configured, so tagging a release
+      # does not fail for anyone who has not set the secret.
+      - name: Publish
+        if: env.CARGO_REGISTRY_TOKEN != ''
+        run: cargo publish
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
