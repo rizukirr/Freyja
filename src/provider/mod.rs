@@ -160,15 +160,6 @@ impl ProviderConfig {
         self
     }
 
-    /// Names the environment variable, treating an empty name as "none".
-    ///
-    /// Convenient for presets, where a keyless endpoint reports an empty
-    /// variable rather than needing a separate constructor.
-    pub fn api_key_env_opt(mut self, variable: &'static str) -> Self {
-        self.api_key_env = (!variable.is_empty()).then_some(variable);
-        self
-    }
-
     /// Sets the model used when a request does not name one.
     pub fn default_model(mut self, model: impl Into<String>) -> Self {
         self.default_model = Some(model.into());
@@ -435,7 +426,12 @@ mod tests {
 
         // The distinction between "no key" and "a key I will not show you"
         // stays visible, since it is the usual cause of a 401.
-        let keyless = Client::without_key(ProviderType::Ollama);
+        let local = ProviderConfig::new(
+            ProviderDialect::OpenAiChat,
+            "local",
+            "http://localhost:11434/v1",
+        );
+        let keyless = Client::without_key(local);
         assert!(format!("{keyless:?}").contains("<none>"));
     }
 

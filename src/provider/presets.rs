@@ -1,11 +1,16 @@
 //! Endpoints Freya ships knowledge of.
 //!
-//! A preset is nothing but a [`ProviderConfig`] with the URL, auth style, key
-//! variable, and default model filled in. Adding a vendor here is a few lines
-//! and touches nothing else, which is the point of separating dialect from
-//! endpoint.
+//! Deliberately only the three first-party vendors whose dialects Freya
+//! implements and tests against. A preset is a standing promise that a base URL
+//! and a default model are still current, and third-party endpoints change both
+//! faster than this crate could verify. Shipping a stale preset is worse than
+//! shipping none, because it fails at the vendor with a confusing 404 rather
+//! than locally with a clear message.
 //!
-//! Anything not listed still works, build the config yourself:
+//! Every other endpoint is reachable, and no less supported for being absent.
+//! Most copy one of these three wire formats, so they need a [`ProviderConfig`]
+//! and nothing more. See the compatible-endpoint list in
+//! `docs/providers/custom-endpoints.md`.
 //!
 //! ```
 //! use freya::{ProviderConfig, ProviderDialect};
@@ -20,7 +25,7 @@
 //!     .default_model("claude-opus-5");
 //! ```
 
-use super::{Auth, ProviderConfig, ProviderDialect};
+use super::{ProviderConfig, ProviderDialect};
 
 /// A known endpoint.
 ///
@@ -34,38 +39,15 @@ pub enum ProviderType {
     Gemini,
     /// Anthropic Claude, via the Messages API.
     Anthropic,
-    /// DeepSeek, via its OpenAI-compatible endpoint.
-    DeepSeek,
-    /// Groq, via its OpenAI-compatible endpoint.
-    Groq,
-    /// Together AI, via its OpenAI-compatible endpoint.
-    Together,
-    /// OpenRouter, via its OpenAI-compatible endpoint.
-    OpenRouter,
-    /// A local Ollama server, via its OpenAI-compatible endpoint.
-    ///
-    /// Needs no credentials, so [`Client::without_key`] and
-    /// [`Client::from_env`] both work.
-    ///
-    /// [`Client::without_key`]: super::Client::without_key
-    /// [`Client::from_env`]: super::Client::from_env
-    Ollama,
 }
 
 impl ProviderType {
     /// The conventional environment variable holding this endpoint's API key.
-    ///
-    /// Empty for endpoints that need none.
     pub fn api_key_env(self) -> &'static str {
         match self {
             Self::OpenAi => "OPENAI_API_KEY",
             Self::Gemini => "GEMINI_API_KEY",
             Self::Anthropic => "ANTHROPIC_API_KEY",
-            Self::DeepSeek => "DEEPSEEK_API_KEY",
-            Self::Groq => "GROQ_API_KEY",
-            Self::Together => "TOGETHER_API_KEY",
-            Self::OpenRouter => "OPENROUTER_API_KEY",
-            Self::Ollama => "",
         }
     }
 
@@ -75,9 +57,6 @@ impl ProviderType {
             Self::OpenAi => ProviderDialect::OpenAiResponses,
             Self::Gemini => ProviderDialect::Gemini,
             Self::Anthropic => ProviderDialect::Anthropic,
-            Self::DeepSeek | Self::Groq | Self::Together | Self::OpenRouter | Self::Ollama => {
-                ProviderDialect::OpenAiChat
-            }
         }
     }
 
@@ -102,43 +81,8 @@ impl ProviderType {
                 "https://api.anthropic.com/v1",
             )
             .default_model("claude-opus-5"),
-
-            // Everything below speaks OpenAiChat. Each is one arm and nothing
-            // else, no module and no change to the neutral model, which is the
-            // point of separating dialect from endpoint.
-            //
-            // Model catalogues on these endpoints change often, so only
-            // DeepSeek carries a default. Elsewhere, set `model` on the request
-            // and get a clear local error if you forget.
-            Self::DeepSeek => ProviderConfig::new(
-                ProviderDialect::OpenAiChat,
-                "DeepSeek",
-                "https://api.deepseek.com/v1",
-            )
-            .default_model("deepseek-chat"),
-            Self::Groq => ProviderConfig::new(
-                ProviderDialect::OpenAiChat,
-                "Groq",
-                "https://api.groq.com/openai/v1",
-            ),
-            Self::Together => ProviderConfig::new(
-                ProviderDialect::OpenAiChat,
-                "Together",
-                "https://api.together.xyz/v1",
-            ),
-            Self::OpenRouter => ProviderConfig::new(
-                ProviderDialect::OpenAiChat,
-                "OpenRouter",
-                "https://openrouter.ai/api/v1",
-            ),
-            Self::Ollama => ProviderConfig::new(
-                ProviderDialect::OpenAiChat,
-                "Ollama",
-                "http://localhost:11434/v1",
-            )
-            .auth(Auth::None),
         }
-        .api_key_env_opt(self.api_key_env())
+        .api_key_env(self.api_key_env())
     }
 }
 
@@ -152,48 +96,29 @@ impl From<ProviderType> for ProviderConfig {
 mod tests {
     use super::*;
 
-    const ALL: [ProviderType; 8] = [
+    const ALL: [ProviderType; 3] = [
         ProviderType::OpenAi,
         ProviderType::Gemini,
         ProviderType::Anthropic,
-        ProviderType::DeepSeek,
-        ProviderType::Groq,
-        ProviderType::Together,
-        ProviderType::OpenRouter,
-        ProviderType::Ollama,
     ];
 
     #[test]
-    fn every_preset_is_coherent() {
+    fn every_preset_is_fully_populated() {
         for preset in ALL {
             let config = preset.config();
-            assert!(config.base_url.starts_with("http"), "{preset:?}");
+            assert!(config.base_url.starts_with("https://"), "{preset:?}");
+            assert!(config.default_model.is_some(), "{preset:?}");
+            assert_eq!(config.api_key_env, Some(preset.api_key_env()), "{preset:?}");
             assert_eq!(config.dialect, preset.dialect(), "{preset:?}");
-
-            // A keyless endpoint names no variable and needs no key.
-            if preset.api_key_env().is_empty() {
-                assert_eq!(config.auth, Auth::None, "{preset:?}");
-                assert_eq!(config.api_key_env, None, "{preset:?}");
-            } else {
-                assert_eq!(config.api_key_env, Some(preset.api_key_env()), "{preset:?}");
-            }
         }
     }
 
     #[test]
-    fn most_presets_reuse_a_dialect_rather_than_adding_one() {
-        let chat = ALL
-            .iter()
-            .filter(|p| p.dialect() == ProviderDialect::OpenAiChat)
-            .count();
-
-        // The whole point of the split: one mapping, many endpoints.
-        assert!(chat >= 5, "expected OpenAiChat to serve several endpoints");
-    }
-
-    #[test]
-    fn keyless_endpoints_build_a_client_from_env() {
-        assert!(super::super::Client::from_env(ProviderType::Ollama).is_some());
+    fn presets_cover_only_first_party_vendors() {
+        // Third-party endpoints are reached through ProviderConfig, not shipped
+        // here, so this list stays short on purpose. Adding to it means taking
+        // on responsibility for a URL and a model name Freya does not test.
+        assert_eq!(ALL.len(), 3);
     }
 
     #[test]

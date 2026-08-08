@@ -395,11 +395,16 @@ pub(crate) fn parse(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::provider::ProviderType;
-
-    /// A shipped endpoint speaking this dialect, so tests cover real defaults.
+    /// A stand-in endpoint. This dialect ships no preset, because the vendors
+    /// speaking it are third party, so the test builds the config the same way
+    /// a caller would.
     fn config() -> ProviderConfig {
-        ProviderType::DeepSeek.config()
+        ProviderConfig::new(
+            ProviderDialect::OpenAiChat,
+            "test-endpoint",
+            "https://api.test/v1",
+        )
+        .default_model("test-model")
     }
 
     #[test]

@@ -35,15 +35,15 @@ Full reference lives in [`docs/`](docs/README.md), one page per feature: [gettin
 | OpenAI provider (Responses API) | Implemented |
 | Gemini provider (Interactions API) | Implemented and verified live, partial capability coverage |
 | Anthropic provider (Messages API) | Implemented and verified live |
-| OpenAI Chat Completions dialect | Implemented and verified live on DeepSeek |
-| Compatible endpoints | DeepSeek, Groq, Together, OpenRouter, Ollama presets |
+| OpenAI Chat Completions dialect | Implemented and verified live, no preset by design |
+| Compatible endpoints | Reached with `Client::custom`, not shipped as presets |
 | Function / tool calling | Full round trip, verified live on four endpoints |
 | Pooled HTTP client, timeouts | Implemented |
 | Rustdoc on the public API | `#![deny(missing_docs)]` |
 | Streaming | Not started |
 | Agent loop, memory, orchestration | Not started |
 
-**Phase 0 is complete**, and the Anthropic backend proved it: adding a third dialect touched one new module and two enum arms, with no edits to the neutral model. `cargo test`: 55 unit tests + 7 doctests, all passing. OpenAI, Gemini, Anthropic, and DeepSeek each complete a real tool round trip end to end. `cargo clippy --all-targets -- -D warnings` is clean.
+**Phase 0 is complete**, and the Anthropic backend proved it: adding a third dialect touched one new module and two enum arms, with no edits to the neutral model. `cargo test`: 54 unit tests + 7 doctests, all passing. OpenAI, Gemini, Anthropic, and a DeepSeek endpoint reached with `Client::custom` each complete a real tool round trip end to end. `cargo clippy --all-targets -- -D warnings` is clean.
 
 ---
 
@@ -127,7 +127,7 @@ Implements `Display` and `std::error::Error`.
 OPENAI_API_KEY=sk-...
 # GEMINI_API_KEY=...
 # ANTHROPIC_API_KEY=sk-ant-...
-# DEEPSEEK_API_KEY=...  # or GROQ_API_KEY, TOGETHER_API_KEY, OPENROUTER_API_KEY
+# any other endpoint is reached with Client::custom, no key variable convention needed
 ```
 
 ```rust
@@ -210,7 +210,7 @@ The MVP target: *everything you need to build an AI agent*, a developer can defi
 - [x] **Anthropic provider** (Messages API) as the third dialect, an additive change as predicted: one module and two enum arms, no edits to the neutral model
 - [x] **Verify the Anthropic provider against the live API**, prompt to tool call to result to answer, the same bar the other two cleared
 - [x] **Separate wire dialect from endpoint** so one mapping serves every compatible vendor, with `ProviderConfig` carrying base URL, auth, key variable, and default model
-- [x] **OpenAI Chat Completions dialect**, the format the compatible ecosystem actually speaks, with presets for DeepSeek, Groq, Together, OpenRouter, and Ollama
+- [x] **OpenAI Chat Completions dialect**, the format the compatible ecosystem actually speaks, reached through `Client::custom` rather than shipped presets
 - [ ] **Streaming**: `generate_stream` returning a `Stream<Item = StreamEvent>`
 (text deltas, tool-call deltas, usage, completion)
 - [ ] **Capability introspection**: `Provider::capabilities()` so callers can query

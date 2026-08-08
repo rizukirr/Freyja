@@ -65,7 +65,13 @@ pub fn without_key(config: impl Into<ProviderConfig>) -> Self
 For endpoints that need no credentials, such as a local Ollama or vLLM server.
 
 ```rust
-let client = Client::without_key(ProviderType::Ollama);
+let config = ProviderConfig::new(
+    ProviderDialect::OpenAiChat,
+    "ollama",
+    "http://localhost:11434/v1",
+);
+
+let client = Client::without_key(config);
 ```
 
 ### `Client::from_env`
@@ -145,18 +151,15 @@ For pointing Freya at an endpoint it does not ship, see [Custom endpoints](provi
 
 ```rust
 pub enum ProviderType {
-    OpenAi,       // OpenAiResponses
+    OpenAi,     // OpenAiResponses
     Gemini,
     Anthropic,
-    DeepSeek,     // the five below all speak OpenAiChat
-    Groq,
-    Together,
-    OpenRouter,
-    Ollama,       // needs no key
 }
 ```
 
 Derives `Debug`, `Clone`, `Copy`, `PartialEq`, `Eq`.
+
+Only first-party vendors appear here. Freya implements a fourth dialect, `OpenAiChat`, with no preset at all, because every endpoint speaking it is third party. Reach those with `Client::custom`, see [Custom endpoints](providers/custom-endpoints.md).
 
 ### `api_key_env`
 
@@ -164,7 +167,7 @@ Derives `Debug`, `Clone`, `Copy`, `PartialEq`, `Eq`.
 pub fn api_key_env(self) -> &'static str
 ```
 
-The conventional environment variable for this endpoint, `OPENAI_API_KEY`, `DEEPSEEK_API_KEY`, and so on. Used by `Client::from_env`, and useful on its own for error messages and startup checks. Empty for `Ollama`, which needs no credentials; `from_env` succeeds for it anyway.
+The conventional environment variable for this endpoint, `OPENAI_API_KEY`, `GEMINI_API_KEY`, or `ANTHROPIC_API_KEY`. Used by `Client::from_env`, and useful on its own for error messages and startup checks.
 
 ### `dialect` and `config`
 

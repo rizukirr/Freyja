@@ -46,6 +46,37 @@ let client = Client::from_env(config).expect("GATEWAY_API_KEY");
 
 `base_url` is the **root**. The dialect appends its own path, `/messages` here, so do not include it yourself. Check with `config.url()` if you are unsure.
 
+## Known compatible endpoints
+
+Starting points, not guarantees. These were correct when written and are **not** verified by any test in this crate, which is exactly why they are documentation rather than presets. Check the vendor's current docs before relying on one.
+
+| Endpoint | Dialect | Base URL | Key variable |
+|---|---|---|---|
+| DeepSeek | `OpenAiChat` | `https://api.deepseek.com/v1` | `DEEPSEEK_API_KEY` |
+| Groq | `OpenAiChat` | `https://api.groq.com/openai/v1` | `GROQ_API_KEY` |
+| Together | `OpenAiChat` | `https://api.together.xyz/v1` | `TOGETHER_API_KEY` |
+| OpenRouter | `OpenAiChat` | `https://openrouter.ai/api/v1` | `OPENROUTER_API_KEY` |
+| Ollama | `OpenAiChat` | `http://localhost:11434/v1` | none |
+| vLLM, LM Studio | `OpenAiChat` | your own host | usually none |
+
+Fireworks, xAI, Mistral, and Gemini's own OpenAI-compatible endpoint speak `OpenAiChat` too. Several vendors offer drop-in Claude endpoints that speak `Anthropic`.
+
+Model names are omitted on purpose. They change most often of all, and a wrong one is the single most likely reason a first request fails.
+
+## Local runtimes need no key
+
+```rust
+let config = ProviderConfig::new(
+    ProviderDialect::OpenAiChat,
+    "ollama",
+    "http://localhost:11434/v1",
+);
+
+let client = Client::without_key(config);
+```
+
+`without_key` sends no credentials regardless of the config's `auth`, so there is nothing else to set. Add `.auth(Auth::None)` only if you also want `Client::from_env` to succeed for that endpoint.
+
 ## The fields
 
 | Field | Required | Notes |

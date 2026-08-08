@@ -2,9 +2,9 @@
 
 Reference for everything currently available in Freya. Each page covers one feature and can be read on its own.
 
-Freya is at Phase 0: the provider neutral core is stable, four wire dialects are implemented reaching eight shipped endpoints, and tool calling works end to end. There is no agent loop, memory, or orchestration layer yet. See the roadmap in the top level [README](../README.md) for what is planned.
+Freya is at Phase 0: the provider neutral core is stable, four wire dialects are implemented, and tool calling works end to end. Presets cover the three first-party vendors; every compatible endpoint is reached with `Client::custom`. There is no agent loop, memory, or orchestration layer yet. See the roadmap in the top level [README](../README.md) for what is planned.
 
-OpenAI, Gemini, Anthropic, and DeepSeek each complete a real tool round trip against the live API. Coverage beyond that varies per provider, see each provider page.
+OpenAI, Gemini, Anthropic, and a DeepSeek endpoint reached with `Client::custom` each complete a real tool round trip against the live API. Coverage beyond that varies per provider, see each provider page.
 
 ## Start here
 

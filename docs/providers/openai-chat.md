@@ -12,23 +12,24 @@ The dialect the compatible ecosystem speaks. One mapping, many endpoints.
 
 This is not the same as the [OpenAI](openai.md) page. That one covers OpenAI's own Responses API, which is OpenAI-specific. This page covers Chat Completions, which almost every third party vendor implements, and which OpenAI also still serves.
 
-## Endpoints that ship with Freya
+## There is no preset for this dialect
+
+Freya ships presets only for the three first-party vendors it tests against. Every endpoint speaking this dialect is third party, so you point at it yourself:
 
 ```rust
-let client = Client::from_env(ProviderType::DeepSeek).expect("DEEPSEEK_API_KEY");
+let client = Client::custom(
+    ProviderDialect::OpenAiChat,
+    "DeepSeek",
+    "https://api.deepseek.com/v1",
+    std::env::var("DEEPSEEK_API_KEY")?,
+);
 ```
 
-| Preset | Base URL | Key variable | Default model |
-|---|---|---|---|
-| `DeepSeek` | `https://api.deepseek.com/v1` | `DEEPSEEK_API_KEY` | `deepseek-chat` |
-| `Groq` | `https://api.groq.com/openai/v1` | `GROQ_API_KEY` | none |
-| `Together` | `https://api.together.xyz/v1` | `TOGETHER_API_KEY` | none |
-| `OpenRouter` | `https://openrouter.ai/api/v1` | `OPENROUTER_API_KEY` | none |
-| `Ollama` | `http://localhost:11434/v1` | none | none |
+That is not a lesser path. A preset is only a `ProviderConfig` with the fields filled in, and this dialect works identically either way.
 
-Only DeepSeek carries a default model. Model catalogues on the others change often enough that a shipped default would go stale and produce a confusing 404, so set `model` on the request or `default_model` on the config. Forgetting fails locally with a clear message rather than at the endpoint.
+The reason is maintenance honesty rather than effort. A preset is a standing promise that a base URL and a default model are still current, and these vendors change both faster than this crate could verify. A stale preset fails at the vendor with a confusing 404; a missing one fails locally with a clear message, or does not fail at all because you supplied the current URL.
 
-Anything not listed works too, see [Custom endpoints](custom-endpoints.md). Fireworks, vLLM, LM Studio, xAI, Mistral, and Gemini's own OpenAI-compatible endpoint all speak this format.
+[Custom endpoints](custom-endpoints.md) has a table of base URLs to start from, and covers keyless local runtimes.
 
 ## Capability support
 
@@ -43,7 +44,7 @@ Anything not listed works too, see [Custom endpoints](custom-endpoints.md). Fire
 | `response_format` | yes | All three variants map |
 | Tool declarations | yes | Nested under a `function` key |
 | `tool_choice` | yes | |
-| Tool round trip | yes | Verified live on DeepSeek |
+| Tool round trip | yes | Verified live against DeepSeek |
 | `previous_response_id` | **no** | Rejected with `UnsupportedCapability` |
 | `metadata` | yes | Forwarded unchanged |
 | Usage reporting | yes | Field names normalized |

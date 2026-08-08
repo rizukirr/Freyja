@@ -27,11 +27,8 @@ Freya reads keys from the environment. The variable name per provider is given b
 | `ProviderType::OpenAi` | `OPENAI_API_KEY` |
 | `ProviderType::Gemini` | `GEMINI_API_KEY` |
 | `ProviderType::Anthropic` | `ANTHROPIC_API_KEY` |
-| `ProviderType::DeepSeek` | `DEEPSEEK_API_KEY` |
-| `ProviderType::Groq` | `GROQ_API_KEY` |
-| `ProviderType::Together` | `TOGETHER_API_KEY` |
-| `ProviderType::OpenRouter` | `OPENROUTER_API_KEY` |
-| `ProviderType::Ollama` | none, it is a local server |
+
+Those three are the whole list, on purpose. Freya implements four wire dialects but ships presets only for the vendors it tests against, because a preset is a standing promise that a URL and a model name are current. Every other endpoint, DeepSeek, Groq, OpenRouter, a local Ollama, or your own gateway, is reached with [`Client::custom`](providers/custom-endpoints.md) and is no less supported for it.
 
 Put them in a `.env` file at the project root:
 
