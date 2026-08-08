@@ -35,7 +35,7 @@ Derives `Debug`, `Clone`, `Copy`, `Serialize`, `Deserialize`, `PartialEq`, `Eq`.
 
 ### System and developer turns are hoisted
 
-Neither provider sends these as ordinary turns. Each one lifts them into its native system instruction field, `instructions` for OpenAI and `system_instruction` for Gemini. When there are several, their text is joined with a blank line between them, in the order you supplied.
+No provider sends these as ordinary turns. Each one lifts them into its native system instruction field, `instructions` for OpenAI, `system_instruction` for Gemini, and `system` for Anthropic. When there are several, their text is joined with a blank line between them, in the order you supplied.
 
 Position in the message list does not matter for these two roles, so a system turn placed halfway through a transcript still applies to the whole conversation. Keep them at the front anyway, so the transcript reads the way it behaves.
 

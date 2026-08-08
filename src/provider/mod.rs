@@ -1,5 +1,6 @@
 //! Provider abstraction: one neutral model, many vendor backends.
 
+pub(crate) mod anthropic;
 pub(crate) mod gemini;
 pub(crate) mod openai;
 
@@ -10,6 +11,7 @@ pub use model::*;
 use std::future::Future;
 use std::time::Duration;
 
+use anthropic::AnthropicProvider;
 use gemini::GeminiProvider;
 use openai::OpenAiProvider;
 
@@ -41,6 +43,8 @@ pub enum ProviderType {
     OpenAi,
     /// Google Gemini, via the Interactions API.
     Gemini,
+    /// Anthropic Claude, via the Messages API.
+    Anthropic,
 }
 
 impl ProviderType {
@@ -49,6 +53,7 @@ impl ProviderType {
         match self {
             Self::OpenAi => "OPENAI_API_KEY",
             Self::Gemini => "GEMINI_API_KEY",
+            Self::Anthropic => "ANTHROPIC_API_KEY",
         }
     }
 }
@@ -131,6 +136,11 @@ impl Client {
             }
             ProviderType::Gemini => {
                 GeminiProvider
+                    .generate(&self.http, &self.api_key, request)
+                    .await
+            }
+            ProviderType::Anthropic => {
+                AnthropicProvider
                     .generate(&self.http, &self.api_key, request)
                     .await
             }

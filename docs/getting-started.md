@@ -26,6 +26,7 @@ Freya reads keys from the environment. The variable name per provider is given b
 |---|---|
 | `ProviderType::OpenAi` | `OPENAI_API_KEY` |
 | `ProviderType::Gemini` | `GEMINI_API_KEY` |
+| `ProviderType::Anthropic` | `ANTHROPIC_API_KEY` |
 
 Put them in a `.env` file at the project root:
 
@@ -66,7 +67,10 @@ Nothing about the request changes. Swap the `ProviderType` and Freya translates 
 
 ```rust
 let client = Client::from_env(ProviderType::Gemini).expect("GEMINI_API_KEY");
+let client = Client::from_env(ProviderType::Anthropic).expect("ANTHROPIC_API_KEY");
 ```
+
+Portable does not mean identical. Each provider refuses a different slice of the neutral model, so a request that uses `tool_choice` fails on Gemini and one that uses `previous_response_id` fails on Anthropic. The capability tables on [OpenAI](providers/openai.md), [Gemini](providers/gemini.md), and [Anthropic](providers/anthropic.md) say which is which, and you get a `UnsupportedCapability` error rather than a wrong answer.
 
 Requests stay portable as long as you do not ask for a capability the target provider cannot express. When you do, Freya returns `ProviderError::UnsupportedCapability` rather than quietly dropping the field. See [Errors](errors.md) and the per provider pages for what each backend supports.
 

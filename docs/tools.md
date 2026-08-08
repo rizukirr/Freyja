@@ -1,6 +1,6 @@
 # Tool calling
 
-Tool calling lets the model ask you to run a function and then use the result. In Freya the full round trip works on both providers, and it is the foundation the agent loop will be built on.
+Tool calling lets the model ask you to run a function and then use the result. In Freya the full round trip works on every provider, and it is the foundation the agent loop will be built on.
 
 There is no automatic execution yet. You declare the tools, you run them, you feed the results back. A `Tool` trait and a registry that does the dispatch for you are Phase 2 work.
 
@@ -73,7 +73,7 @@ Do not use `Required` inside a loop. It forces a call on every round, so the mod
 let request = request.tool_choice(ToolChoice::Required);
 ```
 
-Leave `tool_choice` unset unless you need it. Unset means the provider's own default, which is normally `Auto`, and it keeps the request portable. Gemini currently rejects this field entirely, so setting it makes the request OpenAI only.
+Leave `tool_choice` unset unless you need it. Unset means the provider's own default, which is normally `Auto`, and it keeps the request portable. Gemini currently rejects this field entirely, so setting it rules Gemini out while leaving OpenAI and Anthropic available.
 
 ## Reading the calls
 
@@ -123,7 +123,7 @@ request = request
 
 The assistant turn matters, and for more than one reason. Providers correlate a result to a call by id, and a result whose call is missing from the transcript is an error. It also carries opaque reasoning state, which reasoning models require back verbatim. `to_message()` builds that turn for you, including every tool call and every reasoning block the response contained.
 
-Do not hand-assemble this turn. A `Message` you build yourself from the tool calls alone will be missing the reasoning parts, and Gemini rejects the request outright with `Request contains an invalid argument`. Rebuilding an identical looking tool call is not enough, since the signature is what gets validated.
+Do not hand-assemble this turn. A `Message` you build yourself from the tool calls alone will be missing the reasoning parts, and Gemini rejects the request outright with `Request contains an invalid argument`. Anthropic behaves the same way with its signed `thinking` blocks. Rebuilding an identical looking tool call is not enough, since the signature is what gets validated.
 
 Order matters too. The assistant turn has to come before the results.
 
@@ -190,7 +190,11 @@ Never unwrap on arguments. They come from a model, and a schema is guidance rath
 
 **Gemini** maps it onto a flat list of typed steps, `function_call` and `function_result` sitting alongside `user_input` and `model_output`. A result must also repeat the tool `name`, which Freya resolves from the matching call in the transcript. Verified against the live API. See [Gemini](providers/gemini.md) and [Gemini wire format](providers/gemini-wire.md).
 
-Both native formats are documented in full, so you do not have to read vendor docs to debug a request body.
+**Anthropic** is the one that nests. A tool call is a `tool_use` block inside an assistant message and a result is a `tool_result` block inside a user message, rather than either sitting beside the messages. Because nesting already preserves order, this mapping needs no splitting pass at all. The correlation field is spelled `tool_use_id`, a third spelling after two rounds of `call_id`. Not yet verified against the live API. See [Anthropic](providers/anthropic.md) and [Anthropic wire format](providers/anthropic-wire.md).
+
+All three native formats are documented in full, so you do not have to read vendor docs to debug a request body.
+
+Two things differ per provider in the tool arguments themselves. OpenAI sends `arguments` as a JSON string, while Gemini and Anthropic both want a structured object, and Freya converts in each direction so `OutputContent::ToolCall::arguments` is a string everywhere. Anthropic additionally requires that object to be a real object, so a tool call whose arguments are a bare number fails locally with `InvalidRequest` rather than at the API.
 
 ## What does not exist yet
 

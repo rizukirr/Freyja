@@ -32,8 +32,11 @@ Raised before any network call. Current cases:
 |---|---|
 | Gemini | `portable reasoning effort levels` |
 | Gemini | `portable tool choice` |
-| both | `non-text content in system/developer messages` |
-| both | `images outside user messages` |
+| Anthropic | `server-side conversation continuation` |
+| Anthropic | `reasoning effort 'minimal'` |
+| Anthropic | `schema-less JSON response format` |
+| all | `non-text content in system/developer messages` |
+| all | `images outside user messages` |
 
 Recovery means removing the field or switching providers. Retrying is pointless.
 

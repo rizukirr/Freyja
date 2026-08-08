@@ -89,6 +89,7 @@ Which backend this client talks to. Useful when a caller holds a client built el
 pub enum ProviderType {
     OpenAi,
     Gemini,
+    Anthropic,
 }
 ```
 

@@ -44,7 +44,7 @@ pub enum OutputContent {
 
 `Refusal` is distinct from `Text` on purpose. A refusal is not an answer, and folding it into text would hide that from callers. Note that `output_text()` excludes refusals, so a refusal shows up as an empty string there. Check `content` directly when you need to tell the two apart.
 
-Gemini does not currently emit `Refusal`, since its response format does not carry a separate refusal block that Freya parses.
+Only OpenAI emits `Refusal` today. Gemini's response format carries no separate refusal block that Freya parses. Anthropic signals a refusal through `stop_reason` instead, which arrives as `ResponseStatus::Other("refusal")` with `content` empty or partial, so check `status` before reading `content` or you will mistake a refusal for an empty answer.
 
 ## Helpers
 
@@ -124,7 +124,13 @@ Provider status strings map like this:
 | `requires_action` | `RequiresAction` |
 | `failed` | `Failed` |
 | `cancelled` (Gemini) | `Failed` |
+| `end_turn`, `stop_sequence` (Anthropic) | `Completed` |
+| `max_tokens` (Anthropic) | `Incomplete` |
+| `tool_use` (Anthropic) | `RequiresAction` |
+| `refusal`, `pause_turn` (Anthropic) | `Other` |
 | anything else | `Other` |
+
+Anthropic reports its reason as `stop_reason` rather than `status`, and two of its values deliberately stay as `Other` rather than being flattened into a near neighbour. A `refusal` is not a `Failed`, the request succeeded and the model chose not to answer. A `pause_turn` is not a `RequiresAction` either, since it is resumed by re-sending the transcript rather than by supplying a tool result, so treating it as one would send an agent loop hunting for tool calls that are not there.
 
 A non `Completed` status is not an error. The call succeeded, so you get `Ok`. Only transport and API failures produce `Err`. See [Errors](errors.md).
 
@@ -150,6 +156,8 @@ if let Some(usage) = response.usage {
 ```
 
 Field names are normalized. Gemini reports `total_input_tokens` and `total_output_tokens` on the wire, and Freya maps them onto the same three fields so cost accounting does not have to branch per provider.
+
+Anthropic needs more than renaming. It reports no total at all, so Freya computes one, and its `input_tokens` counts only the *uncached* part of the prompt, with cached tokens reported in two separate fields. Freya sums all three, so `input_tokens` means the same thing on every provider. The unsummed fields stay in `provider_metadata`, which matters if you price cache reads and cache writes separately, since they do not cost the same. See [Anthropic](providers/anthropic.md).
 
 Cost calculation is not included. Freya reports tokens, not money.
 

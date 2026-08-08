@@ -52,7 +52,7 @@ Gemini does not support portable tool choice
 
 Freya refuses rather than dropping the field, because a silently ignored `tool_choice: Required` returns an answer that looks fine and is not what you asked for.
 
-This is why `GenerateRequest::new()` sets no defaults. An earlier version defaulted both fields, so every default constructed request failed against Gemini. If you need either capability, use OpenAI.
+This is why `GenerateRequest::new()` sets no defaults. An earlier version defaulted both fields, so every default constructed request failed against Gemini. If you need either capability, use OpenAI or Anthropic.
 
 ## Input uses a step list, not turns
 

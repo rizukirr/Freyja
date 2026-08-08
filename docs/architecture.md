@@ -23,7 +23,9 @@ Provider modules are `pub(crate)`. Their wire types never escape the crate, so `
 
 ### The neutral model never bends to a vendor
 
-`model.rs` does not know OpenAI or Gemini exist. It describes generation in terms that make sense on their own, and every provider is responsible for reaching that shape.
+`model.rs` does not know OpenAI, Gemini, or Anthropic exist. It describes generation in terms that make sense on their own, and every provider is responsible for reaching that shape.
+
+Adding Anthropic tested this claim rather than restating it. The whole backend was one new module plus one `ProviderType` variant plus one match arm, with no edits to `model.rs` at all.
 
 The alternative, letting whichever vendor you integrated first define the types, looks cheaper right up until the second provider arrives and every field turns out to be shaped wrong.
 
@@ -54,9 +56,9 @@ Validation lives in the outbound conversion, before any network call. Content in
 
 ## Transport
 
-Each provider's `mod.rs` does the same four steps: convert, POST, check status, parse. Roughly forty lines, nearly identical between the two, differing only in URL, auth header, and provider name.
+Each provider's `mod.rs` does the same four steps: convert, POST, check status, parse. Roughly forty lines, nearly identical across all three, differing only in URL, auth header, extra headers, and provider name.
 
-That duplication is intentional. A shared transport helper would have to be parameterized over auth style, headers, and error attribution, which is more machinery than it saves at two providers. Revisit it at four.
+That duplication is intentional. A shared transport helper would have to be parameterized over auth style, headers, and error attribution, which is more machinery than it saves at three providers. Revisit it at four.
 
 The `reqwest::Client` is passed into `Provider::generate` rather than owned by the provider, so every request in a process shares one connection pool:
 
@@ -104,7 +106,22 @@ Since a neutral `Message` can hold text and a tool call together, the converter 
 ]
 ```
 
-Both reach the same neutral shape. This is the clearest case for keeping wire types private: the difference is invisible to callers.
+**Anthropic** nests instead of flattening. Tool calls and results are content blocks inside a message rather than siblings of it, and only two roles exist on the wire:
+
+```json
+[
+  {"role": "user", "content": [{"type": "text", "text": "..."}]},
+  {"role": "assistant", "content": [
+    {"type": "thinking", "thinking": "...", "signature": "..."},
+    {"type": "tool_use", "id": "toolu_1", "name": "add", "input": {"a": 20, "b": 22}}]},
+  {"role": "user", "content": [
+    {"type": "tool_result", "tool_use_id": "toolu_1", "content": "42"}]}
+]
+```
+
+All three reach the same neutral shape. This is the clearest case for keeping wire types private: the difference is invisible to callers.
+
+It also shows why the flushing logic lives in the providers rather than the core. OpenAI and Gemini both need it, because a neutral `Message` holding text and a tool call has to be split across sibling items. Anthropic needs none of it, because the nesting preserves order for free. A core that had standardized on flattening would have been carrying machinery Anthropic does not want.
 
 ### Opaque state is carried, not modeled
 

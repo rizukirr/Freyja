@@ -2,7 +2,9 @@
 
 Reference for everything currently available in Freya. Each page covers one feature and can be read on its own.
 
-Freya is at Phase 0: the provider neutral core is stable, two providers are implemented, and tool calling works end to end. There is no agent loop, memory, or orchestration layer yet. See the roadmap in the top level [README](../README.md) for what is planned.
+Freya is at Phase 0: the provider neutral core is stable, three providers are implemented, and tool calling works end to end. There is no agent loop, memory, or orchestration layer yet. See the roadmap in the top level [README](../README.md) for what is planned.
+
+The Anthropic backend is the one page to read with a caveat attached, it has not been exercised against the live endpoint yet. See [Verification status](providers/anthropic.md#verification-status).
 
 ## Start here
 
@@ -30,7 +32,9 @@ Freya is at Phase 0: the provider neutral core is stable, two providers are impl
 | [OpenAI wire format](providers/openai-wire.md) | The native Responses API JSON, field by field |
 | [Gemini](providers/gemini.md) | Interactions API mapping, defaults, known gaps |
 | [Gemini wire format](providers/gemini-wire.md) | The native Interactions API JSON, field by field |
-| [Adding a provider](providers/adding-a-provider.md) | What it takes to add a third backend |
+| [Anthropic](providers/anthropic.md) | Messages API mapping, defaults, capability notes |
+| [Anthropic wire format](providers/anthropic-wire.md) | The native Messages API JSON, field by field |
+| [Adding a provider](providers/adding-a-provider.md) | What it takes to add another backend |
 
 ## Conventions used in these docs
 

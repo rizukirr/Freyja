@@ -2,7 +2,9 @@
 
 Adding a backend is additive. You write one directory and touch two enums. Nothing in the neutral model changes, and no existing provider is affected.
 
-Use `src/provider/openai/` as the template. It is the more complete of the two.
+This page used Anthropic as its worked example before that backend existed. It now does, and it landed exactly as described here, one new directory and two enum arms with no edits to `model.rs`. So `src/provider/anthropic/` is a real reference for every step below, not a sketch.
+
+Use `src/provider/openai/` as the template for a vendor that flattens tool calls into a sibling list, and `src/provider/anthropic/` for one that nests them inside messages. Which shape you are facing is the first thing to work out.
 
 ## The steps
 

@@ -12,7 +12,7 @@ Freya's goal is to be everything you need to build an AI agent in Rust: one neut
 
 ## Documentation
 
-Full reference lives in [`docs/`](docs/README.md), one page per feature: [getting started](docs/getting-started.md), [architecture](docs/architecture.md), [client](docs/client.md), [requests](docs/requests.md), [messages](docs/messages.md), [tool calling](docs/tools.md), [responses](docs/responses.md), [errors](docs/errors.md), and the provider pages for [OpenAI](docs/providers/openai.md), [Gemini](docs/providers/gemini.md), and [adding a provider](docs/providers/adding-a-provider.md). The native wire formats are documented too, so you do not have to read vendor docs: [OpenAI wire format](docs/providers/openai-wire.md) and [Gemini wire format](docs/providers/gemini-wire.md).
+Full reference lives in [`docs/`](docs/README.md), one page per feature: [getting started](docs/getting-started.md), [architecture](docs/architecture.md), [client](docs/client.md), [requests](docs/requests.md), [messages](docs/messages.md), [tool calling](docs/tools.md), [responses](docs/responses.md), [errors](docs/errors.md), and the provider pages for [OpenAI](docs/providers/openai.md), [Gemini](docs/providers/gemini.md), [Anthropic](docs/providers/anthropic.md), and [adding a provider](docs/providers/adding-a-provider.md). The native wire formats are documented too, so you do not have to read vendor docs: [OpenAI wire format](docs/providers/openai-wire.md), [Gemini wire format](docs/providers/gemini-wire.md), and [Anthropic wire format](docs/providers/anthropic-wire.md).
 
 ## Table of contents
 
@@ -34,13 +34,14 @@ Full reference lives in [`docs/`](docs/README.md), one page per feature: [gettin
 | Neutral request/response model | Stable |
 | OpenAI provider (Responses API) | Implemented |
 | Gemini provider (Interactions API) | Implemented and verified live, partial capability coverage |
-| Function / tool calling | Full round trip, verified live on both providers |
+| Anthropic provider (Messages API) | Implemented, **not yet verified live** |
+| Function / tool calling | Full round trip, verified live on OpenAI and Gemini |
 | Pooled HTTP client, timeouts | Implemented |
 | Rustdoc on the public API | `#![deny(missing_docs)]` |
 | Streaming | Not started |
 | Agent loop, memory, orchestration | Not started |
 
-**Phase 0 is complete**, the core is stable enough to add a third provider against. `cargo test`: 18 unit tests + 4 doctests, all passing. Both providers complete a real tool round trip end to end. `cargo clippy --all-targets -- -D warnings` is clean.
+**Phase 0 is complete**, and the Anthropic backend proved it: adding a third provider touched one new module, one `ProviderType` variant, and one match arm, with no edits to the neutral model. `cargo test`: 32 unit tests + 4 doctests, all passing. OpenAI and Gemini complete a real tool round trip end to end. `cargo clippy --all-targets -- -D warnings` is clean.
 
 ---
 
@@ -49,7 +50,7 @@ Full reference lives in [`docs/`](docs/README.md), one page per feature: [gettin
 ### Provider abstraction
 
 - `Provider` trait with a single async `generate` method, implemented per vendor.
-- `ProviderType` enum (`OpenAi`, `Gemini`) and a `Client` façade that dispatches to the right backend, call sites never touch a vendor type.
+- `ProviderType` enum (`OpenAi`, `Gemini`, `Anthropic`) and a `Client` façade that dispatches to the right backend, call sites never touch a vendor type.
 - Vendor wire formats live behind private `types` modules, so the neutral model is the only thing consumers see.
 
 ### Neutral request model (`GenerateRequest`)
@@ -77,7 +78,7 @@ Builder methods exist for every field: `model`, `message`, `messages`, `extend_m
 - `Role`: `System`, `Developer`, `User`, `Assistant`, `Tool`.
 - `InputContent`: `Text`, `ImageUrl`, `ToolCall { id, name, arguments }`, and `ToolResult { call_id, output }`.
 - Constructors: `Message::new(role, parts)`, `Message::text(role, text)`, and `Message::tool_result(call_id, output)`.
-- System/developer turns are automatically hoisted into the provider's native system-instruction field (`instructions` for OpenAI, `system_instruction` for Gemini) rather than being sent as ordinary turns.
+- System/developer turns are automatically hoisted into the provider's native system-instruction field (`instructions` for OpenAI, `system_instruction` for Gemini, `system` for Anthropic) rather than being sent as ordinary turns.
 - Misplaced content is rejected up front: images outside user turns, non-text in system turns, and text in tool turns all fail before a request leaves the process.
 
 ### Tools
@@ -122,6 +123,7 @@ Implements `Display` and `std::error::Error`.
 # .env
 OPENAI_API_KEY=sk-...
 # GEMINI_API_KEY=...
+# ANTHROPIC_API_KEY=sk-ant-...
 ```
 
 ```rust
@@ -171,6 +173,8 @@ async fn main() {
 
 ## Known issues
 
+- **The Anthropic backend has never talked to the live API.** It is written from the documented wire format and its conversion tests pass, but Gemini shipped with passing tests and three real bugs, including a completely wrong input format. Treat the first live call as the actual verification. See [Verification status](docs/providers/anthropic.md#verification-status).
+- **Anthropic requires `max_tokens`,** the only provider that does, so Freya defaults it to 16000 when unset. This is the one place the library invents a value rather than letting the provider decide.
 - **Gemini rejects `tool_choice` and `reasoning_effort`.** Both are refused with `UnsupportedCapability` rather than silently dropped. Only hit when a caller explicitly asks for them.
 - **Gemini tool results need the tool name**, which the neutral `ToolResult` does not carry, so Freya resolves it from the matching call in the transcript. Continuing through `previous_response_id` without replaying the call fails locally with `InvalidRequest`.
 - **No streaming.** `generate` buffers the whole response.
@@ -199,9 +203,11 @@ The MVP target: *everything you need to build an AI agent*, a developer can defi
 
 ### Phase 1, Production-grade provider layer
 
-- [ ] **Anthropic provider** (Messages API) as the third backend, the core is now
-stable enough that this is an additive change: one `types.rs`, one transport
-module, one `ProviderType` variant, no edits to the neutral model
+- [x] **Anthropic provider** (Messages API) as the third backend, an additive
+change as predicted: one `types.rs`, one transport module, one `ProviderType`
+variant, no edits to the neutral model
+- [ ] **Verify the Anthropic provider against the live API**, prompt to tool call
+to result to answer, the same bar the other two cleared
 - [ ] **Streaming**: `generate_stream` returning a `Stream<Item = StreamEvent>`
 (text deltas, tool-call deltas, usage, completion)
 - [ ] **Capability introspection**: `Provider::capabilities()` so callers can query

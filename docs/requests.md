@@ -95,7 +95,7 @@ pub enum ReasoningEffort {
 }
 ```
 
-Serialized lowercase. Not every provider accepts every level, and Gemini rejects this field entirely today. See [Gemini](providers/gemini.md).
+Serialized lowercase. Not every provider accepts every level. Gemini rejects this field entirely today, and Anthropic rejects `Minimal` while mapping `None` onto disabled thinking rather than an effort level. See [Gemini](providers/gemini.md) and [Anthropic](providers/anthropic.md).
 
 ### `response_format`
 
@@ -137,9 +137,11 @@ Covered in [Tool calling](tools.md).
 
 Continues a server side conversation instead of resending the transcript. Pass the `id` from an earlier `GenerateResponse`. Providers name this differently on the wire, `previous_response_id` for OpenAI and `previous_interaction_id` for Gemini, and Freya maps it for you.
 
+Anthropic rejects this field with `UnsupportedCapability`, because it keeps no server side transcript at all. Every request carries the full history, so there is nothing to continue from. Code that relies on this field is not portable to Anthropic and has to keep the transcript itself.
+
 ### `metadata`
 
-Arbitrary JSON forwarded to the provider, for labels and trace identifiers. Sent as `metadata` to OpenAI and `labels` to Gemini. Freya does not read it.
+Arbitrary JSON forwarded to the provider, for labels and trace identifiers. Sent as `metadata` to OpenAI and Anthropic, and as `labels` to Gemini. Freya does not read it.
 
 ## Reusing a request across turns
 
