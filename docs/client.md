@@ -1,6 +1,6 @@
 # Client
 
-`Client` is the entry point. It holds three things: which provider to talk to, the credentials for it, and the HTTP client used to reach it.
+`Client` is the entry point. It holds three things: which endpoint to talk to, the credentials for it, and the HTTP client used to reach it.
 
 ```rust
 pub struct Client { /* private fields */ }
@@ -13,7 +13,7 @@ Derives `Debug` and `Clone`. Cloning is cheap for the HTTP client, since `reqwes
 ### `Client::new`
 
 ```rust
-pub fn new(provider: ProviderType, api_key: impl Into<String>) -> Self
+pub fn new(config: impl Into<ProviderConfig>, api_key: impl Into<String>) -> Self
 ```
 
 Builds a client with a pooled `reqwest::Client` and a 120 second per request timeout.
@@ -24,13 +24,25 @@ let client = Client::new(ProviderType::OpenAi, "sk-...");
 
 If the HTTP client fails to build, Freya falls back to `reqwest::Client::default()` rather than panicking. The fallback has no timeout.
 
+### `Client::without_key`
+
+```rust
+pub fn without_key(config: impl Into<ProviderConfig>) -> Self
+```
+
+For endpoints that need no credentials, such as a local Ollama or vLLM server.
+
+```rust
+let client = Client::without_key(ProviderType::Ollama);
+```
+
 ### `Client::from_env`
 
 ```rust
-pub fn from_env(provider: ProviderType) -> Option<Self>
+pub fn from_env(config: impl Into<ProviderConfig>) -> Option<Self>
 ```
 
-Reads the key from the variable named by `ProviderType::api_key_env()`. Returns `None` when the variable is unset or set to an empty string, which lets you report a missing key rather than sending an unauthenticated request.
+Reads the key from the variable named by the endpoint's `api_key_env`. Returns `None` when the variable is unset or set to an empty string, which lets you report a missing key rather than sending an unauthenticated request. An endpoint whose auth is `Auth::None` needs no key and always succeeds.
 
 ```rust
 let Some(client) = Client::from_env(ProviderType::OpenAi) else {
@@ -43,7 +55,7 @@ let Some(client) = Client::from_env(ProviderType::OpenAi) else {
 
 ```rust
 pub fn with_http_client(
-    provider: ProviderType,
+    config: impl Into<ProviderConfig>,
     api_key: impl Into<String>,
     http: reqwest::Client,
 ) -> Self
@@ -75,13 +87,13 @@ Sends a request and returns the normalized response. The request is borrowed, so
 
 The whole response is buffered before returning. Streaming is not implemented yet.
 
-### `provider`
+### `config`
 
 ```rust
-pub fn provider(&self) -> ProviderType
+pub fn config(&self) -> &ProviderConfig
 ```
 
-Which endpoint this client talks to. Useful when a caller holds a client built elsewhere and needs to branch on capability.
+The endpoint this client talks to, including its dialect and resolved URL. Useful when a caller holds a client built elsewhere and needs to branch on capability.
 
 ## Dialect and endpoint are separate
 
@@ -89,7 +101,7 @@ Freya splits *how* a request is serialized from *where* it is sent, because most
 
 | Type | Answers |
 |---|---|
-| `ProviderDialect` | Which wire format. `OpenAiResponses`, `Gemini`, `Anthropic` |
+| `ProviderDialect` | Which wire format. `OpenAiResponses`, `OpenAiChat`, `Gemini`, `Anthropic` |
 | `ProviderConfig` | Which endpoint. Base URL, auth style, key variable, default model, extra headers |
 | `ProviderType` | A preset that builds a `ProviderConfig` for an endpoint Freya ships |
 
@@ -101,9 +113,14 @@ For pointing Freya at an endpoint it does not ship, see [Custom endpoints](provi
 
 ```rust
 pub enum ProviderType {
-    OpenAi,
+    OpenAi,       // OpenAiResponses
     Gemini,
     Anthropic,
+    DeepSeek,     // the five below all speak OpenAiChat
+    Groq,
+    Together,
+    OpenRouter,
+    Ollama,       // needs no key
 }
 ```
 
@@ -115,7 +132,7 @@ Derives `Debug`, `Clone`, `Copy`, `PartialEq`, `Eq`.
 pub fn api_key_env(self) -> &'static str
 ```
 
-The conventional environment variable for this endpoint, `OPENAI_API_KEY`, `GEMINI_API_KEY`, or `ANTHROPIC_API_KEY`. Used by `Client::from_env`, and useful on its own for error messages and startup checks.
+The conventional environment variable for this endpoint, `OPENAI_API_KEY`, `DEEPSEEK_API_KEY`, and so on. Used by `Client::from_env`, and useful on its own for error messages and startup checks. Empty for `Ollama`, which needs no credentials; `from_env` succeeds for it anyway.
 
 ### `dialect` and `config`
 
@@ -155,15 +172,16 @@ for question in questions {
 
 ```rust
 pub trait Provider: Send + Sync {
-    fn generate(
-        &self,
-        http: &reqwest::Client,
-        api_key: &str,
-        request: &GenerateRequest,
-    ) -> impl Future<Output = Result<GenerateResponse, ProviderError>> + Send;
+    type Request: Serialize + Send;
+
+    fn build(&self, request: &GenerateRequest, config: &ProviderConfig)
+        -> Result<Self::Request, ProviderError>;
+
+    fn parse(&self, body: &str, config: &ProviderConfig)
+        -> Result<GenerateResponse, ProviderError>;
 }
 ```
 
-The HTTP client is passed in rather than owned by the provider, which is what lets every request in a process share one pool. The trait uses return position `impl Trait`, so it is not object safe. Dispatch happens through the `ProviderType` match inside `Client::generate`, not through a trait object.
+There is no transport method. `Client` owns convert, POST, check status, parse for every dialect, so it also owns the one `reqwest::Client` that every request in a process shares. The trait has an associated type, so it is not object safe. Dispatch happens through a `ProviderDialect` match inside `Client::generate`, not through a trait object.
 
 Implementing it is covered in [Adding a provider](providers/adding-a-provider.md).

@@ -37,7 +37,7 @@ Full reference lives in [`docs/`](docs/README.md), one page per feature: [gettin
 | Anthropic provider (Messages API) | Implemented and verified live |
 | OpenAI Chat Completions dialect | Implemented and verified live on DeepSeek |
 | Compatible endpoints | DeepSeek, Groq, Together, OpenRouter, Ollama presets |
-| Function / tool calling | Full round trip, verified live on all three |
+| Function / tool calling | Full round trip, verified live on four endpoints |
 | Pooled HTTP client, timeouts | Implemented |
 | Rustdoc on the public API | `#![deny(missing_docs)]` |
 | Streaming | Not started |
@@ -176,7 +176,7 @@ async fn main() {
 
 ## Known issues
 
-- **Live verification covers text and tool calling only.** All three endpoints complete a real tool round trip, but thinking block replay, images, `response_format`, and refusal handling are covered by offline tests alone. See each provider's verification section.
+- **Live verification covers text and tool calling only.** Four endpoints complete a real tool round trip, but thinking block replay, images, `response_format`, and refusal handling are covered by offline tests alone. See each provider's verification section.
 - **Anthropic requires `max_tokens`,** the only provider that does, so Freya defaults it to 16000 when unset. This is the one place the library invents a value rather than letting the provider decide.
 - **Gemini rejects `tool_choice` and `reasoning_effort`.** Both are refused with `UnsupportedCapability` rather than silently dropped. Only hit when a caller explicitly asks for them.
 - **Gemini tool results need the tool name**, which the neutral `ToolResult` does not carry, so Freya resolves it from the matching call in the transcript. Continuing through `previous_response_id` without replaying the call fails locally with `InvalidRequest`.

@@ -13,6 +13,9 @@ src/
     ├── openai_responses/   # dialect: /v1/responses
     │   ├── mod.rs          # the Provider impl, about 25 lines
     │   └── types.rs        # wire types and conversions
+    ├── openai_chat/        # dialect: /chat/completions, the compatible one
+    │   ├── mod.rs
+    │   └── types.rs
     ├── gemini/             # dialect: /v1beta/interactions
     │   ├── mod.rs
     │   └── types.rs
@@ -86,9 +89,9 @@ The `reqwest::Client` is owned by `Client` rather than by any dialect, so every 
 
 The trait has an associated type, so it is not object safe, which rules out `Box<dyn Provider>`. The match is fine at this scale: it is static dispatch, and adding a dialect means adding one arm. Adding a *vendor* usually means adding no arm at all, only a preset.
 
-## Tool calling across two wire shapes
+## Tool calling across four wire shapes
 
-The same neutral transcript maps onto two structurally different formats.
+The same neutral transcript maps onto four structurally different formats.
 
 **OpenAI** uses a flat list of input items. Messages, tool calls, and tool results are all siblings:
 
@@ -126,9 +129,23 @@ Since a neutral `Message` can hold text and a tool call together, the converter 
 ]
 ```
 
-All three reach the same neutral shape. This is the clearest case for keeping wire types private: the difference is invisible to callers.
+**OpenAI Chat Completions** nests like Anthropic but keeps `arguments` as a string like the Responses API, and gives tool results a role of their own:
 
-It also shows why the flushing logic lives in the providers rather than the core. OpenAI and Gemini both need it, because a neutral `Message` holding text and a tool call has to be split across sibling items. Anthropic needs none of it, because the nesting preserves order for free. A core that had standardized on flattening would have been carrying machinery Anthropic does not want.
+```json
+[
+  {"role": "user", "content": "..."},
+  {"role": "assistant", "content": null, "tool_calls": [
+    {"id": "call_1", "type": "function",
+     "function": {"name": "add", "arguments": "{\"a\":20,\"b\":22}"}}]},
+  {"role": "tool", "tool_call_id": "call_1", "content": "42"}
+]
+```
+
+All four reach the same neutral shape. This is the clearest case for keeping wire types private: the difference is invisible to callers.
+
+It also shows why the flushing logic lives in the dialects rather than the core. The two flat formats need it, because a neutral `Message` holding text and a tool call has to be split across sibling items. The two nested ones need none of it, because nesting preserves order for free. A core that had standardized on either shape would be carrying machinery the other half does not want.
+
+The same argument applies to hoisting system turns. Three dialects lift them into a dedicated field and one keeps them as messages, so that too belongs per dialect rather than in the core.
 
 ### Opaque state is carried, not modeled
 

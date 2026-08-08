@@ -191,7 +191,7 @@ Anthropic rejects anything else, got '42'
 
 An empty or whitespace-only string is treated as `{}`, for tools that take no arguments.
 
-Coming back, `input` arrives as a JSON value and Freya stringifies it, so `OutputContent::ToolCall::arguments` is a string on all three providers.
+Coming back, `input` arrives as a JSON value and Freya stringifies it, so `OutputContent::ToolCall::arguments` is a string on every dialect.
 
 ## Status mapping
 

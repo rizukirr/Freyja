@@ -4,17 +4,17 @@ Every fallible call returns `Result<_, ProviderError>`. There is one error type,
 
 ```rust
 pub enum ProviderError {
-    UnsupportedCapability { provider: &'static str, capability: &'static str },
-    InvalidRequest { provider: &'static str, message: String },
+    UnsupportedCapability { provider: Arc<str>, capability: &'static str },
+    InvalidRequest { provider: Arc<str>, message: String },
     Http(String),
-    Api { provider: &'static str, status: u16, body: String },
-    InvalidResponse { provider: &'static str, message: String },
+    Api { provider: Arc<str>, status: u16, body: String },
+    InvalidResponse { provider: Arc<str>, message: String },
 }
 ```
 
 Implements `Debug`, `Display`, and `std::error::Error`, so it works with `?`, `anyhow`, `thiserror`, and anything else expecting a standard error.
 
-Every variant except `Http` carries the provider name, so an error from a multi provider application says which backend produced it.
+Every variant except `Http` carries the endpoint's configured name, so an error from a multi provider application says which backend produced it. It is the endpoint rather than the dialect, so a failure against a Claude-compatible gateway reports that gateway and not "Anthropic".
 
 ## The variants
 
@@ -35,8 +35,11 @@ Raised before any network call. Current cases:
 | Anthropic | `server-side conversation continuation` |
 | Anthropic | `reasoning effort 'minimal'` |
 | Anthropic | `schema-less JSON response format` |
-| all | `non-text content in system/developer messages` |
+| OpenAI Chat Completions | `server-side conversation continuation` |
 | all | `images outside user messages` |
+| all except OpenAI Chat Completions | `non-text content in system/developer messages` |
+
+The last row is uneven because OpenAI Chat Completions keeps system turns as ordinary messages rather than hoisting them into a text-only field, so it has nothing to refuse.
 
 Recovery means removing the field or switching providers. Retrying is pointless.
 
@@ -50,7 +53,18 @@ The request is malformed and was rejected before leaving the process.
 invalid request for OpenAI: tool messages may only contain tool results
 ```
 
-This is a bug in your code, not a provider limitation, and switching providers will not help. The current case is text content on a `Role::Tool` turn. See [Messages and content](messages.md).
+This is a bug in your code, not a provider limitation, and switching providers will not help. Current cases:
+
+| Condition | Where |
+|---|---|
+| Text content on a `Role::Tool` turn | OpenAI Responses, Gemini |
+| A tool message answering more than one call | OpenAI Chat Completions |
+| Tool arguments that are not a JSON object | Anthropic |
+| A malformed image data URI | Anthropic |
+| A tool result whose call is absent from the transcript | Gemini |
+| No model on the request and none on the endpoint | all |
+
+See [Messages and content](messages.md).
 
 ### Http
 

@@ -2,7 +2,7 @@
 
 The native JSON of the Anthropic Messages API, as Freya speaks it. This page exists so you do not have to read Anthropic's documentation to understand what is going over the wire, or to debug a `ProviderError::Api` body.
 
-> Unlike the [OpenAI](openai-wire.md) and [Gemini](gemini-wire.md) wire pages, the payloads here were **not** captured from live calls. They are written from the documented format. See [Verification status](anthropic.md#verification-status).
+> The format below is confirmed: a live tool round trip completes against this endpoint. The individual payloads are illustrative rather than captured verbatim, unlike the [OpenAI](openai-wire.md) and [Gemini](gemini-wire.md) pages. See [Verification status](anthropic.md#verification-status) for what the live run did and did not cover.
 
 ## Endpoint
 
@@ -41,7 +41,7 @@ Note the naming: `system` is a top level field rather than a message role, `max_
 
 ## Messages nest, they do not flatten
 
-This is the main structural difference from the other two providers. Tool calls and tool results are content blocks *inside* a message rather than siblings of it.
+This is the main structural difference from the flat formats, OpenAI Responses and Gemini. OpenAI Chat Completions nests too. Tool calls and tool results are content blocks *inside* a message rather than siblings of it.
 
 ```json
 {

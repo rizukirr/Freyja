@@ -150,7 +150,7 @@ Message::tool_result("call_1", "42")          // sent as 42
 Message::tool_result("call_1", "not json")    // sent as "not json"
 ```
 
-Coming back, `arguments` arrives as a JSON value and Freya stringifies it, so `OutputContent::ToolCall::arguments` is a string on both providers.
+Coming back, `arguments` arrives as a JSON value and Freya stringifies it, so `OutputContent::ToolCall::arguments` is a string on every dialect.
 
 ## Status mapping
 

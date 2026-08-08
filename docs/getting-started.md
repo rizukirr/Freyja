@@ -27,6 +27,11 @@ Freya reads keys from the environment. The variable name per provider is given b
 | `ProviderType::OpenAi` | `OPENAI_API_KEY` |
 | `ProviderType::Gemini` | `GEMINI_API_KEY` |
 | `ProviderType::Anthropic` | `ANTHROPIC_API_KEY` |
+| `ProviderType::DeepSeek` | `DEEPSEEK_API_KEY` |
+| `ProviderType::Groq` | `GROQ_API_KEY` |
+| `ProviderType::Together` | `TOGETHER_API_KEY` |
+| `ProviderType::OpenRouter` | `OPENROUTER_API_KEY` |
+| `ProviderType::Ollama` | none, it is a local server |
 
 Put them in a `.env` file at the project root:
 

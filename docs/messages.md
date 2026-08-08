@@ -35,11 +35,13 @@ Derives `Debug`, `Clone`, `Copy`, `Serialize`, `Deserialize`, `PartialEq`, `Eq`.
 
 ### System and developer turns are hoisted
 
-No provider sends these as ordinary turns. Each one lifts them into its native system instruction field, `instructions` for OpenAI, `system_instruction` for Gemini, and `system` for Anthropic. When there are several, their text is joined with a blank line between them, in the order you supplied.
+Most dialects do not send these as ordinary turns. They lift them into a native system instruction field, `instructions` for OpenAI Responses, `system_instruction` for Gemini, and `system` for Anthropic. When there are several, their text is joined with a blank line between them, in the order you supplied.
 
-Position in the message list does not matter for these two roles, so a system turn placed halfway through a transcript still applies to the whole conversation. Keep them at the front anyway, so the transcript reads the way it behaves.
+**OpenAI Chat Completions is the exception.** There `system` is a real message role, so the turns stay in the array where you put them, and `Developer` maps onto `system` because most compatible endpoints do not know a `developer` role. See [OpenAI Chat Completions](providers/openai-chat.md).
 
-Only text is allowed in a system or developer turn. Anything else returns `ProviderError::UnsupportedCapability`.
+On the hoisting dialects, position in the message list does not matter for these two roles, so a system turn placed halfway through a transcript still applies to the whole conversation. On OpenAI Chat Completions it does matter, since the turn stays where you put it. Keep system turns at the front and the behaviour is the same everywhere.
+
+Only text is allowed in a system or developer turn on the hoisting dialects, since the target field is a plain string. Anything else returns `ProviderError::UnsupportedCapability`. Keep to text regardless, so the transcript stays portable.
 
 ## InputContent
 
@@ -104,7 +106,7 @@ Builds the `Role::Tool` turn that carries a tool's output back. `call_id` must m
 Message::tool_result("call_1", "42")
 ```
 
-`output` is a string. Send JSON as a JSON string when the result is structured, and plain text otherwise. Both providers handle both.
+`output` is a string. Send JSON as a JSON string when the result is structured, and plain text otherwise. Every dialect handles both.
 
 ## Multimodal input
 
@@ -127,7 +129,7 @@ Images are only accepted on `Role::User`. On any other role Freya returns `Unsup
 
 ## Validation done before the network
 
-Both providers reject malformed transcripts during conversion, so you get an error locally instead of a rejection from the vendor:
+Every dialect rejects malformed transcripts during conversion, so you get an error locally instead of a rejection from the vendor:
 
 | Problem | Error |
 |---|---|
