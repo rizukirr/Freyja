@@ -8,7 +8,7 @@ Freyja is not published to crates.io yet, so depend on the repository:
 
 ```toml
 [dependencies]
-freyja = { git = "https://github.com/rizukirr/Freya" }
+freyja = { git = "https://github.com/rizukirr/Freyja" }
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ```
 
