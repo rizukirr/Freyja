@@ -29,7 +29,7 @@ Read these in order the first time. About twenty minutes end to end.
 
 ## Reference
 
-Look these up rather than reading them through.
+Look these up rather than reading them through. Generated rustdoc is on [docs.rs](https://docs.rs/freyja).
 
 | | |
 |---|---|

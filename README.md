@@ -1,5 +1,10 @@
 # Freyja
 
+[![crates.io](https://img.shields.io/crates/v/freyja.svg)](https://crates.io/crates/freyja)
+[![docs.rs](https://img.shields.io/docsrs/freyja)](https://docs.rs/freyja)
+[![CI](https://github.com/rizukirr/Freyja/actions/workflows/ci.yml/badge.svg)](https://github.com/rizukirr/Freyja/actions/workflows/ci.yml)
+[![license](https://img.shields.io/crates/l/freyja.svg)](LICENSE)
+
 A provider-neutral LLM client for Rust, and the foundation for building agents on top of it.
 
 > [!WARNING]
@@ -16,10 +21,9 @@ That matters because every vendor invented a different shape for the same ideas.
 
 ## Quick start
 
-```toml
-[dependencies]
-freyja = { git = "https://github.com/rizukirr/Freyja" }
-tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+```bash
+cargo add freyja
+cargo add tokio --features macros,rt-multi-thread
 ```
 
 ```rust
@@ -89,7 +93,7 @@ The goal: everything you need to build an AI agent in Rust, with no vendor lock-
 
 **Phase 4, orchestration.** The namesake. Multi-agent handoff, workflow primitives for chains and fan-out, shared state, propagated cancellation and budgets, and human-in-the-loop pause and resume.
 
-**Phase 5, observability and release.** `tracing` instrumentation, cost accounting, record and replay for deterministic tests, a mock provider, and publishing to crates.io.
+**Phase 5, observability and release.** `tracing` instrumentation, cost accounting, record and replay for deterministic tests, and a mock provider for testing agents without network access.
 
 Out of scope: prompt-template DSLs, a built-in vector database, a web UI or server, and fine-tuning orchestration. Freyja is a library, not a platform.
 

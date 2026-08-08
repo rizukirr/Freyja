@@ -4,11 +4,16 @@ From nothing to a working call, then to an agent.
 
 ## Install
 
-Freyja is not published to crates.io yet, so depend on the repository:
+```bash
+cargo add freyja
+cargo add tokio --features macros,rt-multi-thread
+```
+
+Or in `Cargo.toml` directly:
 
 ```toml
 [dependencies]
-freyja = { git = "https://github.com/rizukirr/Freyja" }
+freyja = "0.1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ```
 
