@@ -8,7 +8,7 @@ Implemented against the Responses API.
 | Auth | `Authorization: Bearer <key>` |
 | Key variable | `OPENAI_API_KEY` |
 | Default model | `gpt-5.6-sol` |
-| Source | `src/provider/openai/` |
+| Source | `src/provider/openai_responses/` |
 
 ```rust
 let client = Client::from_env(ProviderType::OpenAi).expect("OPENAI_API_KEY");
@@ -140,7 +140,7 @@ Read the result with `response.output_text()` and parse it yourself.
 
 ## Default model
 
-`gpt-5.6-sol` is used when `model` is unset. It is a constant in `src/provider/openai/types.rs`, and it will drift as OpenAI ships new models. Set `model` explicitly for anything you need to stay stable.
+`gpt-5.6-sol` is used when `model` is unset. It is the preset's `default_model` in `src/provider/presets.rs`, not a property of the dialect, and it will drift as OpenAI ships new models. Set `model` on the request, or `default_model` on the config, for anything you need to stay stable.
 
 ## Errors
 

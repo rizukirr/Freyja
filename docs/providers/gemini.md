@@ -173,4 +173,4 @@ Gemini has two statuses OpenAI does not:
 
 ## Default model
 
-`gemini-3.5-flash` is used when `model` is unset. It is a constant in `src/provider/gemini/types.rs`. Set `model` explicitly for anything you need to stay stable.
+`gemini-3.5-flash` is used when `model` is unset. It is the preset's `default_model` in `src/provider/presets.rs`, not a property of the dialect. Set `model` on the request, or `default_model` on the config, for anything you need to stay stable.

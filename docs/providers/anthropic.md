@@ -15,7 +15,7 @@ Implemented against the Messages API.
 let client = Client::from_env(ProviderType::Anthropic).expect("ANTHROPIC_API_KEY");
 ```
 
-> **Not verified against the live endpoint.** OpenAI and Gemini were both probed with real keys, and in the Gemini case that probing found three bugs the offline tests could not. This backend was written from the documented wire format only, so treat the first live call as the real test. See [Verification status](#verification-status) for exactly what that means.
+Verified against the live endpoint: a full tool round trip completes, prompt to tool call to result to answer. See [Verification status](#verification-status) for what that does and does not cover.
 
 ## Capability support
 
@@ -229,27 +229,35 @@ Unlike Gemini, `has_tool_calls()` and `status` agree here: a response with tool 
 
 ## Default model
 
-`claude-opus-5` is used when `model` is unset. It is a constant in `src/provider/anthropic/types.rs`. Set `model` explicitly for anything you need to stay stable.
+`claude-opus-5` is used when `model` is unset. It is the preset's `default_model` in `src/provider/presets.rs`, not a property of the dialect. Set `model` on the request, or `default_model` on the config, for anything you need to stay stable.
 
 ## Verification status
 
-The OpenAI and Gemini backends were both exercised against live endpoints during development. This one was not, because no key was available.
+This backend shipped unverified and was confirmed later, once a key was available. A full tool round trip now completes end to end:
 
-What that changes in practice:
+```
+tool call: add({"a":20,"b":22})
+tool result: 42
+assistant: 42
+usage: 114 tokens
+```
 
-| | OpenAI, Gemini | Anthropic |
-|---|---|---|
-| Conversion tests pass | yes | yes |
-| Wire format confirmed by the vendor accepting it | yes | **no** |
-| Tool round trip completed end to end | yes | **no** |
-| Error messages in these docs quoted from real responses | yes | **no** |
+That single run covers more than it looks like. It exercises the nested message shape, the `tool_use` and `tool_result` block formats, `tool_use_id` correlation across turns, the invented `max_tokens` default, the summed usage mapping, and the `x-api-key` plus `anthropic-version` header pair.
 
-The Gemini experience is the reason this warning is here rather than buried. Its offline tests passed while three separate things were wrong, including a completely incorrect input format that broke every multi-turn conversation. Tests prove Freya sends the JSON it meant to send, not that the vendor accepts it.
+What it does not cover, and what is therefore still only as good as the offline tests:
 
-To verify, set `ANTHROPIC_API_KEY` and swap one line in `src/main.rs`:
+| | Status |
+|---|---|
+| Text generation and tool calling | verified live |
+| Thinking block replay | **not** exercised, the run returned none |
+| Images, both URL and data URI | not exercised |
+| `response_format`, `reasoning_effort`, `tool_choice` | not exercised |
+| Refusal and `pause_turn` handling | not exercised, and hard to trigger deliberately |
+
+The thinking gap is the one worth knowing about, since it is the failure mode that cost the most on Gemini. The replay path is shared with Gemini and covered by `preserves_thinking_blocks_in_place`, but a signed Anthropic block has never made a round trip.
+
+To re-check after changes, point `src/main.rs` at the endpoint and run the tool loop:
 
 ```rust
 let provider = ProviderType::Anthropic;
 ```
-
-The example runs a two round tool loop, which exercises the nesting, the `tool_use` and `tool_result` block shapes, the id correlation, and thinking block replay in one pass. If it prints the tool call, the tool result, and a final answer, the mapping is right.

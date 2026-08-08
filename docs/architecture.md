@@ -7,17 +7,23 @@ src/
 ├── lib.rs                  # crate docs, public re-exports, #![deny(missing_docs)]
 ├── main.rs                 # runnable example, a one tool agent loop
 └── provider/
-    ├── mod.rs              # Provider trait, ProviderType, Client
+    ├── mod.rs              # ProviderDialect, ProviderConfig, Auth, Provider, Client
     ├── model.rs            # the neutral request, response, and error types
-    ├── openai/
-    │   ├── mod.rs          # HTTP transport for /v1/responses
-    │   └── types.rs        # wire types, TryFrom and From conversions
-    └── gemini/
-        ├── mod.rs          # HTTP transport for /v1beta/interactions
-        └── types.rs        # wire types, TryFrom and From conversions
+    ├── presets.rs          # ProviderType, the endpoints Freya ships
+    ├── openai_responses/   # dialect: /v1/responses
+    │   ├── mod.rs          # the Provider impl, about 25 lines
+    │   └── types.rs        # wire types and conversions
+    ├── gemini/             # dialect: /v1beta/interactions
+    │   ├── mod.rs
+    │   └── types.rs
+    └── anthropic/          # dialect: /v1/messages
+        ├── mod.rs
+        └── types.rs
 ```
 
-Provider modules are `pub(crate)`. Their wire types never escape the crate, so `OpenAiProvider`, `types::Request`, and everything like it are invisible to callers. The only thing consumers see is the neutral model.
+Dialect modules are `pub(crate)`. Their wire types never escape the crate, so `types::Request` and everything like it are invisible to callers. The only thing consumers see is the neutral model.
+
+Modules are named after the wire format, not the vendor, because a dialect usually outlives its author. `openai_responses` is OpenAI's own format; the format most vendors actually copy is Chat Completions, which would be a separate module serving many of them.
 
 ## The three design rules
 
@@ -46,8 +52,8 @@ This was learned the hard way. An earlier version had `new()` default `tool_choi
 Each provider owns two conversions:
 
 ```rust
-impl TryFrom<&GenerateRequest> for Request   // neutral to wire, can fail
-impl From<Response> for GenerateResponse     // wire to neutral, cannot fail
+fn build(&GenerateRequest, &ProviderConfig) -> Result<Request, ProviderError>  // out, can fail
+impl From<Response> for GenerateResponse                                       // in, cannot fail
 ```
 
 The asymmetry is deliberate. Going out, a request may ask for something untranslatable, so the conversion is fallible. Coming back, the body already parsed, so anything unrecognized is preserved rather than rejected. Unknown fields go into `provider_metadata`, and unknown output or content types are skipped.
@@ -60,24 +66,25 @@ Transport is shared. `Client::run` does the same four steps for every dialect: c
 
 It did not start that way. Each provider used to own its own forty line copy, and this page said the duplication was intentional because a shared helper would need parameterizing over auth style, headers, and error attribution, then added "revisit it at four". Splitting endpoint from dialect is what made it worth doing, because those three parameters became fields on `ProviderConfig` rather than arguments to invent. The dialects now implement only `build` and `parse`, and the `Provider` trait has no transport method at all.
 
-The `reqwest::Client` is passed into `Provider::generate` rather than owned by the provider, so every request in a process shares one connection pool:
-
 ```rust
 pub trait Provider: Send + Sync {
-    fn generate(
-        &self,
-        http: &reqwest::Client,
-        api_key: &str,
-        request: &GenerateRequest,
-    ) -> impl Future<Output = Result<GenerateResponse, ProviderError>> + Send;
+    type Request: Serialize + Send;
+
+    fn build(&self, request: &GenerateRequest, config: &ProviderConfig)
+        -> Result<Self::Request, ProviderError>;
+
+    fn parse(&self, body: &str, config: &ProviderConfig)
+        -> Result<GenerateResponse, ProviderError>;
 }
 ```
 
+The `reqwest::Client` is owned by `Client` rather than by any dialect, so every request in a process shares one connection pool.
+
 ## Dispatch
 
-`Client::generate` matches on `ProviderType` and calls the right implementation.
+`Client::generate` matches on `ProviderConfig::dialect` and calls the right implementation.
 
-The trait uses return position `impl Trait`, so it is not object safe, which rules out `Box<dyn Provider>`. The match is fine at this scale: it is static dispatch, and adding a provider means adding one arm. If dynamic provider selection is ever needed at runtime, the trait would have to move to boxed futures.
+The trait has an associated type, so it is not object safe, which rules out `Box<dyn Provider>`. The match is fine at this scale: it is static dispatch, and adding a dialect means adding one arm. Adding a *vendor* usually means adding no arm at all, only a preset.
 
 ## Tool calling across two wire shapes
 

@@ -4,7 +4,7 @@ Reference for everything currently available in Freya. Each page covers one feat
 
 Freya is at Phase 0: the provider neutral core is stable, three providers are implemented, and tool calling works end to end. There is no agent loop, memory, or orchestration layer yet. See the roadmap in the top level [README](../README.md) for what is planned.
 
-The Anthropic backend is the one page to read with a caveat attached, it has not been exercised against the live endpoint yet. See [Verification status](providers/anthropic.md#verification-status).
+All three endpoints complete a real tool round trip against the live API. Coverage beyond that varies per provider, see each provider page.
 
 ## Start here
 

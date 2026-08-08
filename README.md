@@ -12,7 +12,7 @@ Freya's goal is to be everything you need to build an AI agent in Rust: one neut
 
 ## Documentation
 
-Full reference lives in [`docs/`](docs/README.md), one page per feature: [getting started](docs/getting-started.md), [architecture](docs/architecture.md), [client](docs/client.md), [requests](docs/requests.md), [messages](docs/messages.md), [tool calling](docs/tools.md), [responses](docs/responses.md), [errors](docs/errors.md), and the provider pages for [OpenAI](docs/providers/openai.md), [Gemini](docs/providers/gemini.md), [Anthropic](docs/providers/anthropic.md), and [adding a provider](docs/providers/adding-a-provider.md). The native wire formats are documented too, so you do not have to read vendor docs: [OpenAI wire format](docs/providers/openai-wire.md), [Gemini wire format](docs/providers/gemini-wire.md), and [Anthropic wire format](docs/providers/anthropic-wire.md).
+Full reference lives in [`docs/`](docs/README.md), one page per feature: [getting started](docs/getting-started.md), [architecture](docs/architecture.md), [client](docs/client.md), [requests](docs/requests.md), [messages](docs/messages.md), [tool calling](docs/tools.md), [responses](docs/responses.md), [errors](docs/errors.md), and the provider pages for [OpenAI](docs/providers/openai.md), [Gemini](docs/providers/gemini.md), [Anthropic](docs/providers/anthropic.md), [custom endpoints](docs/providers/custom-endpoints.md), and [adding a provider](docs/providers/adding-a-provider.md). The native wire formats are documented too, so you do not have to read vendor docs: [OpenAI wire format](docs/providers/openai-wire.md), [Gemini wire format](docs/providers/gemini-wire.md), and [Anthropic wire format](docs/providers/anthropic-wire.md).
 
 ## Table of contents
 
@@ -34,14 +34,14 @@ Full reference lives in [`docs/`](docs/README.md), one page per feature: [gettin
 | Neutral request/response model | Stable |
 | OpenAI provider (Responses API) | Implemented |
 | Gemini provider (Interactions API) | Implemented and verified live, partial capability coverage |
-| Anthropic provider (Messages API) | Implemented, **not yet verified live** |
-| Function / tool calling | Full round trip, verified live on OpenAI and Gemini |
+| Anthropic provider (Messages API) | Implemented and verified live |
+| Function / tool calling | Full round trip, verified live on all three |
 | Pooled HTTP client, timeouts | Implemented |
 | Rustdoc on the public API | `#![deny(missing_docs)]` |
 | Streaming | Not started |
 | Agent loop, memory, orchestration | Not started |
 
-**Phase 0 is complete**, and the Anthropic backend proved it: adding a third provider touched one new module, one `ProviderType` variant, and one match arm, with no edits to the neutral model. `cargo test`: 32 unit tests + 4 doctests, all passing. OpenAI and Gemini complete a real tool round trip end to end. `cargo clippy --all-targets -- -D warnings` is clean.
+**Phase 0 is complete**, and the Anthropic backend proved it: adding a third dialect touched one new module and two enum arms, with no edits to the neutral model. `cargo test`: 38 unit tests + 6 doctests, all passing. All three endpoints complete a real tool round trip end to end. `cargo clippy --all-targets -- -D warnings` is clean.
 
 ---
 
@@ -49,8 +49,8 @@ Full reference lives in [`docs/`](docs/README.md), one page per feature: [gettin
 
 ### Provider abstraction
 
-- `Provider` trait with a single async `generate` method, implemented per vendor.
-- `ProviderType` enum (`OpenAi`, `Gemini`, `Anthropic`) and a `Client` façade that dispatches to the right backend, call sites never touch a vendor type.
+- **Wire dialect and endpoint are separate types.** `ProviderDialect` is the JSON shape, `ProviderConfig` is where to send it, `ProviderType` is a preset that builds one. Most hosted APIs copy OpenAI or Anthropic, so a single dialect reaches many vendors on a base URL and a key.
+- `Provider` trait with `build` and `parse`, no transport method. `Client` owns convert, POST, check, parse for every dialect, so a new dialect is roughly 25 lines of wiring.
 - Vendor wire formats live behind private `types` modules, so the neutral model is the only thing consumers see.
 
 ### Neutral request model (`GenerateRequest`)
@@ -76,7 +76,7 @@ Builder methods exist for every field: `model`, `message`, `messages`, `extend_m
 ### Messages and content
 
 - `Role`: `System`, `Developer`, `User`, `Assistant`, `Tool`.
-- `InputContent`: `Text`, `ImageUrl`, `ToolCall { id, name, arguments }`, and `ToolResult { call_id, output }`.
+- `InputContent`: `Text`, `ImageUrl`, `ToolCall { id, name, arguments }`, `ToolResult { call_id, output }`, and `Reasoning { data }` for opaque provider state.
 - Constructors: `Message::new(role, parts)`, `Message::text(role, text)`, and `Message::tool_result(call_id, output)`.
 - System/developer turns are automatically hoisted into the provider's native system-instruction field (`instructions` for OpenAI, `system_instruction` for Gemini, `system` for Anthropic) rather than being sent as ordinary turns.
 - Misplaced content is rejected up front: images outside user turns, non-text in system turns, and text in tool turns all fail before a request leaves the process.
@@ -86,12 +86,12 @@ Builder methods exist for every field: `model`, `message`, `messages`, `extend_m
 - `ToolDefinition` with `name`, `description`, JSON Schema `parameters`, and an optional `strict` flag, built via `ToolDefinition::new(..).parameters(..).strict(..)`.
 - `ToolChoice`: `Auto`, `None`, `Required`, `Named(String)`.
 - Tool calls come back as `OutputContent::ToolCall { id, name, arguments }` with `arguments` as a raw JSON string, ready for the caller to dispatch.
-- **The full round trip works.** `GenerateResponse::to_message()` turns the model's answer into the assistant turn, `Message::tool_result(id, output)` carries the result back, and each provider maps both onto its own wire format, OpenAI's flat `function_call` / `function_call_output` input items, Gemini's per-turn content parts. This is the prerequisite for every agent loop.
+- **The full round trip works.** `GenerateResponse::to_message()` turns the model's answer into the assistant turn, `Message::tool_result(id, output)` carries the result back, and each dialect maps both onto its own wire format, OpenAI's flat `function_call` items, Gemini's flat step list, Anthropic's nested `tool_use` and `tool_result` blocks. This is the prerequisite for every agent loop.
 
 ### Neutral response model (`GenerateResponse`)
 
 - `id`, `model`, `status`, `content`, `usage`, `provider_metadata`.
-- `OutputContent`: `Text`, `Refusal`, `ToolCall`.
+- `OutputContent`: `Text`, `Refusal`, `ToolCall`, `Reasoning`.
 - `ResponseStatus`: `Completed`, `Incomplete`, `RequiresAction`, `Failed`, `Other(String)`, provider status strings are normalized, unknown ones preserved.
 - `Usage` with input/output/total token counts, normalized across providers.
 - Helpers: `output_text()` concatenates all text parts, `tool_calls()` iterates `(id, name, arguments)`, `has_tool_calls()` short-circuits the loop, and `to_message()` folds the response back into the transcript.
@@ -113,7 +113,7 @@ Implements `Display` and `std::error::Error`.
 
 - One pooled `reqwest::Client` per `Client`, with a 120 second default timeout, connections are reused instead of rebuilt per request.
 - `Client::with_http_client` to supply your own (custom timeouts, proxies, TLS).
-- `Client::from_env(provider)` reads the key from `ProviderType::api_key_env()`.
+- `Client::from_env(config)` reads the key from the endpoint's `api_key_env`, and `Client::without_key` covers local runtimes that need none.
 
 ---
 
@@ -173,7 +173,7 @@ async fn main() {
 
 ## Known issues
 
-- **The Anthropic backend has never talked to the live API.** It is written from the documented wire format and its conversion tests pass, but Gemini shipped with passing tests and three real bugs, including a completely wrong input format. Treat the first live call as the actual verification. See [Verification status](docs/providers/anthropic.md#verification-status).
+- **Live verification covers text and tool calling only.** All three endpoints complete a real tool round trip, but thinking block replay, images, `response_format`, and refusal handling are covered by offline tests alone. See each provider's verification section.
 - **Anthropic requires `max_tokens`,** the only provider that does, so Freya defaults it to 16000 when unset. This is the one place the library invents a value rather than letting the provider decide.
 - **Gemini rejects `tool_choice` and `reasoning_effort`.** Both are refused with `UnsupportedCapability` rather than silently dropped. Only hit when a caller explicitly asks for them.
 - **Gemini tool results need the tool name**, which the neutral `ToolResult` does not carry, so Freya resolves it from the matching call in the transcript. Continuing through `previous_response_id` without replaying the call fails locally with `InvalidRequest`.
@@ -203,11 +203,10 @@ The MVP target: *everything you need to build an AI agent*, a developer can defi
 
 ### Phase 1, Production-grade provider layer
 
-- [x] **Anthropic provider** (Messages API) as the third backend, an additive
-change as predicted: one `types.rs`, one transport module, one `ProviderType`
-variant, no edits to the neutral model
-- [ ] **Verify the Anthropic provider against the live API**, prompt to tool call
-to result to answer, the same bar the other two cleared
+- [x] **Anthropic provider** (Messages API) as the third dialect, an additive change as predicted: one module and two enum arms, no edits to the neutral model
+- [x] **Verify the Anthropic provider against the live API**, prompt to tool call to result to answer, the same bar the other two cleared
+- [x] **Separate wire dialect from endpoint** so one mapping serves every compatible vendor, with `ProviderConfig` carrying base URL, auth, key variable, and default model
+- [ ] **OpenAI Chat Completions dialect**, the format the compatible ecosystem actually speaks, unlocking Groq, Together, DeepSeek, OpenRouter, Ollama, and vLLM
 - [ ] **Streaming**: `generate_stream` returning a `Stream<Item = StreamEvent>`
 (text deltas, tool-call deltas, usage, completion)
 - [ ] **Capability introspection**: `Provider::capabilities()` so callers can query
