@@ -2,7 +2,7 @@
 
 The native JSON of the Anthropic Messages API, as Freya speaks it. This page exists so you do not have to read Anthropic's documentation to understand what is going over the wire, or to debug a `ProviderError::Api` body.
 
-> The format below is confirmed: a live tool round trip completes against this endpoint. The individual payloads are illustrative rather than captured verbatim, unlike the [OpenAI](openai-wire.md) and [Gemini](gemini-wire.md) pages. See [Verification status](anthropic.md#verification-status) for what the live run did and did not cover.
+> The format below is confirmed: a live tool round trip completes against this endpoint. The individual payloads are illustrative rather than captured verbatim, unlike the [OpenAI](../../reference/wire/openai.md) and [Gemini](../../reference/wire/gemini.md) pages. See [Verification status](../../providers/anthropic.md#verification-status) for what the live run did and did not cover.
 
 ## Endpoint
 
@@ -177,7 +177,7 @@ Two details specific to Anthropic:
 - **The text may be empty.** `thinking.display` defaults to `"omitted"` on current models, so blocks arrive with an empty `thinking` string. Replay them anyway; the signature is what matters. Set `"thinking": {"type": "adaptive", "display": "summarized"}` to get readable text.
 - **Replaying to a different model is safe.** Other models drop the block from the prompt rather than erroring, and it is not billed. Gemini, by contrast, hard fails.
 
-Freya handles all of this with `OutputContent::Reasoning { data }`, which preserves any block it does not model, and `GenerateResponse::to_message()`, which carries it into the next request. Append `response.to_message()` before your tool results and it works. See [Tool calling](../tools.md).
+Freya handles all of this with `OutputContent::Reasoning { data }`, which preserves any block it does not model, and `GenerateResponse::to_message()`, which carries it into the next request. Append `response.to_message()` before your tool results and it works. See [Tool calling](../../reference/tools.md).
 
 ## Response body
 
@@ -263,7 +263,7 @@ If `cache_read_input_tokens` is zero across requests that share a prefix, cachin
 }
 ```
 
-Freya preserves the whole body in `ProviderError::Api` alongside the HTTP status. It does not parse the body into typed variants yet, so branch on the status code and read `body` when you need the detail. See [Errors](../errors.md).
+Freya preserves the whole body in `ProviderError::Api` alongside the HTTP status. It does not parse the body into typed variants yet, so branch on the status code and read `body` when you need the detail. See [Errors](../../reference/errors.md).
 
 `error.type` is finer grained than the status code, for instance `billing_error` and `permission_error` both arrive as 403. Include `request_id` when reporting a problem to Anthropic, it traces the request end to end.
 
@@ -282,4 +282,4 @@ Freya preserves the whole body in `ProviderError::Api` alongside the HTTP status
 
 ## What Freya does not send
 
-`stream`, `stop_sequences`, `top_k`, `container`, `mcp_servers`, `context_management`, `fallbacks`, `speed`, and `cache_control` are all left off. Prompt caching in particular is worth knowing about if your prompts are long and stable, and it is the most likely thing to be added next. See [Anthropic](anthropic.md) for the capability table.
+`stream`, `stop_sequences`, `top_k`, `container`, `mcp_servers`, `context_management`, `fallbacks`, `speed`, and `cache_control` are all left off. Prompt caching in particular is worth knowing about if your prompts are long and stable, and it is the most likely thing to be added next. See [Anthropic](../../providers/anthropic.md) for the capability table.

@@ -21,9 +21,9 @@ let config = ProviderConfig::new(ProviderDialect::Anthropic, "my-gateway", "http
 let client = Client::from_env(config).expect("GATEWAY_API_KEY");
 ```
 
-Full detail in [Custom endpoints](custom-endpoints.md).
+Full detail in [Custom endpoints](../providers/custom.md).
 
-Do not send a pull request adding it to `src/provider/presets.rs`. That file covers the three first-party vendors Freya tests against, deliberately, because a preset is a standing promise that a URL and a default model are still current. Widely used endpoints belong in the table in [Custom endpoints](custom-endpoints.md), where the caveat that nothing verifies them can be stated honestly.
+Do not send a pull request adding it to `src/provider/presets.rs`. That file covers the three first-party vendors Freya tests against, deliberately, because a preset is a standing promise that a URL and a default model are still current. Widely used endpoints belong in the table in [Custom endpoints](../providers/custom.md), where the caveat that nothing verifies them can be stated honestly.
 
 ## Adding a dialect
 

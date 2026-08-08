@@ -176,4 +176,4 @@ There is no HTTP mocking, so the transport modules are not exercised by tests. A
 
 ## Adding a provider
 
-The core is stable enough that a third backend is additive. See [Adding a provider](providers/adding-a-provider.md).
+The core is stable enough that a third backend is additive. See [Adding a provider](../internals/adding-a-dialect.md).

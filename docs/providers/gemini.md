@@ -64,7 +64,7 @@ When using the steps-based API version, use step_list input format instead of tu
 
 So `input` is a flat array of typed steps, `user_input`, `model_output`, `function_call`, `function_result`, rather than an array of `{role, content}` turns. A single plain text user turn may still be sent as a bare string, which Freya does automatically.
 
-Gemini examples elsewhere that use `role` and `parts` target the older `generateContent` endpoint and do not apply. Full detail in [Gemini wire format](gemini-wire.md).
+Gemini examples elsewhere that use `role` and `parts` target the older `generateContent` endpoint and do not apply. Full detail in [Gemini wire format](../reference/wire/gemini.md).
 
 ## Thought signatures must be replayed
 

@@ -67,7 +67,7 @@ The model identifier, passed through untouched. When `None`, each provider subst
 
 ### `messages`
 
-The conversation, in order. See [Messages and content](messages.md).
+The conversation, in order. See [Messages and content](../reference/messages.md).
 
 System and developer turns are not sent as ordinary turns. Each provider hoists them into its native system instruction field, joining multiple ones with a blank line between them.
 
@@ -95,7 +95,7 @@ pub enum ReasoningEffort {
 }
 ```
 
-Serialized lowercase. Not every provider accepts every level. Gemini rejects this field entirely today, and Anthropic rejects `Minimal` while mapping `None` onto disabled thinking rather than an effort level. See [Gemini](providers/gemini.md) and [Anthropic](providers/anthropic.md).
+Serialized lowercase. Not every provider accepts every level. Gemini rejects this field entirely today, and Anthropic rejects `Minimal` while mapping `None` onto disabled thinking rather than an effort level. See [Gemini](../providers/gemini.md) and [Anthropic](../providers/anthropic.md).
 
 ### `response_format`
 
@@ -131,7 +131,7 @@ You get the result as text from `response.output_text()` and parse it yourself. 
 
 ### `tools` and `tool_choice`
 
-Covered in [Tool calling](tools.md).
+Covered in [Tool calling](../reference/tools.md).
 
 ### `previous_response_id`
 

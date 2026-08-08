@@ -1,26 +1,22 @@
 # Getting started
 
-## Requirements
+From nothing to a working call, then to an agent.
 
-- Rust with edition 2024 support
-- An API key for at least one provider
+## Install
 
-Freya depends on `tokio`, `reqwest`, `serde`, `serde_json`, and `dotenvy`. All requests are async, so you need a Tokio runtime.
-
-## Add the dependency
-
-Freya is not published to crates.io yet, so depend on it by path or by git:
+Freya is not published to crates.io yet, so depend on the repository:
 
 ```toml
 [dependencies]
-freya = { path = "../freya" }
-tokio = { version = "1", features = ["full"] }
-serde_json = "1"
+freya = { git = "https://github.com/rizukirr/Freya" }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ```
 
-## Provide a key
+You supply the async runtime. Freya exposes `async fn` and never spawns, so it pulls in no runtime of its own and brings three dependencies with it: `reqwest`, `serde`, `serde_json`.
 
-Freya reads keys from the environment. The variable name per provider is given by `ProviderType::api_key_env()`:
+## Set a key
+
+Freya reads credentials from the environment.
 
 | Provider | Variable |
 |---|---|
@@ -28,16 +24,14 @@ Freya reads keys from the environment. The variable name per provider is given b
 | `ProviderType::Gemini` | `GEMINI_API_KEY` |
 | `ProviderType::Anthropic` | `ANTHROPIC_API_KEY` |
 
-Those three are the whole list, on purpose. Freya implements four wire dialects but ships presets only for the vendors it tests against, because a preset is a standing promise that a URL and a model name are current. Every other endpoint, DeepSeek, Groq, OpenRouter, a local Ollama, or your own gateway, is reached with [`Client::custom`](providers/custom-endpoints.md) and is no less supported for it.
-
-Put them in a `.env` file at the project root:
-
 ```bash
+# .env
 OPENAI_API_KEY=sk-...
-GEMINI_API_KEY=...
 ```
 
-`.env` is not loaded automatically. Call `dotenvy::dotenv().ok()` once at startup if you want it read.
+Those three are the whole built-in list, on purpose. Every other endpoint, DeepSeek, Groq, OpenRouter, a local Ollama, or your own gateway, is reached with [`Client::custom`](providers/custom.md) and is no less supported for it.
+
+Add `dotenvy` as a dev-dependency if you want `.env` loaded automatically, as the examples do. Nothing in Freya requires it.
 
 ## Your first call
 
@@ -46,13 +40,14 @@ use freya::{Client, GenerateRequest, Message, ProviderType, Role};
 
 #[tokio::main]
 async fn main() {
-    dotenvy::dotenv().ok();
-
-    let client = Client::from_env(ProviderType::OpenAi).expect("OPENAI_API_KEY");
+    let provider = ProviderType::OpenAi;
+    let Some(client) = Client::from_env(provider) else {
+        eprintln!("{} is missing or empty", provider.api_key_env());
+        return;
+    };
 
     let request = GenerateRequest::new()
-        .message(Message::text(Role::System, "Answer in one sentence."))
-        .message(Message::text(Role::User, "Why is the sky blue?"));
+        .message(Message::text(Role::User, "Name three Rust crates."));
 
     match client.generate(&request).await {
         Ok(response) => println!("{}", response.output_text()),
@@ -61,33 +56,78 @@ async fn main() {
 }
 ```
 
-`Client::from_env` returns `None` when the variable is unset or empty, so you can fail with a clear message instead of sending an unauthenticated request.
+`from_env` returns `None` rather than panicking when the variable is missing, so a misconfigured deployment tells you what is wrong instead of sending an unauthenticated request.
 
-## Switching providers
+Note what the request does *not* set: no model, no temperature, no token cap. Every unset field means "the provider decides", which is what makes this same request valid on all three providers. See [Concepts](concepts.md#3-unset-means-the-vendor-decides).
 
-Nothing about the request changes. Swap the `ProviderType` and Freya translates the same neutral request into the other vendor's wire format:
+## Switch provider
+
+Change one line:
 
 ```rust
-let client = Client::from_env(ProviderType::Gemini).expect("GEMINI_API_KEY");
-let client = Client::from_env(ProviderType::Anthropic).expect("ANTHROPIC_API_KEY");
+let provider = ProviderType::Anthropic;
 ```
 
-Portable does not mean identical. Each provider refuses a different slice of the neutral model, so a request that uses `tool_choice` fails on Gemini and one that uses `previous_response_id` fails on Anthropic. The capability tables on [OpenAI](providers/openai.md), [Gemini](providers/gemini.md), and [Anthropic](providers/anthropic.md) say which is which, and you get a `UnsupportedCapability` error rather than a wrong answer.
+Nothing else moves. Freya translates the same neutral request into a completely different wire format.
 
-Requests stay portable as long as you do not ask for a capability the target provider cannot express. When you do, Freya returns `ProviderError::UnsupportedCapability` rather than quietly dropping the field. See [Errors](errors.md) and the per provider pages for what each backend supports.
+Portable does not mean identical, though. Each provider refuses a different slice of the request, so one using `tool_choice` fails on Gemini and one using `previous_response_id` fails on Anthropic. You get an error before the network call rather than a wrong answer. The [provider pages](providers/README.md) say which is which.
 
-## Run the bundled example
+## Reach a provider that is not built in
 
-`examples/tool_loop.rs` is a working one tool agent loop. It asks a question the model cannot answer alone, runs the tool the model requests, feeds the result back, and prints the final answer:
+```rust
+use freya::{Client, ProviderDialect};
+
+let client = Client::custom(
+    ProviderDialect::OpenAiChat,
+    "DeepSeek",
+    "https://api.deepseek.com/v1",
+    std::env::var("DEEPSEEK_API_KEY")?,
+);
+```
+
+Four things: which wire format, a name for error messages, the root URL, and the key. That one call covers most of the hosted inference market, because most vendors copy a format Freya already speaks. See [Custom providers](providers/custom.md).
+
+## Add a tool
+
+This is the reason to use this library rather than a thinner one. Declare a function, and the model can ask you to run it:
+
+```rust
+let add = ToolDefinition::new("add", "adds two numbers together")
+    .parameters(serde_json::json!({
+        "type": "object",
+        "properties": {"a": {"type": "integer"}, "b": {"type": "integer"}},
+        "required": ["a", "b"]
+    }));
+
+let request = GenerateRequest::new()
+    .message(Message::text(Role::User, "What is 20 + 22?"))
+    .tools([add]);
+
+let response = client.generate(&request).await?;
+
+for (id, name, arguments) in response.tool_calls() {
+    println!("model wants {name}({arguments})");
+}
+```
+
+The model does not run anything. It asks; you decide. Turning that into a loop is [Building an agent](building-an-agent.md), and it is about fifteen lines.
+
+## Run the examples
+
+The repository ships three runnable programs:
 
 ```bash
-cargo run --example tool_loop
+cargo run --example simple           # one question, one answer
+cargo run --example tool_loop        # a bounded agent loop
+cargo run --example custom_endpoint  # an endpoint with no preset
 ```
 
-It needs `OPENAI_API_KEY`. Read [Tool calling](tools.md) for how it works.
+They are compiled by `cargo test`, so they cannot drift out of date the way README snippets do.
 
-## Next steps
+## Next
 
-- [Requests](requests.md) for the full set of knobs
-- [Tool calling](tools.md) to let the model call your code
-- [Client](client.md) to control timeouts, proxies, and connection pooling
+| | |
+|---|---|
+| The design in five ideas | [Concepts](concepts.md) |
+| The agent loop, properly | [Building an agent](building-an-agent.md) |
+| What is not implemented yet | [Features](features.md) |

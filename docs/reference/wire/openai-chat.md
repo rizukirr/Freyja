@@ -195,7 +195,7 @@ This is where "compatible" starts to fray. None of these are read by Freya, and 
 | `x_groq` | Groq | Timing and request metadata |
 | `provider` | OpenRouter | Which upstream actually served the request |
 
-The absence of a standard reasoning field is why this dialect drops `InputContent::Reasoning` rather than replaying it, see [OpenAI Chat Completions](openai-chat.md).
+The absence of a standard reasoning field is why this dialect drops `InputContent::Reasoning` rather than replaying it, see [OpenAI Chat Completions](../../providers/openai-chat.md).
 
 ## Errors
 

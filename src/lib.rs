@@ -1,4 +1,4 @@
-//! Freya — a multi-LLM agent orchestration framework written from scratch in Rust.
+//! Freya, a multi-LLM agent orchestration framework written from scratch in Rust.
 //!
 //! Freya's core is a provider-neutral request/response model. You describe what
 //! you want once, and any backend can serve it:

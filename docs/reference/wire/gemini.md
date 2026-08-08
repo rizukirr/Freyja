@@ -177,7 +177,7 @@ When you send the tool result back, that `thought` step must be included, verbat
 
 A semantically identical call is not good enough. The signature is what the API validates, and it cannot be reconstructed.
 
-Freya handles this with `OutputContent::Reasoning { data }`, which preserves any step it does not model, and `GenerateResponse::to_message()`, which carries it into the next request. As long as you append `response.to_message()` before your tool results, it works. See [Tool calling](../tools.md).
+Freya handles this with `OutputContent::Reasoning { data }`, which preserves any step it does not model, and `GenerateResponse::to_message()`, which carries it into the next request. As long as you append `response.to_message()` before your tool results, it works. See [Tool calling](../../reference/tools.md).
 
 ## Response body
 
@@ -239,4 +239,4 @@ The exception is `Request contains an invalid argument`, a generic protobuf-leve
 
 ## What Freya does not send
 
-`reasoning_effort` and `tool_choice` are refused with `UnsupportedCapability` before the request is built, because no portable mapping onto this API has been established. See [Gemini](gemini.md).
+`reasoning_effort` and `tool_choice` are refused with `UnsupportedCapability` before the request is built, because no portable mapping onto this API has been established. See [Gemini](../../providers/gemini.md).

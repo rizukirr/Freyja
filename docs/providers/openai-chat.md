@@ -10,7 +10,7 @@ The dialect the compatible ecosystem speaks. One mapping, many endpoints.
 | Default model | none, comes from the endpoint |
 | Source | `src/provider/openai_chat/` |
 
-This is not the same as the [OpenAI](openai.md) page. That one covers OpenAI's own Responses API, which is OpenAI-specific. This page covers Chat Completions, which almost every third party vendor implements, and which OpenAI also still serves.
+This is not the same as the [OpenAI](../providers/openai.md) page. That one covers OpenAI's own Responses API, which is OpenAI-specific. This page covers Chat Completions, which almost every third party vendor implements, and which OpenAI also still serves.
 
 ## There is no preset for this dialect
 
@@ -29,7 +29,7 @@ That is not a lesser path. A preset is only a `ProviderConfig` with the fields f
 
 The reason is maintenance honesty rather than effort. A preset is a standing promise that a base URL and a default model are still current, and these vendors change both faster than this crate could verify. A stale preset fails at the vendor with a confusing 404; a missing one fails locally with a clear message, or does not fail at all because you supplied the current URL.
 
-[Custom endpoints](custom-endpoints.md) has a table of base URLs to start from, and covers keyless local runtimes.
+[Custom endpoints](../providers/custom.md) has a table of base URLs to start from, and covers keyless local runtimes.
 
 ## Capability support
 
@@ -101,7 +101,7 @@ This is the one deliberate exception to the no-silent-degradation rule, and it i
 
 Freya sends `max_tokens`, which is what the compatible ecosystem understands.
 
-OpenAI's own newer models have deprecated it in favour of `max_completion_tokens` and may reject the old spelling. If you are pointing this dialect at `api.openai.com` and get a 400 naming the field, that is why. Use [OpenAI](openai.md) with the Responses API instead, which is the better fit for OpenAI's own endpoint anyway.
+OpenAI's own newer models have deprecated it in favour of `max_completion_tokens` and may reject the old spelling. If you are pointing this dialect at `api.openai.com` and get a 400 naming the field, that is why. Use [OpenAI](../providers/openai.md) with the Responses API instead, which is the better fit for OpenAI's own endpoint anyway.
 
 ## Field mapping
 

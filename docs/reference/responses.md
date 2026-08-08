@@ -76,7 +76,7 @@ pub fn has_tool_calls(&self) -> bool
 
 Whether the model asked for at least one call. This is the loop condition in an agent loop, and it is more reliable than checking `status`, since providers differ in whether they report `requires_action`.
 
-`Reasoning` is where anything Freya does not model ends up, rather than being dropped. Gemini thought signatures and OpenAI reasoning items both land here. Ignore it unless you are assembling a transcript by hand, in which case preserve it exactly and in order. See [Tool calling](tools.md).
+`Reasoning` is where anything Freya does not model ends up, rather than being dropped. Gemini thought signatures and OpenAI reasoning items both land here. Ignore it unless you are assembling a transcript by hand, in which case preserve it exactly and in order. See [Tool calling](../reference/tools.md).
 
 ### `to_message`
 
@@ -90,7 +90,7 @@ Converts the response into a `Role::Assistant` turn so it can be appended to the
 request = request.message(response.to_message());
 ```
 
-You need this before sending tool results back. See [Tool calling](tools.md).
+You need this before sending tool results back. See [Tool calling](../reference/tools.md).
 
 ## ResponseStatus
 
@@ -132,7 +132,7 @@ Provider status strings map like this:
 
 Anthropic reports its reason as `stop_reason` rather than `status`, and two of its values deliberately stay as `Other` rather than being flattened into a near neighbour. A `refusal` is not a `Failed`, the request succeeded and the model chose not to answer. A `pause_turn` is not a `RequiresAction` either, since it is resumed by re-sending the transcript rather than by supplying a tool result, so treating it as one would send an agent loop hunting for tool calls that are not there.
 
-A non `Completed` status is not an error. The call succeeded, so you get `Ok`. Only transport and API failures produce `Err`. See [Errors](errors.md).
+A non `Completed` status is not an error. The call succeeded, so you get `Ok`. Only transport and API failures produce `Err`. See [Errors](../reference/errors.md).
 
 ## Usage
 
@@ -157,7 +157,7 @@ if let Some(usage) = response.usage {
 
 Field names are normalized. Gemini reports `total_input_tokens` and `total_output_tokens` on the wire, and Freya maps them onto the same three fields so cost accounting does not have to branch per provider.
 
-Anthropic needs more than renaming. It reports no total at all, so Freya computes one, and its `input_tokens` counts only the *uncached* part of the prompt, with cached tokens reported in two separate fields. Freya sums all three, so `input_tokens` means the same thing on every provider. The unsummed fields stay in `provider_metadata`, which matters if you price cache reads and cache writes separately, since they do not cost the same. See [Anthropic](providers/anthropic.md).
+Anthropic needs more than renaming. It reports no total at all, so Freya computes one, and its `input_tokens` counts only the *uncached* part of the prompt, with cached tokens reported in two separate fields. Freya sums all three, so `input_tokens` means the same thing on every provider. The unsummed fields stay in `provider_metadata`, which matters if you price cache reads and cache writes separately, since they do not cost the same. See [Anthropic](../providers/anthropic.md).
 
 Cost calculation is not included. Freya reports tokens, not money.
 

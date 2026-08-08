@@ -1,50 +1,66 @@
 # Freya documentation
 
-Reference for everything currently available in Freya. Each page covers one feature and can be read on its own.
+A Rust library for talking to large language models, and for building agents on top of them. One request type, four wire formats, any compatible endpoint.
 
-Freya is at Phase 0: the provider neutral core is stable, four wire dialects are implemented, and tool calling works end to end. Presets cover the three first-party vendors; every compatible endpoint is reached with `Client::custom`. There is no agent loop, memory, or orchestration layer yet. See the roadmap in the top level [README](../README.md) for what is planned.
+New here? Read [Introduction](introduction.md), then [Getting started](getting-started.md).
 
-OpenAI, Gemini, Anthropic, and a DeepSeek endpoint reached with `Client::custom` each complete a real tool round trip against the live API. Coverage beyond that varies per provider, see each provider page.
+## Learn
 
-## Start here
+Read these in order the first time. About twenty minutes end to end.
 
-| Page | What it covers |
+| | |
 |---|---|
-| [Getting started](getting-started.md) | Install, set a key, make your first call |
-| [Architecture](architecture.md) | How the crate is laid out and why |
-
-## Core API
-
-| Page | What it covers |
-|---|---|
-| [Client](client.md) | `Client`, `ProviderType`, credentials, HTTP configuration |
-| [Requests](requests.md) | `GenerateRequest` and every builder method |
-| [Messages and content](messages.md) | `Message`, `Role`, `InputContent` |
-| [Tool calling](tools.md) | `ToolDefinition`, `ToolChoice`, the full round trip |
-| [Responses](responses.md) | `GenerateResponse`, `OutputContent`, `ResponseStatus`, `Usage` |
-| [Errors](errors.md) | `ProviderError` and how to handle each variant |
+| [Introduction](introduction.md) | What Freya is, what it is not, and why it exists |
+| [Features](features.md) | What works today, and what does not |
+| [Getting started](getting-started.md) | Install, set a key, make a call |
+| [Concepts](concepts.md) | The five ideas everything else follows from |
+| [Building an agent](building-an-agent.md) | Tools, the loop, and what will bite you |
 
 ## Providers
 
-| Page | What it covers |
+| | |
 |---|---|
-| [OpenAI](providers/openai.md) | Responses API mapping, defaults, capability notes |
-| [OpenAI Chat Completions](providers/openai-chat.md) | The dialect most third party vendors speak |
-| [OpenAI Chat wire format](providers/openai-chat-wire.md) | The native Chat Completions JSON, field by field |
-| [OpenAI wire format](providers/openai-wire.md) | The native Responses API JSON, field by field |
-| [Gemini](providers/gemini.md) | Interactions API mapping, defaults, known gaps |
-| [Gemini wire format](providers/gemini-wire.md) | The native Interactions API JSON, field by field |
-| [Anthropic](providers/anthropic.md) | Messages API mapping, defaults, capability notes |
-| [Anthropic wire format](providers/anthropic-wire.md) | The native Messages API JSON, field by field |
-| [Custom endpoints](providers/custom-endpoints.md) | Pointing a dialect at any compatible endpoint |
-| [Adding a provider](providers/adding-a-provider.md) | What it takes to add another wire dialect |
+| [Providers overview](providers/README.md) | Built-in versus custom, and how to choose |
+| [OpenAI](providers/openai.md) | Responses API |
+| [Gemini](providers/gemini.md) | Interactions API |
+| [Anthropic](providers/anthropic.md) | Messages API |
+| [OpenAI Chat Completions](providers/openai-chat.md) | The format most third-party vendors speak |
+| [Custom providers](providers/custom.md) | Reaching any endpoint Freya does not ship |
 
-## Conventions used in these docs
+## Reference
 
-Code samples assume the following imports unless stated otherwise:
+Look these up rather than reading them through.
+
+| | |
+|---|---|
+| [Client](reference/client.md) | `Client`, `ProviderType`, `ProviderConfig`, credentials, HTTP |
+| [Requests](reference/requests.md) | `GenerateRequest` and every builder method |
+| [Messages](reference/messages.md) | `Message`, `Role`, `InputContent` |
+| [Tools](reference/tools.md) | `ToolDefinition`, `ToolChoice`, the round trip in full |
+| [Responses](reference/responses.md) | `GenerateResponse`, `OutputContent`, `ResponseStatus`, `Usage` |
+| [Errors](reference/errors.md) | `ProviderError` and how to handle each variant |
+
+Wire formats, for debugging an `Api` error against the native JSON: [OpenAI](reference/wire/openai.md), [Chat Completions](reference/wire/openai-chat.md), [Gemini](reference/wire/gemini.md), [Anthropic](reference/wire/anthropic.md).
+
+## Contributing
+
+For working on Freya itself rather than with it.
+
+| | |
+|---|---|
+| [Architecture](internals/architecture.md) | How the crate is laid out and why |
+| [Adding a dialect](internals/adding-a-dialect.md) | Implementing a new wire format |
+
+## Conventions
+
+Samples assume these imports unless stated otherwise:
 
 ```rust
 use freya::{Client, GenerateRequest, Message, ProviderType, Role};
 ```
 
-Samples that make a network call are written as if inside an `async fn` that returns `Result<(), freya::ProviderError>`.
+Samples that make a network call are written as if inside an `async fn` returning `Result<(), freya::ProviderError>`.
+
+## Status
+
+Phase 0. The neutral core is stable, four dialects are implemented, and tool calling works end to end against live APIs. There is no streaming, no retries, and no orchestration layer. [Features](features.md) has the honest boundary; the [roadmap](../README.md#roadmap-to-mvp) has what is planned.

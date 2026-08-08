@@ -12,7 +12,17 @@ Freya's goal is to be everything you need to build an AI agent in Rust: one neut
 
 ## Documentation
 
-Full reference lives in [`docs/`](docs/README.md), one page per feature: [getting started](docs/getting-started.md), [architecture](docs/architecture.md), [client](docs/client.md), [requests](docs/requests.md), [messages](docs/messages.md), [tool calling](docs/tools.md), [responses](docs/responses.md), [errors](docs/errors.md), and the provider pages for [OpenAI](docs/providers/openai.md), [Gemini](docs/providers/gemini.md), [Anthropic](docs/providers/anthropic.md), [OpenAI Chat Completions](docs/providers/openai-chat.md), [custom endpoints](docs/providers/custom-endpoints.md), and [adding a provider](docs/providers/adding-a-provider.md). The native wire formats are documented too, so you do not have to read vendor docs: [OpenAI wire format](docs/providers/openai-wire.md), [Gemini wire format](docs/providers/gemini-wire.md), [Anthropic wire format](docs/providers/anthropic-wire.md), and [OpenAI Chat wire format](docs/providers/openai-chat-wire.md).
+Full documentation lives in [`docs/`](docs/README.md), written to be read in order:
+
+| | |
+|---|---|
+| [Introduction](docs/introduction.md) | What Freya is, what it is not, and why it exists |
+| [Features](docs/features.md) | What works today, and what does not |
+| [Getting started](docs/getting-started.md) | Install, set a key, make a call |
+| [Concepts](docs/concepts.md) | The five ideas everything else follows from |
+| [Building an agent](docs/building-an-agent.md) | Tools, the loop, and what will bite you |
+
+Then [providers](docs/providers/README.md) for built-in and custom endpoints, [reference](docs/README.md#reference) for the API surface, and [internals](docs/internals/architecture.md) for working on Freya itself.
 
 ## Table of contents
 

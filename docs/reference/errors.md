@@ -64,7 +64,7 @@ This is a bug in your code, not a provider limitation, and switching providers w
 | A tool result whose call is absent from the transcript | Gemini |
 | No model on the request and none on the endpoint | all |
 
-See [Messages and content](messages.md).
+See [Messages and content](../reference/messages.md).
 
 ### Http
 
@@ -147,4 +147,4 @@ Until then, retry at the call site, and only on `Http` and on `Api` with a 429 o
 
 ## What is not an error
 
-A non `Completed` `ResponseStatus` is not an error. A truncated answer, a refusal, or a response waiting on tool results all come back as `Ok`, because the call succeeded and the response is real. Check `response.status` for those. See [Responses](responses.md).
+A non `Completed` `ResponseStatus` is not an error. A truncated answer, a refusal, or a response waiting on tool results all come back as `Ok`, because the call succeeded and the response is real. Check `response.status` for those. See [Responses](../reference/responses.md).

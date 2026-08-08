@@ -147,7 +147,7 @@ The `function_call` item must be present in the transcript before its output. Fr
 
 Reasoning models emit `reasoning` items in `output`. Like Gemini's thought signatures, these are opaque and are expected back unchanged on the following request when the conversation continues with tool results.
 
-Freya preserves any output item it does not model as `OutputContent::Reasoning { data }` and replays it verbatim, so this is handled without you doing anything. See [Tool calling](../tools.md).
+Freya preserves any output item it does not model as `OutputContent::Reasoning { data }` and replays it verbatim, so this is handled without you doing anything. See [Tool calling](../../reference/tools.md).
 
 The alternative is `previous_response_id`, which lets OpenAI keep the transcript server side so nothing needs replaying.
 
@@ -204,7 +204,7 @@ Everything Freya does not model, and that is most of the above, stays reachable 
 
 The response above has a pending tool call and still reports `"status": "completed"`. OpenAI does not use `requires_action` here the way Gemini does.
 
-This is why `response.has_tool_calls()` is the correct loop condition and `response.status` is not. See [Responses](../responses.md).
+This is why `response.has_tool_calls()` is the correct loop condition and `response.status` is not. See [Responses](../../reference/responses.md).
 
 ### Usage
 
@@ -220,4 +220,4 @@ Field names map straight onto the neutral `Usage`. Reasoning models add `output_
 { "error": { "message": "Rate limit reached ...", "type": "rate_limit_error", "code": "rate_limit_exceeded" } }
 ```
 
-Freya preserves the whole body in `ProviderError::Api` alongside the HTTP status. It does not parse the body into typed variants yet, so branch on the status code and read `body` when you need the detail. See [Errors](../errors.md).
+Freya preserves the whole body in `ProviderError::Api` alongside the HTTP status. It does not parse the body into typed variants yet, so branch on the status code and read `body` when you need the detail. See [Errors](../../reference/errors.md).

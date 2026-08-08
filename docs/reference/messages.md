@@ -37,7 +37,7 @@ Derives `Debug`, `Clone`, `Copy`, `Serialize`, `Deserialize`, `PartialEq`, `Eq`.
 
 Most dialects do not send these as ordinary turns. They lift them into a native system instruction field, `instructions` for OpenAI Responses, `system_instruction` for Gemini, and `system` for Anthropic. When there are several, their text is joined with a blank line between them, in the order you supplied.
 
-**OpenAI Chat Completions is the exception.** There `system` is a real message role, so the turns stay in the array where you put them, and `Developer` maps onto `system` because most compatible endpoints do not know a `developer` role. See [OpenAI Chat Completions](providers/openai-chat.md).
+**OpenAI Chat Completions is the exception.** There `system` is a real message role, so the turns stay in the array where you put them, and `Developer` maps onto `system` because most compatible endpoints do not know a `developer` role. See [OpenAI Chat Completions](../providers/openai-chat.md).
 
 On the hoisting dialects, position in the message list does not matter for these two roles, so a system turn placed halfway through a transcript still applies to the whole conversation. On OpenAI Chat Completions it does matter, since the turn stays where you put it. Keep system turns at the front and the behaviour is the same everywhere.
 
@@ -63,7 +63,7 @@ pub enum InputContent {
 | `ToolResult` | `Tool` | The output of running that call |
 | `Reasoning` | `Assistant` | Opaque provider state, replayed verbatim |
 
-`ToolCall` and `ToolResult` exist so a tool round trip can be replayed to the model on the next request. See [Tool calling](tools.md).
+`ToolCall` and `ToolResult` exist so a tool round trip can be replayed to the model on the next request. See [Tool calling](../reference/tools.md).
 
 ## Constructors
 
@@ -154,4 +154,4 @@ messages.push(Message::tool_result("call_1", "42"));
 let request = GenerateRequest::new().messages(messages);
 ```
 
-`GenerateResponse::to_message()` converts a response into the assistant turn, including any tool calls it contained, so you never assemble that turn by hand. See [Responses](responses.md).
+`GenerateResponse::to_message()` converts a response into the assistant turn, including any tool calls it contained, so you never assemble that turn by hand. See [Responses](../reference/responses.md).

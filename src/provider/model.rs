@@ -12,7 +12,7 @@ use std::sync::Arc;
 /// A provider-neutral generation request.
 ///
 /// Every field is optional except [`messages`](Self::messages). A field left as
-/// `None` means "use the provider's own default" — Freya does not invent values,
+/// `None` means "use the provider's own default". Freya does not invent values,
 /// because a value that looks harmless on one provider may be rejected by another.
 ///
 /// Build one with the chainable setters:
@@ -43,7 +43,7 @@ pub struct GenerateRequest {
     pub response_format: Option<ResponseFormat>,
     /// Functions the model is allowed to call.
     pub tools: Vec<ToolDefinition>,
-    /// Whether — and which — tool the model must call.
+    /// Whether the model must call a tool, and which one.
     pub tool_choice: Option<ToolChoice>,
     /// Server-side conversation continuation token from a previous response.
     pub previous_response_id: Option<String>,
@@ -170,7 +170,7 @@ impl Message {
     /// Creates the turn that carries a tool's result back to the model.
     ///
     /// `call_id` must be the id from the [`OutputContent::ToolCall`] being
-    /// answered, and `output` is the tool's result — JSON or plain text.
+    /// answered, and `output` is the tool's result, JSON or plain text.
     pub fn tool_result(call_id: impl Into<String>, output: impl Into<String>) -> Self {
         Self {
             role: Role::Tool,
@@ -219,7 +219,7 @@ pub enum InputContent {
     ToolResult {
         /// The id of the tool call being answered.
         call_id: String,
-        /// The tool's output — JSON or plain text.
+        /// The tool's output, JSON or plain text.
         output: String,
     },
     /// Opaque provider state that must be replayed verbatim.
@@ -282,7 +282,7 @@ pub enum ResponseFormat {
 pub struct ToolDefinition {
     /// Tool name, as the model will refer to it.
     pub name: String,
-    /// What the tool does — the model uses this to decide when to call it.
+    /// What the tool does. The model uses this to decide when to call it.
     pub description: Option<String>,
     /// JSON Schema for the tool's arguments.
     pub parameters: Value,
@@ -314,7 +314,7 @@ impl ToolDefinition {
     }
 }
 
-/// Whether — and which — tool the model must call.
+/// Whether the model must call a tool, and which one.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum ToolChoice {
     /// The model decides.

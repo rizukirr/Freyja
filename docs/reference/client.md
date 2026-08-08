@@ -54,7 +54,7 @@ let client = Client::custom(
 );
 ```
 
-Use the config builder directly when you also need a default model, a key variable, extra headers, or a non-conventional auth style. See [Custom endpoints](providers/custom-endpoints.md).
+Use the config builder directly when you also need a default model, a key variable, extra headers, or a non-conventional auth style. See [Custom endpoints](../providers/custom.md).
 
 ### `Client::without_key`
 
@@ -145,7 +145,7 @@ Freya splits *how* a request is serialized from *where* it is sent, because most
 
 Anywhere a config is accepted a `ProviderType` is too, so the short form keeps working and nothing below changes for callers who only use the shipped endpoints.
 
-For pointing Freya at an endpoint it does not ship, see [Custom endpoints](providers/custom-endpoints.md).
+For pointing Freya at an endpoint it does not ship, see [Custom endpoints](../providers/custom.md).
 
 ## ProviderType
 
@@ -159,7 +159,7 @@ pub enum ProviderType {
 
 Derives `Debug`, `Clone`, `Copy`, `PartialEq`, `Eq`.
 
-Only first-party vendors appear here. Freya implements a fourth dialect, `OpenAiChat`, with no preset at all, because every endpoint speaking it is third party. Reach those with `Client::custom`, see [Custom endpoints](providers/custom-endpoints.md).
+Only first-party vendors appear here. Freya implements a fourth dialect, `OpenAiChat`, with no preset at all, because every endpoint speaking it is third party. Reach those with `Client::custom`, see [Custom endpoints](../providers/custom.md).
 
 ### `api_key_env`
 
@@ -219,4 +219,4 @@ pub trait Provider: Send + Sync {
 
 There is no transport method. `Client` owns convert, POST, check status, parse for every dialect, so it also owns the one `reqwest::Client` that every request in a process shares. The trait has an associated type, so it is not object safe. Dispatch happens through a `ProviderDialect` match inside `Client::generate`, not through a trait object.
 
-Implementing it is covered in [Adding a provider](providers/adding-a-provider.md).
+Implementing it is covered in [Adding a provider](../internals/adding-a-dialect.md).
