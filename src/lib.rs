@@ -1,4 +1,8 @@
-//! Freya, a multi-LLM agent orchestration framework written from scratch in Rust.
+//! A provider-neutral LLM client: one request model, four wire dialects, any
+//! compatible endpoint.
+//!
+//! Built toward agent orchestration, see the roadmap in the repository README.
+//! Today it is the client layer and the tool-calling round trip that layer needs.
 //!
 //! Freya's core is a provider-neutral request/response model. You describe what
 //! you want once, and any backend can serve it:
