@@ -24,6 +24,7 @@ Full reference lives in [`docs/`](docs/README.md), one page per feature: [gettin
 - [Known issues](#known-issues)
 - [Roadmap to MVP](#roadmap-to-mvp)
 - [Development](#development)
+- [License](#license)
 
 ---
 
@@ -289,4 +290,10 @@ cargo run --example custom_endpoint # an endpoint Freya ships no preset for
 cargo clippy --all-targets
 ```
 
-Rust edition 2024. Dependencies: `tokio`, `reqwest`, `serde`, `serde_json`, `dotenvy`.
+Rust edition 2024. Three runtime dependencies, `reqwest`, `serde`, and `serde_json`. `tokio` and `dotenvy` are dev-dependencies used only by the examples, so a consumer does not inherit them.
+
+---
+
+## License
+
+MIT. See [LICENSE](LICENSE).
