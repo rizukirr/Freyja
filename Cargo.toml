@@ -2,9 +2,10 @@
 name = "freyja"
 version = "0.1.0"
 edition = "2024"
-# Verified by the MSRV job in CI, not inferred from the edition. The floor is
-# set by the dependency tree (reqwest -> url -> idna -> icu), not by this code.
-rust-version = "1.86"
+# Verified by the MSRV job in CI, not inferred from the edition. The dependency
+# tree (reqwest -> url -> idna -> icu) forces at least 1.86; 1.88 is a
+# deliberate margin above that floor.
+rust-version = "1.88"
 license = "MIT"
 description = "A provider-neutral LLM client: one request model, four wire dialects, any compatible endpoint."
 repository = "https://github.com/rizukirr/Freyja"
