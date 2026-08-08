@@ -16,6 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - run: rustup update stable && rustup default stable
       - run: rustup component add rustfmt
       - run: cargo fmt --all --check
 
@@ -24,6 +25,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - run: rustup update stable && rustup default stable
       - run: rustup component add clippy
       - uses: actions/cache@v4
         with:
@@ -44,6 +46,7 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
       - uses: actions/checkout@v4
+      - run: rustup update stable && rustup default stable
       - uses: actions/cache@v4
         with:
           path: |
@@ -61,6 +64,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - run: rustup update stable && rustup default stable
       # Catches what would break a docs.rs build after publishing.
       - run: cargo doc --no-deps --all-features
         env:
@@ -82,5 +86,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - run: rustup update stable && rustup default stable
       # Fails on missing metadata, bad links, or anything cargo publish would reject.
       - run: cargo publish --dry-run
