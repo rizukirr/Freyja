@@ -1,13 +1,13 @@
-//! Anthropic backend. Transport lives in [`crate::provider::Client`]; this
+//! OpenAI backend. Transport lives in [`crate::provider::Client`]; this
 //! module owns only the wire format.
 
 mod types;
 
 use crate::provider::{GenerateRequest, GenerateResponse, Provider, ProviderConfig, ProviderError};
 
-pub(crate) struct AnthropicProvider;
+pub(crate) struct OpenAiResponsesProvider;
 
-impl Provider for AnthropicProvider {
+impl Provider for OpenAiResponsesProvider {
     type Request = types::Request;
 
     fn build(

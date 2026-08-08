@@ -81,7 +81,21 @@ The whole response is buffered before returning. Streaming is not implemented ye
 pub fn provider(&self) -> ProviderType
 ```
 
-Which backend this client talks to. Useful when a caller holds a client built elsewhere and needs to branch on capability.
+Which endpoint this client talks to. Useful when a caller holds a client built elsewhere and needs to branch on capability.
+
+## Dialect and endpoint are separate
+
+Freya splits *how* a request is serialized from *where* it is sent, because most hosted inference APIs are wire-compatible with either OpenAI or Anthropic and differ only in URL, credentials, and model names.
+
+| Type | Answers |
+|---|---|
+| `ProviderDialect` | Which wire format. `OpenAiResponses`, `Gemini`, `Anthropic` |
+| `ProviderConfig` | Which endpoint. Base URL, auth style, key variable, default model, extra headers |
+| `ProviderType` | A preset that builds a `ProviderConfig` for an endpoint Freya ships |
+
+Anywhere a config is accepted a `ProviderType` is too, so the short form keeps working and nothing below changes for callers who only use the shipped endpoints.
+
+For pointing Freya at an endpoint it does not ship, see [Custom endpoints](providers/custom-endpoints.md).
 
 ## ProviderType
 
@@ -101,7 +115,21 @@ Derives `Debug`, `Clone`, `Copy`, `PartialEq`, `Eq`.
 pub fn api_key_env(self) -> &'static str
 ```
 
-The conventional environment variable for this provider, `OPENAI_API_KEY` or `GEMINI_API_KEY`. Used by `Client::from_env`, and useful on its own for error messages and startup checks.
+The conventional environment variable for this endpoint, `OPENAI_API_KEY`, `GEMINI_API_KEY`, or `ANTHROPIC_API_KEY`. Used by `Client::from_env`, and useful on its own for error messages and startup checks.
+
+### `dialect` and `config`
+
+```rust
+pub fn dialect(self) -> ProviderDialect
+pub fn config(self) -> ProviderConfig
+```
+
+`config()` is the full endpoint description, and is what `Client` actually consumes. Call it when you want to start from a preset and change one thing:
+
+```rust
+let config = ProviderType::Anthropic.config().default_model("claude-sonnet-5");
+let client = Client::new(config, key);
+```
 
 ## Connection pooling
 

@@ -5,9 +5,6 @@ use crate::provider::*;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-const PROVIDER: &str = "OpenAI";
-const DEFAULT_MODEL: &str = "gpt-5.6-sol";
-
 #[derive(Serialize)]
 pub struct Request {
     model: String,
@@ -95,10 +92,12 @@ struct ToolWire {
     strict: Option<bool>,
 }
 
-impl TryFrom<&GenerateRequest> for Request {
-    type Error = ProviderError;
-
-    fn try_from(value: &GenerateRequest) -> Result<Self, Self::Error> {
+impl Request {
+    /// Converts a neutral request into this dialect's wire format.
+    pub(crate) fn build(
+        value: &GenerateRequest,
+        config: &ProviderConfig,
+    ) -> Result<Self, ProviderError> {
         let mut instructions = Vec::new();
         let mut input = Vec::new();
 
@@ -109,7 +108,7 @@ impl TryFrom<&GenerateRequest> for Request {
                         InputContent::Text(text) => instructions.push(text.clone()),
                         _ => {
                             return Err(ProviderError::UnsupportedCapability {
-                                provider: PROVIDER,
+                                provider: config.name.clone(),
                                 capability: "non-text content in system/developer messages",
                             });
                         }
@@ -132,7 +131,7 @@ impl TryFrom<&GenerateRequest> for Request {
                     InputContent::ImageUrl(image_url) => {
                         if message.role != Role::User {
                             return Err(ProviderError::UnsupportedCapability {
-                                provider: PROVIDER,
+                                provider: config.name.clone(),
                                 capability: "images outside user messages",
                             });
                         }
@@ -168,7 +167,7 @@ impl TryFrom<&GenerateRequest> for Request {
 
             if message.role == Role::Tool && !pending.is_empty() {
                 return Err(ProviderError::InvalidRequest {
-                    provider: PROVIDER,
+                    provider: config.name.clone(),
                     message: "tool messages may only contain tool results".into(),
                 });
             }
@@ -200,10 +199,7 @@ impl TryFrom<&GenerateRequest> for Request {
         });
 
         Ok(Self {
-            model: value
-                .model
-                .clone()
-                .unwrap_or_else(|| DEFAULT_MODEL.to_string()),
+            model: config.model_for(value)?,
             input,
             instructions: (!instructions.is_empty()).then(|| instructions.join("\n\n")),
             max_output_tokens: value.max_tokens,
@@ -340,9 +336,28 @@ fn parse_status(status: String) -> ResponseStatus {
     }
 }
 
+/// Parses a successful response body, attributing failures to the endpoint.
+pub(crate) fn parse(
+    body: &str,
+    config: &ProviderConfig,
+) -> Result<GenerateResponse, ProviderError> {
+    let wire: Response =
+        serde_json::from_str(body).map_err(|error| ProviderError::InvalidResponse {
+            provider: config.name.clone(),
+            message: format!("{error}; body: {body}"),
+        })?;
+    Ok(wire.into())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::provider::ProviderType;
+
+    /// The shipped endpoint for this dialect, so tests cover the real defaults.
+    fn config() -> ProviderConfig {
+        ProviderType::OpenAi.config()
+    }
 
     #[test]
     fn maps_neutral_request_to_openai_wire_format() {
@@ -351,10 +366,10 @@ mod tests {
             .message(Message::text(Role::User, "Hello"))
             .max_tokens(42);
 
-        let wire = Request::try_from(&request).unwrap();
+        let wire = Request::build(&request, &config()).unwrap();
         let json = serde_json::to_value(wire).unwrap();
 
-        assert_eq!(json["model"], DEFAULT_MODEL);
+        assert_eq!(json["model"], "gpt-5.6-sol");
         assert_eq!(json["instructions"], "Be concise");
         assert_eq!(json["input"][0]["type"], "message");
         assert_eq!(json["input"][0]["content"][0]["type"], "input_text");
@@ -365,7 +380,7 @@ mod tests {
     fn omits_capabilities_the_caller_did_not_ask_for() {
         let request = GenerateRequest::new().message(Message::text(Role::User, "Hello"));
 
-        let json = serde_json::to_value(Request::try_from(&request).unwrap()).unwrap();
+        let json = serde_json::to_value(Request::build(&request, &config()).unwrap()).unwrap();
 
         assert!(json.get("reasoning").is_none());
         assert!(json.get("tool_choice").is_none());
@@ -389,7 +404,7 @@ mod tests {
             ))
             .message(Message::tool_result("call_1", "42"));
 
-        let json = serde_json::to_value(Request::try_from(&request).unwrap()).unwrap();
+        let json = serde_json::to_value(Request::build(&request, &config()).unwrap()).unwrap();
         let input = json["input"].as_array().unwrap();
 
         assert_eq!(input.len(), 4);
@@ -416,7 +431,7 @@ mod tests {
         let request = GenerateRequest::new().message(Message::text(Role::Tool, "42"));
 
         assert!(matches!(
-            Request::try_from(&request),
+            Request::build(&request, &config()),
             Err(ProviderError::InvalidRequest { .. })
         ));
     }
@@ -459,7 +474,7 @@ mod tests {
             .message(response.to_message())
             .message(Message::tool_result("call_1", "42"));
 
-        let json = serde_json::to_value(Request::try_from(&follow_up).unwrap()).unwrap();
+        let json = serde_json::to_value(Request::build(&follow_up, &config()).unwrap()).unwrap();
         let input = json["input"].as_array().unwrap();
 
         assert_eq!(input.len(), 3);

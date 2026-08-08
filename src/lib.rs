@@ -58,7 +58,7 @@
 pub mod provider;
 
 pub use provider::{
-    Client, GenerateRequest, GenerateResponse, InputContent, Message, OutputContent, Provider,
-    ProviderError, ProviderType, ReasoningEffort, ResponseFormat, ResponseStatus, Role, ToolChoice,
-    ToolDefinition, Usage,
+    Auth, Client, GenerateRequest, GenerateResponse, InputContent, Message, OutputContent,
+    Provider, ProviderConfig, ProviderDialect, ProviderError, ProviderType, ReasoningEffort,
+    ResponseFormat, ResponseStatus, Role, ToolChoice, ToolDefinition, Usage,
 };

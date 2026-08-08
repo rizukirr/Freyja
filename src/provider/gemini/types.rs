@@ -5,9 +5,6 @@ use crate::provider::*;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-const PROVIDER: &str = "Gemini";
-const DEFAULT_MODEL: &str = "gemini-3.5-flash";
-
 #[derive(Serialize)]
 pub struct Request {
     model: String,
@@ -30,19 +27,21 @@ pub struct Request {
     labels: Option<Value>,
 }
 
-impl TryFrom<&GenerateRequest> for Request {
-    type Error = ProviderError;
-
-    fn try_from(value: &GenerateRequest) -> Result<Self, Self::Error> {
+impl Request {
+    /// Converts a neutral request into this dialect's wire format.
+    pub(crate) fn build(
+        value: &GenerateRequest,
+        config: &ProviderConfig,
+    ) -> Result<Self, ProviderError> {
         if value.reasoning_effort.is_some() {
             return Err(ProviderError::UnsupportedCapability {
-                provider: PROVIDER,
+                provider: config.name.clone(),
                 capability: "portable reasoning effort levels",
             });
         }
         if value.tool_choice.is_some() {
             return Err(ProviderError::UnsupportedCapability {
-                provider: PROVIDER,
+                provider: config.name.clone(),
                 capability: "portable tool choice",
             });
         }
@@ -70,7 +69,7 @@ impl TryFrom<&GenerateRequest> for Request {
                         InputContent::Text(text) => system.push(text.clone()),
                         _ => {
                             return Err(ProviderError::UnsupportedCapability {
-                                provider: PROVIDER,
+                                provider: config.name.clone(),
                                 capability: "non-text content in system/developer messages",
                             });
                         }
@@ -95,7 +94,7 @@ impl TryFrom<&GenerateRequest> for Request {
                     InputContent::Text(text) => {
                         if message.role == Role::Tool {
                             return Err(ProviderError::InvalidRequest {
-                                provider: PROVIDER,
+                                provider: config.name.clone(),
                                 message: "tool messages may only contain tool results".into(),
                             });
                         }
@@ -104,7 +103,7 @@ impl TryFrom<&GenerateRequest> for Request {
                     InputContent::ImageUrl(url) => {
                         if message.role != Role::User {
                             return Err(ProviderError::UnsupportedCapability {
-                                provider: PROVIDER,
+                                provider: config.name.clone(),
                                 capability: "images outside user messages",
                             });
                         }
@@ -127,7 +126,7 @@ impl TryFrom<&GenerateRequest> for Request {
                         flush(&mut steps, step_type, &mut pending);
                         let Some(name) = tool_names.get(call_id.as_str()) else {
                             return Err(ProviderError::InvalidRequest {
-                                provider: PROVIDER,
+                                provider: config.name.clone(),
                                 message: format!(
                                     "no tool call with id '{call_id}' in the transcript; \
                                      Gemini requires the tool name alongside its result"
@@ -181,10 +180,7 @@ impl TryFrom<&GenerateRequest> for Request {
         });
 
         Ok(Self {
-            model: value
-                .model
-                .clone()
-                .unwrap_or_else(|| DEFAULT_MODEL.to_string()),
+            model: config.model_for(value)?,
             input,
             system_instruction: (!system.is_empty()).then(|| system.join("\n\n")),
             max_output_tokens: value.max_tokens,
@@ -330,9 +326,28 @@ fn convert_step(step: Value) -> Vec<OutputContent> {
     }
 }
 
+/// Parses a successful response body, attributing failures to the endpoint.
+pub(crate) fn parse(
+    body: &str,
+    config: &ProviderConfig,
+) -> Result<GenerateResponse, ProviderError> {
+    let wire: Response =
+        serde_json::from_str(body).map_err(|error| ProviderError::InvalidResponse {
+            provider: config.name.clone(),
+            message: format!("{error}; body: {body}"),
+        })?;
+    Ok(wire.into())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::provider::ProviderType;
+
+    /// The shipped endpoint for this dialect, so tests cover the real defaults.
+    fn config() -> ProviderConfig {
+        ProviderType::Gemini.config()
+    }
 
     #[test]
     fn maps_neutral_request_to_gemini_wire_format() {
@@ -341,10 +356,10 @@ mod tests {
             .message(Message::text(Role::User, "Hello"))
             .max_tokens(42);
 
-        let wire = Request::try_from(&request).unwrap();
+        let wire = Request::build(&request, &config()).unwrap();
         let json = serde_json::to_value(wire).unwrap();
 
-        assert_eq!(json["model"], DEFAULT_MODEL);
+        assert_eq!(json["model"], "gemini-3.5-flash");
         assert_eq!(json["system_instruction"], "Be concise");
         assert_eq!(json["input"], "Hello");
         assert_eq!(json["max_output_tokens"], 42);
@@ -357,7 +372,7 @@ mod tests {
             .message(Message::text(Role::Assistant, "Hello"))
             .message(Message::text(Role::User, "Bye"));
 
-        let json = serde_json::to_value(Request::try_from(&request).unwrap()).unwrap();
+        let json = serde_json::to_value(Request::build(&request, &config()).unwrap()).unwrap();
         let steps = json["input"].as_array().unwrap();
 
         assert_eq!(steps.len(), 3);
@@ -386,7 +401,7 @@ mod tests {
             ))
             .message(Message::tool_result("call_1", "42"));
 
-        let json = serde_json::to_value(Request::try_from(&request).unwrap()).unwrap();
+        let json = serde_json::to_value(Request::build(&request, &config()).unwrap()).unwrap();
         let steps = json["input"].as_array().unwrap();
 
         assert_eq!(steps.len(), 4);
@@ -421,7 +436,7 @@ mod tests {
             ))
             .message(Message::tool_result("call_1", "{\"sum\":42}"));
 
-        let json = serde_json::to_value(Request::try_from(&request).unwrap()).unwrap();
+        let json = serde_json::to_value(Request::build(&request, &config()).unwrap()).unwrap();
         let steps = json["input"].as_array().unwrap();
 
         assert_eq!(steps[1]["result"]["sum"], 42);
@@ -432,7 +447,7 @@ mod tests {
         let request = GenerateRequest::new().message(Message::tool_result("missing", "42"));
 
         assert!(matches!(
-            Request::try_from(&request),
+            Request::build(&request, &config()),
             Err(ProviderError::InvalidRequest { .. })
         ));
     }
@@ -489,7 +504,7 @@ mod tests {
         let request = GenerateRequest::new().reasoning_effort(ReasoningEffort::High);
 
         assert!(matches!(
-            Request::try_from(&request),
+            Request::build(&request, &config()),
             Err(ProviderError::UnsupportedCapability { .. })
         ));
     }
@@ -499,7 +514,7 @@ mod tests {
         let request = GenerateRequest::new().message(Message::text(Role::Tool, "42"));
 
         assert!(matches!(
-            Request::try_from(&request),
+            Request::build(&request, &config()),
             Err(ProviderError::InvalidRequest { .. })
         ));
     }

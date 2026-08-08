@@ -5,9 +5,6 @@ use crate::provider::*;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-const PROVIDER: &str = "Anthropic";
-const DEFAULT_MODEL: &str = "claude-opus-5";
-
 /// Anthropic is the only supported provider that *requires* `max_tokens` on
 /// every request, so this is the one place Freya has to invent a value. It is a
 /// cap, not a target: the model stops early on its own. Set
@@ -87,15 +84,17 @@ struct ToolWire {
     strict: Option<bool>,
 }
 
-impl TryFrom<&GenerateRequest> for Request {
-    type Error = ProviderError;
-
-    fn try_from(value: &GenerateRequest) -> Result<Self, Self::Error> {
+impl Request {
+    /// Converts a neutral request into this dialect's wire format.
+    pub(crate) fn build(
+        value: &GenerateRequest,
+        config: &ProviderConfig,
+    ) -> Result<Self, ProviderError> {
         // Anthropic keeps no server-side transcript; the full history goes on
         // every request, so there is nothing to continue from.
         if value.previous_response_id.is_some() {
             return Err(ProviderError::UnsupportedCapability {
-                provider: PROVIDER,
+                provider: config.name.clone(),
                 capability: "server-side conversation continuation",
             });
         }
@@ -110,7 +109,7 @@ impl TryFrom<&GenerateRequest> for Request {
                         InputContent::Text(text) => system.push(text.clone()),
                         _ => {
                             return Err(ProviderError::UnsupportedCapability {
-                                provider: PROVIDER,
+                                provider: config.name.clone(),
                                 capability: "non-text content in system/developer messages",
                             });
                         }
@@ -139,12 +138,12 @@ impl TryFrom<&GenerateRequest> for Request {
                     InputContent::ImageUrl(url) => {
                         if message.role != Role::User {
                             return Err(ProviderError::UnsupportedCapability {
-                                provider: PROVIDER,
+                                provider: config.name.clone(),
                                 capability: "images outside user messages",
                             });
                         }
                         content.push(BlockWire::Typed(TypedBlockWire::Image {
-                            source: image_source(url)?,
+                            source: image_source(url, config)?,
                         }));
                     }
                     InputContent::ToolCall {
@@ -155,7 +154,7 @@ impl TryFrom<&GenerateRequest> for Request {
                         content.push(BlockWire::Typed(TypedBlockWire::ToolUse {
                             id: id.clone(),
                             name: name.clone(),
-                            input: parse_arguments(arguments)?,
+                            input: parse_arguments(arguments, config)?,
                         }));
                     }
                     InputContent::ToolResult { call_id, output } => {
@@ -187,7 +186,7 @@ impl TryFrom<&GenerateRequest> for Request {
                 }
                 ReasoningEffort::Minimal => {
                     return Err(ProviderError::UnsupportedCapability {
-                        provider: PROVIDER,
+                        provider: config.name.clone(),
                         capability: "reasoning effort 'minimal'",
                     });
                 }
@@ -203,7 +202,7 @@ impl TryFrom<&GenerateRequest> for Request {
                 ResponseFormat::Text => {}
                 ResponseFormat::JsonObject => {
                     return Err(ProviderError::UnsupportedCapability {
-                        provider: PROVIDER,
+                        provider: config.name.clone(),
                         capability: "schema-less JSON response format",
                     });
                 }
@@ -225,10 +224,7 @@ impl TryFrom<&GenerateRequest> for Request {
         });
 
         Ok(Self {
-            model: value
-                .model
-                .clone()
-                .unwrap_or_else(|| DEFAULT_MODEL.to_string()),
+            model: config.model_for(value)?,
             max_tokens: value.max_tokens.unwrap_or(DEFAULT_MAX_TOKENS),
             messages,
             system: (!system.is_empty()).then(|| system.join("\n\n")),
@@ -254,14 +250,14 @@ impl TryFrom<&GenerateRequest> for Request {
 
 /// Anthropic wants tool arguments as a structured object, so the neutral JSON
 /// string is parsed here. An empty string means "no arguments".
-fn parse_arguments(raw: &str) -> Result<Value, ProviderError> {
+fn parse_arguments(raw: &str, config: &ProviderConfig) -> Result<Value, ProviderError> {
     if raw.trim().is_empty() {
         return Ok(Value::Object(serde_json::Map::new()));
     }
     match serde_json::from_str::<Value>(raw) {
         Ok(value @ Value::Object(_)) => Ok(value),
         _ => Err(ProviderError::InvalidRequest {
-            provider: PROVIDER,
+            provider: config.name.clone(),
             message: format!(
                 "tool call arguments must be a JSON object; Anthropic rejects anything else, got '{raw}'"
             ),
@@ -272,13 +268,13 @@ fn parse_arguments(raw: &str) -> Result<Value, ProviderError> {
 /// Builds an image source block. Anthropic distinguishes remote URLs from
 /// inline base64, so a data URI has to be split into its media type and payload
 /// rather than passed through as a URL.
-fn image_source(url: &str) -> Result<Value, ProviderError> {
+fn image_source(url: &str, config: &ProviderConfig) -> Result<Value, ProviderError> {
     let Some(rest) = url.strip_prefix("data:") else {
         return Ok(serde_json::json!({"type": "url", "url": url}));
     };
 
     let invalid = || ProviderError::InvalidRequest {
-        provider: PROVIDER,
+        provider: config.name.clone(),
         message: "image data URIs must be of the form 'data:<media-type>;base64,<data>'".into(),
     };
 
@@ -397,9 +393,28 @@ fn parse_status(stop_reason: Option<String>) -> ResponseStatus {
     }
 }
 
+/// Parses a successful response body, attributing failures to the endpoint.
+pub(crate) fn parse(
+    body: &str,
+    config: &ProviderConfig,
+) -> Result<GenerateResponse, ProviderError> {
+    let wire: Response =
+        serde_json::from_str(body).map_err(|error| ProviderError::InvalidResponse {
+            provider: config.name.clone(),
+            message: format!("{error}; body: {body}"),
+        })?;
+    Ok(wire.into())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::provider::ProviderType;
+
+    /// The shipped endpoint for this dialect, so tests cover the real defaults.
+    fn config() -> ProviderConfig {
+        ProviderType::Anthropic.config()
+    }
 
     #[test]
     fn maps_neutral_request_to_anthropic_wire_format() {
@@ -408,9 +423,9 @@ mod tests {
             .message(Message::text(Role::User, "Hello"))
             .max_tokens(42);
 
-        let json = serde_json::to_value(Request::try_from(&request).unwrap()).unwrap();
+        let json = serde_json::to_value(Request::build(&request, &config()).unwrap()).unwrap();
 
-        assert_eq!(json["model"], DEFAULT_MODEL);
+        assert_eq!(json["model"], "claude-opus-5");
         assert_eq!(json["system"], "Be concise");
         assert_eq!(json["max_tokens"], 42);
         assert_eq!(json["messages"][0]["role"], "user");
@@ -422,7 +437,7 @@ mod tests {
     fn supplies_the_required_max_tokens_when_the_caller_does_not() {
         let request = GenerateRequest::new().message(Message::text(Role::User, "Hello"));
 
-        let json = serde_json::to_value(Request::try_from(&request).unwrap()).unwrap();
+        let json = serde_json::to_value(Request::build(&request, &config()).unwrap()).unwrap();
 
         assert_eq!(json["max_tokens"], DEFAULT_MAX_TOKENS);
     }
@@ -431,7 +446,7 @@ mod tests {
     fn omits_capabilities_the_caller_did_not_ask_for() {
         let request = GenerateRequest::new().message(Message::text(Role::User, "Hello"));
 
-        let json = serde_json::to_value(Request::try_from(&request).unwrap()).unwrap();
+        let json = serde_json::to_value(Request::build(&request, &config()).unwrap()).unwrap();
 
         assert!(json.get("thinking").is_none());
         assert!(json.get("output_config").is_none());
@@ -457,7 +472,7 @@ mod tests {
             ))
             .message(Message::tool_result("toolu_1", "42"));
 
-        let json = serde_json::to_value(Request::try_from(&request).unwrap()).unwrap();
+        let json = serde_json::to_value(Request::build(&request, &config()).unwrap()).unwrap();
         let messages = json["messages"].as_array().unwrap();
 
         assert_eq!(messages.len(), 3);
@@ -501,7 +516,7 @@ mod tests {
                 ],
             ));
 
-        let json = serde_json::to_value(Request::try_from(&request).unwrap()).unwrap();
+        let json = serde_json::to_value(Request::build(&request, &config()).unwrap()).unwrap();
 
         assert_eq!(json["messages"][1]["content"][0], signed);
         assert_eq!(json["messages"][1]["content"][1]["type"], "tool_use");
@@ -514,7 +529,7 @@ mod tests {
             .reasoning_effort(ReasoningEffort::Xhigh)
             .tool_choice(ToolChoice::Required);
 
-        let json = serde_json::to_value(Request::try_from(&request).unwrap()).unwrap();
+        let json = serde_json::to_value(Request::build(&request, &config()).unwrap()).unwrap();
 
         assert_eq!(json["output_config"]["effort"], "xhigh");
         assert_eq!(json["tool_choice"]["type"], "any");
@@ -526,7 +541,7 @@ mod tests {
             .message(Message::text(Role::User, "Hello"))
             .reasoning_effort(ReasoningEffort::None);
 
-        let json = serde_json::to_value(Request::try_from(&request).unwrap()).unwrap();
+        let json = serde_json::to_value(Request::build(&request, &config()).unwrap()).unwrap();
 
         assert_eq!(json["thinking"]["type"], "disabled");
         assert!(json.get("output_config").is_none());
@@ -542,7 +557,7 @@ mod tests {
 
         for request in unsupported {
             assert!(matches!(
-                Request::try_from(&request),
+                Request::build(&request, &config()),
                 Err(ProviderError::UnsupportedCapability { .. })
             ));
         }
@@ -560,7 +575,7 @@ mod tests {
         ));
 
         assert!(matches!(
-            Request::try_from(&request),
+            Request::build(&request, &config()),
             Err(ProviderError::InvalidRequest { .. })
         ));
     }
@@ -574,7 +589,7 @@ mod tests {
             )],
         ));
 
-        let json = serde_json::to_value(Request::try_from(&request).unwrap()).unwrap();
+        let json = serde_json::to_value(Request::build(&request, &config()).unwrap()).unwrap();
         let source = &json["messages"][0]["content"][0]["source"];
 
         assert_eq!(source["type"], "base64");
@@ -648,7 +663,7 @@ mod tests {
             .message(response.to_message())
             .message(Message::tool_result("toolu_1", "42"));
 
-        let json = serde_json::to_value(Request::try_from(&follow_up).unwrap()).unwrap();
+        let json = serde_json::to_value(Request::build(&follow_up, &config()).unwrap()).unwrap();
         let messages = json["messages"].as_array().unwrap();
 
         assert_eq!(messages.len(), 3);

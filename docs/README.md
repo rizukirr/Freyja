@@ -34,7 +34,8 @@ The Anthropic backend is the one page to read with a caveat attached, it has not
 | [Gemini wire format](providers/gemini-wire.md) | The native Interactions API JSON, field by field |
 | [Anthropic](providers/anthropic.md) | Messages API mapping, defaults, capability notes |
 | [Anthropic wire format](providers/anthropic-wire.md) | The native Messages API JSON, field by field |
-| [Adding a provider](providers/adding-a-provider.md) | What it takes to add another backend |
+| [Custom endpoints](providers/custom-endpoints.md) | Pointing a dialect at any compatible endpoint |
+| [Adding a provider](providers/adding-a-provider.md) | What it takes to add another wire dialect |
 
 ## Conventions used in these docs
 

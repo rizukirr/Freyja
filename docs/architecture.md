@@ -56,9 +56,9 @@ Validation lives in the outbound conversion, before any network call. Content in
 
 ## Transport
 
-Each provider's `mod.rs` does the same four steps: convert, POST, check status, parse. Roughly forty lines, nearly identical across all three, differing only in URL, auth header, extra headers, and provider name.
+Transport is shared. `Client::run` does the same four steps for every dialect: convert, POST, check status, parse.
 
-That duplication is intentional. A shared transport helper would have to be parameterized over auth style, headers, and error attribution, which is more machinery than it saves at three providers. Revisit it at four.
+It did not start that way. Each provider used to own its own forty line copy, and this page said the duplication was intentional because a shared helper would need parameterizing over auth style, headers, and error attribution, then added "revisit it at four". Splitting endpoint from dialect is what made it worth doing, because those three parameters became fields on `ProviderConfig` rather than arguments to invent. The dialects now implement only `build` and `parse`, and the `Provider` trait has no transport method at all.
 
 The `reqwest::Client` is passed into `Provider::generate` rather than owned by the provider, so every request in a process shares one connection pool:
 

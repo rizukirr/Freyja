@@ -7,6 +7,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::fmt;
+use std::sync::Arc;
 
 /// A provider-neutral generation request.
 ///
@@ -461,20 +462,24 @@ pub struct Usage {
 }
 
 /// Everything that can go wrong on the way to a [`GenerateResponse`].
+///
+/// `provider` is the endpoint's configured name rather than its dialect, so a
+/// failure against a Claude-compatible gateway reports that gateway and not
+/// "Anthropic".
 #[derive(Debug)]
 pub enum ProviderError {
     /// The request asked for something this provider cannot express. Freya
     /// refuses rather than silently dropping the capability.
     UnsupportedCapability {
-        /// Provider that refused.
-        provider: &'static str,
+        /// Endpoint that refused.
+        provider: Arc<str>,
         /// The capability it cannot express.
         capability: &'static str,
     },
     /// The request is malformed and was rejected before leaving the process.
     InvalidRequest {
-        /// Provider whose mapping rejected the request.
-        provider: &'static str,
+        /// Endpoint whose mapping rejected the request.
+        provider: Arc<str>,
         /// What is wrong with it.
         message: String,
     },
@@ -482,8 +487,8 @@ pub enum ProviderError {
     Http(String),
     /// The provider answered with a non-success status.
     Api {
-        /// Provider that answered.
-        provider: &'static str,
+        /// Endpoint that answered.
+        provider: Arc<str>,
         /// HTTP status code.
         status: u16,
         /// Raw response body, preserved for debugging.
@@ -491,8 +496,8 @@ pub enum ProviderError {
     },
     /// The provider answered successfully but the body could not be parsed.
     InvalidResponse {
-        /// Provider that answered.
-        provider: &'static str,
+        /// Endpoint that answered.
+        provider: Arc<str>,
         /// Parse failure detail, including the body.
         message: String,
     },
