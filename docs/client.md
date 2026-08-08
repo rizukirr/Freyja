@@ -6,7 +6,15 @@
 pub struct Client { /* private fields */ }
 ```
 
-Derives `Debug` and `Clone`. Cloning is cheap for the HTTP client, since `reqwest::Client` is internally reference counted and clones share one connection pool, but it does copy the API key string. When you need the same client across many tasks, prefer sharing one behind an `Arc` over cloning it repeatedly.
+Derives `Clone`. Cloning is cheap for the HTTP client, since `reqwest::Client` is internally reference counted and clones share one connection pool, but it does copy the API key string. When you need the same client across many tasks, prefer sharing one behind an `Arc` over cloning it repeatedly.
+
+`Debug` is implemented by hand rather than derived, and **redacts the API key**:
+
+```
+Client { config: ProviderConfig { .. }, api_key: "<redacted>", http: .. }
+```
+
+A derived `Debug` would print the key verbatim, so one `tracing::debug!(?client)` would put a live credential in your logs. The redaction still distinguishes `"<redacted>"` from `"<none>"`, since which one you have is the usual explanation for a 401.
 
 ## Constructors
 
@@ -23,6 +31,30 @@ let client = Client::new(ProviderType::OpenAi, "sk-...");
 ```
 
 If the HTTP client fails to build, Freya falls back to `reqwest::Client::default()` rather than panicking. The fallback has no timeout.
+
+### `Client::custom`
+
+```rust
+pub fn custom(
+    dialect: ProviderDialect,
+    name: impl Into<Arc<str>>,
+    base_url: impl Into<String>,
+    api_key: impl Into<String>,
+) -> Self
+```
+
+Reaches an endpoint Freya does not ship, in one call. Shorthand for `ProviderConfig::new` followed by `Client::new`.
+
+```rust
+let client = Client::custom(
+    ProviderDialect::OpenAiChat,
+    "my-gateway",
+    "https://gateway.internal/v1",
+    std::env::var("GATEWAY_API_KEY")?,
+);
+```
+
+Use the config builder directly when you also need a default model, a key variable, extra headers, or a non-conventional auth style. See [Custom endpoints](providers/custom-endpoints.md).
 
 ### `Client::without_key`
 

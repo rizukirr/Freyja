@@ -11,6 +11,23 @@ Most hosted inference APIs do not invent a wire format. They copy one, usually O
 
 A preset is only a `ProviderConfig` with the fields filled in. There is nothing a preset can do that you cannot.
 
+## The quickest version
+
+When all you need is a dialect, a name, a URL, and a key:
+
+```rust
+use freya::{Client, ProviderDialect};
+
+let client = Client::custom(
+    ProviderDialect::OpenAiChat,
+    "my-gateway",
+    "https://gateway.internal/v1",
+    std::env::var("GATEWAY_API_KEY")?,
+);
+```
+
+Auth follows the dialect, so this is `Authorization: Bearer` without saying so. Everything below is for when you need more than those four things.
+
 ## Pointing at a compatible endpoint
 
 ```rust

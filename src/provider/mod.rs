@@ -21,6 +21,7 @@ pub use model::*;
 pub use presets::ProviderType;
 
 use serde::Serialize;
+use std::fmt;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -242,11 +243,31 @@ pub trait Provider: Send + Sync {
 /// # Ok(())
 /// # }
 /// ```
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Client {
     config: ProviderConfig,
     api_key: Option<String>,
     http: reqwest::Client,
+}
+
+/// Redacts the API key.
+///
+/// Deriving `Debug` here would print the key verbatim, so a single
+/// `tracing::debug!(?client)` would put a live credential in the logs.
+impl fmt::Debug for Client {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Client")
+            .field("config", &self.config)
+            .field(
+                "api_key",
+                &match &self.api_key {
+                    Some(_) => "<redacted>",
+                    None => "<none>",
+                },
+            )
+            .field("http", &self.http)
+            .finish()
+    }
 }
 
 impl Client {
@@ -256,6 +277,31 @@ impl Client {
     /// [`ProviderType`] preset.
     pub fn new(config: impl Into<ProviderConfig>, api_key: impl Into<String>) -> Self {
         Self::build(config.into(), Some(api_key.into()), default_http())
+    }
+
+    /// Creates a client for an endpoint Freya does not ship, in one call.
+    ///
+    /// Shorthand for [`ProviderConfig::new`] followed by [`Client::new`]. Reach
+    /// for the config builder directly when you also need a default model, a
+    /// key variable, extra headers, or a non-conventional auth style.
+    ///
+    /// ```no_run
+    /// use freya::{Client, ProviderDialect};
+    ///
+    /// let client = Client::custom(
+    ///     ProviderDialect::OpenAiChat,
+    ///     "my-gateway",
+    ///     "https://gateway.internal/v1",
+    ///     std::env::var("GATEWAY_API_KEY").unwrap(),
+    /// );
+    /// ```
+    pub fn custom(
+        dialect: ProviderDialect,
+        name: impl Into<Arc<str>>,
+        base_url: impl Into<String>,
+        api_key: impl Into<String>,
+    ) -> Self {
+        Self::new(ProviderConfig::new(dialect, name, base_url), api_key)
     }
 
     /// Creates a client for an endpoint that needs no credentials, such as a
@@ -378,6 +424,39 @@ fn default_http() -> reqwest::Client {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn debug_never_prints_the_api_key() {
+        let client = Client::new(ProviderType::OpenAi, "sk-secret-value");
+        let rendered = format!("{client:?}");
+
+        assert!(!rendered.contains("sk-secret-value"), "{rendered}");
+        assert!(rendered.contains("<redacted>"), "{rendered}");
+
+        // The distinction between "no key" and "a key I will not show you"
+        // stays visible, since it is the usual cause of a 401.
+        let keyless = Client::without_key(ProviderType::Ollama);
+        assert!(format!("{keyless:?}").contains("<none>"));
+    }
+
+    #[test]
+    fn custom_builds_an_endpoint_freya_does_not_ship() {
+        let client = Client::custom(
+            ProviderDialect::OpenAiChat,
+            "my-gateway",
+            "https://gateway.internal/v1",
+            "key",
+        );
+
+        assert_eq!(client.config().dialect, ProviderDialect::OpenAiChat);
+        assert_eq!(&*client.config().name, "my-gateway");
+        assert_eq!(
+            client.config().url(),
+            "https://gateway.internal/v1/chat/completions"
+        );
+        // Auth follows the dialect unless overridden.
+        assert_eq!(client.config().auth, Auth::Bearer);
+    }
 
     #[test]
     fn joins_base_url_and_dialect_path() {

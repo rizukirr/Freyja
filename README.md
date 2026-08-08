@@ -43,7 +43,7 @@ Full reference lives in [`docs/`](docs/README.md), one page per feature: [gettin
 | Streaming | Not started |
 | Agent loop, memory, orchestration | Not started |
 
-**Phase 0 is complete**, and the Anthropic backend proved it: adding a third dialect touched one new module and two enum arms, with no edits to the neutral model. `cargo test`: 53 unit tests + 6 doctests, all passing. OpenAI, Gemini, Anthropic, and DeepSeek each complete a real tool round trip end to end. `cargo clippy --all-targets -- -D warnings` is clean.
+**Phase 0 is complete**, and the Anthropic backend proved it: adding a third dialect touched one new module and two enum arms, with no edits to the neutral model. `cargo test`: 55 unit tests + 7 doctests, all passing. OpenAI, Gemini, Anthropic, and DeepSeek each complete a real tool round trip end to end. `cargo clippy --all-targets -- -D warnings` is clean.
 
 ---
 
@@ -115,7 +115,8 @@ Implements `Display` and `std::error::Error`.
 
 - One pooled `reqwest::Client` per `Client`, with a 120 second default timeout, connections are reused instead of rebuilt per request.
 - `Client::with_http_client` to supply your own (custom timeouts, proxies, TLS).
-- `Client::from_env(config)` reads the key from the endpoint's `api_key_env`, and `Client::without_key` covers local runtimes that need none.
+- `Client::from_env(config)` reads the key from the endpoint's `api_key_env`, `Client::custom(dialect, name, base_url, key)` reaches an endpoint Freya does not ship in one call, and `Client::without_key` covers local runtimes that need none.
+- `Client`'s `Debug` is hand written and **redacts the API key**, so `tracing::debug!(?client)` cannot leak a live credential into your logs.
 
 ---
 
