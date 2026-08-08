@@ -12,7 +12,7 @@ Freya's goal is to be everything you need to build an AI agent in Rust: one neut
 
 ## Documentation
 
-Full reference lives in [`docs/`](docs/README.md), one page per feature: [getting started](docs/getting-started.md), [architecture](docs/architecture.md), [client](docs/client.md), [requests](docs/requests.md), [messages](docs/messages.md), [tool calling](docs/tools.md), [responses](docs/responses.md), [errors](docs/errors.md), and the provider pages for [OpenAI](docs/providers/openai.md), [Gemini](docs/providers/gemini.md), [Anthropic](docs/providers/anthropic.md), [custom endpoints](docs/providers/custom-endpoints.md), and [adding a provider](docs/providers/adding-a-provider.md). The native wire formats are documented too, so you do not have to read vendor docs: [OpenAI wire format](docs/providers/openai-wire.md), [Gemini wire format](docs/providers/gemini-wire.md), and [Anthropic wire format](docs/providers/anthropic-wire.md).
+Full reference lives in [`docs/`](docs/README.md), one page per feature: [getting started](docs/getting-started.md), [architecture](docs/architecture.md), [client](docs/client.md), [requests](docs/requests.md), [messages](docs/messages.md), [tool calling](docs/tools.md), [responses](docs/responses.md), [errors](docs/errors.md), and the provider pages for [OpenAI](docs/providers/openai.md), [Gemini](docs/providers/gemini.md), [Anthropic](docs/providers/anthropic.md), [OpenAI Chat Completions](docs/providers/openai-chat.md), [custom endpoints](docs/providers/custom-endpoints.md), and [adding a provider](docs/providers/adding-a-provider.md). The native wire formats are documented too, so you do not have to read vendor docs: [OpenAI wire format](docs/providers/openai-wire.md), [Gemini wire format](docs/providers/gemini-wire.md), [Anthropic wire format](docs/providers/anthropic-wire.md), and [OpenAI Chat wire format](docs/providers/openai-chat-wire.md).
 
 ## Table of contents
 
@@ -35,13 +35,15 @@ Full reference lives in [`docs/`](docs/README.md), one page per feature: [gettin
 | OpenAI provider (Responses API) | Implemented |
 | Gemini provider (Interactions API) | Implemented and verified live, partial capability coverage |
 | Anthropic provider (Messages API) | Implemented and verified live |
+| OpenAI Chat Completions dialect | Implemented and verified live on DeepSeek |
+| Compatible endpoints | DeepSeek, Groq, Together, OpenRouter, Ollama presets |
 | Function / tool calling | Full round trip, verified live on all three |
 | Pooled HTTP client, timeouts | Implemented |
 | Rustdoc on the public API | `#![deny(missing_docs)]` |
 | Streaming | Not started |
 | Agent loop, memory, orchestration | Not started |
 
-**Phase 0 is complete**, and the Anthropic backend proved it: adding a third dialect touched one new module and two enum arms, with no edits to the neutral model. `cargo test`: 38 unit tests + 6 doctests, all passing. All three endpoints complete a real tool round trip end to end. `cargo clippy --all-targets -- -D warnings` is clean.
+**Phase 0 is complete**, and the Anthropic backend proved it: adding a third dialect touched one new module and two enum arms, with no edits to the neutral model. `cargo test`: 53 unit tests + 6 doctests, all passing. OpenAI, Gemini, Anthropic, and DeepSeek each complete a real tool round trip end to end. `cargo clippy --all-targets -- -D warnings` is clean.
 
 ---
 
@@ -124,6 +126,7 @@ Implements `Display` and `std::error::Error`.
 OPENAI_API_KEY=sk-...
 # GEMINI_API_KEY=...
 # ANTHROPIC_API_KEY=sk-ant-...
+# DEEPSEEK_API_KEY=...  # or GROQ_API_KEY, TOGETHER_API_KEY, OPENROUTER_API_KEY
 ```
 
 ```rust
@@ -206,7 +209,7 @@ The MVP target: *everything you need to build an AI agent*, a developer can defi
 - [x] **Anthropic provider** (Messages API) as the third dialect, an additive change as predicted: one module and two enum arms, no edits to the neutral model
 - [x] **Verify the Anthropic provider against the live API**, prompt to tool call to result to answer, the same bar the other two cleared
 - [x] **Separate wire dialect from endpoint** so one mapping serves every compatible vendor, with `ProviderConfig` carrying base URL, auth, key variable, and default model
-- [ ] **OpenAI Chat Completions dialect**, the format the compatible ecosystem actually speaks, unlocking Groq, Together, DeepSeek, OpenRouter, Ollama, and vLLM
+- [x] **OpenAI Chat Completions dialect**, the format the compatible ecosystem actually speaks, with presets for DeepSeek, Groq, Together, OpenRouter, and Ollama
 - [ ] **Streaming**: `generate_stream` returning a `Stream<Item = StreamEvent>`
 (text deltas, tool-call deltas, usage, completion)
 - [ ] **Capability introspection**: `Provider::capabilities()` so callers can query

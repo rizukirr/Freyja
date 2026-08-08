@@ -2,9 +2,9 @@
 
 Reference for everything currently available in Freya. Each page covers one feature and can be read on its own.
 
-Freya is at Phase 0: the provider neutral core is stable, three providers are implemented, and tool calling works end to end. There is no agent loop, memory, or orchestration layer yet. See the roadmap in the top level [README](../README.md) for what is planned.
+Freya is at Phase 0: the provider neutral core is stable, four wire dialects are implemented reaching eight shipped endpoints, and tool calling works end to end. There is no agent loop, memory, or orchestration layer yet. See the roadmap in the top level [README](../README.md) for what is planned.
 
-All three endpoints complete a real tool round trip against the live API. Coverage beyond that varies per provider, see each provider page.
+OpenAI, Gemini, Anthropic, and DeepSeek each complete a real tool round trip against the live API. Coverage beyond that varies per provider, see each provider page.
 
 ## Start here
 
@@ -29,6 +29,8 @@ All three endpoints complete a real tool round trip against the live API. Covera
 | Page | What it covers |
 |---|---|
 | [OpenAI](providers/openai.md) | Responses API mapping, defaults, capability notes |
+| [OpenAI Chat Completions](providers/openai-chat.md) | The dialect most third party vendors speak |
+| [OpenAI Chat wire format](providers/openai-chat-wire.md) | The native Chat Completions JSON, field by field |
 | [OpenAI wire format](providers/openai-wire.md) | The native Responses API JSON, field by field |
 | [Gemini](providers/gemini.md) | Interactions API mapping, defaults, known gaps |
 | [Gemini wire format](providers/gemini-wire.md) | The native Interactions API JSON, field by field |

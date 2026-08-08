@@ -192,7 +192,9 @@ Never unwrap on arguments. They come from a model, and a schema is guidance rath
 
 **Anthropic** is the one that nests. A tool call is a `tool_use` block inside an assistant message and a result is a `tool_result` block inside a user message, rather than either sitting beside the messages. Because nesting already preserves order, this mapping needs no splitting pass at all. The correlation field is spelled `tool_use_id`, a third spelling after two rounds of `call_id`. Not yet verified against the live API. See [Anthropic](providers/anthropic.md) and [Anthropic wire format](providers/anthropic-wire.md).
 
-All three native formats are documented in full, so you do not have to read vendor docs to debug a request body.
+**OpenAI Chat Completions** nests tool calls on the assistant message like Anthropic, but keeps `arguments` as a JSON string like the Responses API, and is the only dialect giving tool results their own `tool` role. It also wants one result per message rather than several in one turn. Verified live on DeepSeek. See [OpenAI Chat Completions](providers/openai-chat.md) and [its wire format](providers/openai-chat-wire.md).
+
+All four native formats are documented in full, so you do not have to read vendor docs to debug a request body.
 
 Two things differ per provider in the tool arguments themselves. OpenAI sends `arguments` as a JSON string, while Gemini and Anthropic both want a structured object, and Freya converts in each direction so `OutputContent::ToolCall::arguments` is a string everywhere. Anthropic additionally requires that object to be a real object, so a tool call whose arguments are a bare number fails locally with `InvalidRequest` rather than at the API.
 

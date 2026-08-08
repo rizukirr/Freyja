@@ -11,6 +11,7 @@
 
 pub(crate) mod anthropic;
 pub(crate) mod gemini;
+pub(crate) mod openai_chat;
 pub(crate) mod openai_responses;
 
 mod model;
@@ -37,6 +38,12 @@ pub enum ProviderDialect {
     ///
     /// OpenAI-specific. Compatible vendors implement Chat Completions instead.
     OpenAiResponses,
+    /// OpenAI's Chat Completions API, the format the compatible ecosystem
+    /// speaks.
+    ///
+    /// Implemented by Groq, Together, Fireworks, DeepSeek, OpenRouter, Ollama,
+    /// vLLM, and others, so most vendors need only a [`ProviderConfig`].
+    OpenAiChat,
     /// Google Gemini's Interactions API, a flat step list.
     Gemini,
     /// Anthropic's Messages API, content blocks nested inside messages.
@@ -50,6 +57,7 @@ impl ProviderDialect {
     pub fn path(self) -> &'static str {
         match self {
             Self::OpenAiResponses => "/responses",
+            Self::OpenAiChat => "/chat/completions",
             Self::Gemini => "/interactions",
             Self::Anthropic => "/messages",
         }
@@ -61,7 +69,7 @@ impl ProviderDialect {
     /// sometimes authenticate differently from the vendor they imitate.
     pub fn default_auth(self) -> Auth {
         match self {
-            Self::OpenAiResponses => Auth::Bearer,
+            Self::OpenAiResponses | Self::OpenAiChat => Auth::Bearer,
             Self::Gemini => Auth::Header("x-goog-api-key"),
             Self::Anthropic => Auth::Header("x-api-key"),
         }
@@ -70,7 +78,7 @@ impl ProviderDialect {
     /// Headers the format requires regardless of which vendor serves it.
     pub fn required_headers(self) -> &'static [(&'static str, &'static str)] {
         match self {
-            Self::OpenAiResponses => &[],
+            Self::OpenAiResponses | Self::OpenAiChat => &[],
             Self::Gemini => &[("Api-Revision", "2026-05-20")],
             Self::Anthropic => &[("anthropic-version", "2023-06-01")],
         }
@@ -148,6 +156,15 @@ impl ProviderConfig {
     /// Names the environment variable holding the key.
     pub fn api_key_env(mut self, variable: &'static str) -> Self {
         self.api_key_env = Some(variable);
+        self
+    }
+
+    /// Names the environment variable, treating an empty name as "none".
+    ///
+    /// Convenient for presets, where a keyless endpoint reports an empty
+    /// variable rather than needing a separate constructor.
+    pub fn api_key_env_opt(mut self, variable: &'static str) -> Self {
+        self.api_key_env = (!variable.is_empty()).then_some(variable);
         self
     }
 
@@ -297,6 +314,7 @@ impl Client {
                 self.run(openai_responses::OpenAiResponsesProvider, request)
                     .await
             }
+            ProviderDialect::OpenAiChat => self.run(openai_chat::OpenAiChatProvider, request).await,
             ProviderDialect::Gemini => self.run(gemini::GeminiProvider, request).await,
             ProviderDialect::Anthropic => self.run(anthropic::AnthropicProvider, request).await,
         }
