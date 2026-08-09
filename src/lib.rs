@@ -56,13 +56,43 @@
 //! # Ok(())
 //! # }
 //! ```
+//!
+//! # Streaming
+//!
+//! [`Client::stream`] returns the same answer incrementally. Fragments are not
+//! exposed: tool-call arguments and reasoning blobs are assembled internally and
+//! surface only once complete, so no caller ever stitches partial JSON.
+//!
+//! ```no_run
+//! # async fn run(client: freyja::Client, request: freyja::GenerateRequest)
+//! #     -> Result<(), freyja::ProviderError> {
+//! use freyja::StreamEvent;
+//!
+//! let mut stream = client.stream(&request).await?;
+//! while let Some(event) = stream.next().await? {
+//!     match event {
+//!         StreamEvent::TextDelta(text) => print!("{text}"),
+//!         StreamEvent::ToolCall { name, arguments, .. } => {
+//!             println!("\ncalling {name} with {arguments}");
+//!         }
+//!         _ => {}
+//!     }
+//! }
+//!
+//! // Drained streams convert back to the non-streaming response, so a tool
+//! // loop can reuse `to_message` unchanged.
+//! let response = stream.into_response()?;
+//! # Ok(())
+//! # }
+//! ```
 
 #![deny(missing_docs)]
 
 pub mod provider;
 
 pub use provider::{
-    Auth, Client, GenerateRequest, GenerateResponse, InputContent, Message, OutputContent,
-    Provider, ProviderConfig, ProviderDialect, ProviderError, ProviderType, ReasoningEffort,
-    ResponseFormat, ResponseStatus, Role, ToolChoice, ToolDefinition, Usage,
+    Auth, Client, EventStream, GenerateRequest, GenerateResponse, InputContent, Message,
+    OutputContent, Provider, ProviderConfig, ProviderDialect, ProviderError, ProviderType,
+    ReasoningEffort, ResponseFormat, ResponseStatus, Role, StreamEvent, ToolChoice,
+    ToolDefinition, Usage,
 };
