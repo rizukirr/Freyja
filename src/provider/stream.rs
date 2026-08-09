@@ -16,6 +16,10 @@ use serde_json::Value;
 pub enum StreamEvent {
     /// A fragment of generated text, in order.
     TextDelta(String),
+    /// The model declined to answer. Kept distinct from text because the
+    /// non-streaming path does, and because a caller may want to render or
+    /// log it differently.
+    RefusalDelta(String),
     /// A complete tool call. Arguments are fully assembled; dispatch it now.
     ToolCall {
         /// Correlation id to quote back in [`crate::Message::tool_result`].
@@ -58,6 +62,8 @@ pub enum StreamEvent {
 pub(crate) enum RawDelta {
     /// Generated text.
     Text(String),
+    /// The model declined to answer.
+    Refusal(String),
     /// A tool call has begun.
     ToolStart {
         slot: usize,
@@ -148,6 +154,15 @@ impl Assembler {
                     _ => self.captured.push(OutputContent::Text(text.clone())),
                 }
                 out.push(StreamEvent::TextDelta(text));
+            }
+            RawDelta::Refusal(text) => {
+                // Refusals never coalesce into a neighbouring Text part: the
+                // parser keeps them as their own OutputContent::Refusal.
+                match self.captured.last_mut() {
+                    Some(OutputContent::Refusal(existing)) => existing.push_str(&text),
+                    _ => self.captured.push(OutputContent::Refusal(text.clone())),
+                }
+                out.push(StreamEvent::RefusalDelta(text));
             }
             RawDelta::ReasoningText(text) => out.push(StreamEvent::ReasoningDelta(text)),
             RawDelta::ReasoningBlob(data) => {

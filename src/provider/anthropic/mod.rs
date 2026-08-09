@@ -82,7 +82,13 @@ impl StreamDecoder for Decoder {
             }
             "message_start" => {
                 let message = &value["message"];
-                self.input_tokens = message["usage"]["input_tokens"].as_u64().unwrap_or(0);
+                // The parser sums the plain and both cache token fields into the
+                // neutral input total; reading input_tokens alone under-reports
+                // a cached prompt by orders of magnitude.
+                let usage = &message["usage"];
+                self.input_tokens = usage["input_tokens"].as_u64().unwrap_or(0)
+                    + usage["cache_creation_input_tokens"].as_u64().unwrap_or(0)
+                    + usage["cache_read_input_tokens"].as_u64().unwrap_or(0);
                 out.push(RawDelta::Meta {
                     id: message["id"].as_str().map(str::to_string),
                     model: message["model"].as_str().map(str::to_string),

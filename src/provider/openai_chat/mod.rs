@@ -65,7 +65,8 @@ impl StreamDecoder for Decoder {
         let status = choice["finish_reason"].as_str().map(|reason| match reason {
             "stop" => ResponseStatus::Completed,
             "length" => ResponseStatus::Incomplete,
-            "tool_calls" => ResponseStatus::RequiresAction,
+            // "function_call" is the pre-2023 spelling the parser also accepts.
+            "tool_calls" | "function_call" => ResponseStatus::RequiresAction,
             other => ResponseStatus::Other(other.to_string()),
         });
 
@@ -73,6 +74,13 @@ impl StreamDecoder for Decoder {
             && !text.is_empty()
         {
             out.push(RawDelta::Text(text.to_string()));
+        }
+
+        // The parser keeps a refusal as its own content part, after the text.
+        if let Some(text) = choice["delta"]["refusal"].as_str()
+            && !text.is_empty()
+        {
+            out.push(RawDelta::Refusal(text.to_string()));
         }
 
         if let Some(calls) = choice["delta"]["tool_calls"].as_array() {

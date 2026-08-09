@@ -56,6 +56,28 @@ pub(crate) struct Decoder {
     steps: HashMap<usize, Step>,
 }
 
+/// Folds one `step.delta` payload into the step it belongs to.
+///
+/// `type` names the delta, not the step, so it is never copied. String fields
+/// append, since that is what a delta of a string means; anything else is the
+/// latest value and replaces what was there.
+fn merge_delta(step: &mut Value, delta: &Value) {
+    let (Some(fields), Some(target)) = (delta.as_object(), step.as_object_mut()) else {
+        return;
+    };
+    for (key, value) in fields {
+        if key == "type" {
+            continue;
+        }
+        match (target.get_mut(key), value.as_str()) {
+            (Some(Value::String(existing)), Some(fragment)) => existing.push_str(fragment),
+            _ => {
+                target.insert(key.clone(), value.clone());
+            }
+        }
+    }
+}
+
 impl StreamDecoder for Decoder {
     fn decode(
         &mut self,
@@ -127,7 +149,16 @@ impl StreamDecoder for Decoder {
                             signature.push_str(value);
                         }
                     }
-                    _ => {}
+                    // An unmodeled step's payload streams in after `step.start`,
+                    // so the snapshot taken there is incomplete. Merge each
+                    // delta into it, or the blob replayed at `step.stop` will be
+                    // missing whatever the deltas carried — a `code_execution`
+                    // step would lose its `code`.
+                    _ => {
+                        if let Some(Step::Opaque(step)) = self.steps.get_mut(&slot) {
+                            merge_delta(step, delta);
+                        }
+                    }
                 }
             }
             "step.stop" => match self.steps.remove(&slot) {
@@ -161,9 +192,11 @@ impl StreamDecoder for Decoder {
                     id: interaction["id"].as_str().map(str::to_string),
                     model: interaction["model"].as_str().map(str::to_string),
                     status: Some(match interaction["status"].as_str() {
+                        // Reproduces the parser's map arm for arm.
                         Some("completed") => ResponseStatus::Completed,
-                        Some("incomplete") => ResponseStatus::Incomplete,
-                        Some("failed") => ResponseStatus::Failed,
+                        Some("incomplete" | "budget_exceeded") => ResponseStatus::Incomplete,
+                        Some("requires_action") => ResponseStatus::RequiresAction,
+                        Some("failed" | "cancelled") => ResponseStatus::Failed,
                         Some(other) => ResponseStatus::Other(other.to_string()),
                         None => ResponseStatus::Completed,
                     }),

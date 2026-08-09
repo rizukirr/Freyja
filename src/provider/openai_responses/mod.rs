@@ -56,6 +56,11 @@ impl StreamDecoder for Decoder {
                     out.push(RawDelta::Text(text.to_string()));
                 }
             }
+            "response.refusal.delta" => {
+                if let Some(text) = value["delta"].as_str() {
+                    out.push(RawDelta::Refusal(text.to_string()));
+                }
+            }
             "response.reasoning_summary_text.delta" => {
                 if let Some(text) = value["delta"].as_str() {
                     out.push(RawDelta::ReasoningText(text.to_string()));
@@ -112,8 +117,10 @@ impl StreamDecoder for Decoder {
                     id: response["id"].as_str().map(str::to_string),
                     model: response["model"].as_str().map(str::to_string),
                     status: Some(match response["status"].as_str() {
+                        // Reproduces parse_status arm for arm.
                         Some("completed") => ResponseStatus::Completed,
                         Some("incomplete") => ResponseStatus::Incomplete,
+                        Some("requires_action") => ResponseStatus::RequiresAction,
                         Some("failed") => ResponseStatus::Failed,
                         Some(other) => ResponseStatus::Other(other.to_string()),
                         None => ResponseStatus::Completed,
