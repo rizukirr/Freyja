@@ -25,7 +25,11 @@ use std::fmt;
 use std::sync::Arc;
 use std::time::Duration;
 
-/// Default per-request timeout applied by [`Client::new`].
+/// Default inactivity timeout applied by [`Client::new`].
+///
+/// This bounds the gap between bytes, not the total duration of a request.
+/// A total timeout would cap how long a response may take to generate, which
+/// is wrong for [`Client::stream`]: a long generation is not a stalled one.
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(120);
 
 /// A wire format.
@@ -262,7 +266,11 @@ impl fmt::Debug for Client {
 }
 
 impl Client {
-    /// Creates a client with a pooled HTTP client and a 120 second timeout.
+    /// Creates a client with a pooled HTTP client and a 120 second inactivity
+    /// timeout.
+    ///
+    /// The timeout bounds silence, not total duration, so a slow generation is
+    /// not cut short. Use [`Client::with_http_client`] to impose a total cap.
     ///
     /// Accepts anything that converts into a [`ProviderConfig`], including a
     /// [`ProviderType`] preset.
@@ -407,7 +415,7 @@ impl Client {
 
 fn default_http() -> reqwest::Client {
     reqwest::Client::builder()
-        .timeout(DEFAULT_TIMEOUT)
+        .read_timeout(DEFAULT_TIMEOUT)
         .build()
         .unwrap_or_default()
 }
