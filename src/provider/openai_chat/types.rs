@@ -29,6 +29,10 @@ pub struct Request {
     tool_choice: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     metadata: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    stream: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    stream_options: Option<serde_json::Value>,
 }
 
 /// Unlike every other dialect Freyja speaks, `system` is a real message role
@@ -253,7 +257,20 @@ impl Request {
                 .collect(),
             tool_choice,
             metadata: value.metadata.clone(),
+            stream: None,
+            stream_options: None,
         })
+    }
+
+    /// Marks this body as a streaming request.
+    ///
+    /// `include_usage` is required or the dialect reports no token counts at
+    /// all when streaming, which would leave `Done.usage` empty on the most
+    /// widely-spoken dialect.
+    pub(crate) fn streaming(mut self) -> Self {
+        self.stream = Some(true);
+        self.stream_options = Some(serde_json::json!({"include_usage": true}));
+        self
     }
 }
 

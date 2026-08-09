@@ -16,8 +16,8 @@ pub(crate) mod openai_responses;
 
 mod model;
 mod presets;
-mod sse;
-mod stream;
+pub(crate) mod sse;
+pub(crate) mod stream;
 
 pub use model::*;
 pub use presets::ProviderType;
@@ -89,6 +89,17 @@ impl ProviderDialect {
             Self::OpenAiResponses | Self::OpenAiChat => &[],
             Self::Gemini => &[("Api-Revision", "2026-05-20")],
             Self::Anthropic => &[("anthropic-version", "2023-06-01")],
+        }
+    }
+
+    /// The query string that selects SSE, for dialects that need one.
+    ///
+    /// Gemini's Interactions API takes `?alt=sse` in addition to the body's
+    /// `stream` field; the others are selected by the body alone.
+    pub fn stream_query(self) -> Option<&'static str> {
+        match self {
+            Self::Gemini => Some("alt=sse"),
+            Self::OpenAiResponses | Self::OpenAiChat | Self::Anthropic => None,
         }
     }
 }
@@ -186,6 +197,14 @@ impl ProviderConfig {
             self.base_url.trim_end_matches('/'),
             self.dialect.path()
         )
+    }
+
+    /// The full URL streaming requests are sent to.
+    pub fn stream_url(&self) -> String {
+        match self.dialect.stream_query() {
+            Some(query) => format!("{}?{}", self.url(), query),
+            None => self.url(),
+        }
     }
 
     /// Resolves the model for a request, preferring the request's own choice.
@@ -368,6 +387,96 @@ impl Client {
         }
     }
 
+    /// Opens a streaming generation.
+    ///
+    /// Returns once the provider has accepted the request, so a non-success
+    /// status arrives here as [`ProviderError::Api`] rather than mid-stream.
+    ///
+    /// The default HTTP client bounds *inactivity*, not total duration, so a
+    /// long generation is not cut short. A client supplied through
+    /// [`Client::with_http_client`] keeps whatever it was built with — set
+    /// `read_timeout` rather than `timeout` on it, or a long stream will be
+    /// killed part-way.
+    ///
+    /// ```no_run
+    /// # async fn run() -> Result<(), freyja::ProviderError> {
+    /// use freyja::{Client, GenerateRequest, Message, ProviderType, Role, StreamEvent};
+    ///
+    /// let client = Client::from_env(ProviderType::OpenAi).unwrap();
+    /// let request = GenerateRequest::new().message(Message::text(Role::User, "Hi"));
+    ///
+    /// let mut stream = client.stream(&request).await?;
+    /// while let Some(event) = stream.next().await? {
+    ///     if let StreamEvent::TextDelta(text) = event {
+    ///         print!("{text}");
+    ///     }
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn stream(&self, request: &GenerateRequest) -> Result<EventStream, ProviderError> {
+        let (wire, decoder): (serde_json::Value, Box<dyn stream::StreamDecoder>) =
+            match self.config.dialect {
+                ProviderDialect::OpenAiResponses => {
+                    let body = openai_responses::OpenAiResponsesProvider
+                        .build(request, &self.config)?
+                        .streaming();
+                    (
+                        to_value(&body, &self.config)?,
+                        Box::new(openai_responses::Decoder::default()),
+                    )
+                }
+                ProviderDialect::OpenAiChat => {
+                    let body = openai_chat::OpenAiChatProvider
+                        .build(request, &self.config)?
+                        .streaming();
+                    (
+                        to_value(&body, &self.config)?,
+                        Box::new(openai_chat::Decoder::default()),
+                    )
+                }
+                ProviderDialect::Gemini => {
+                    let body = gemini::GeminiProvider
+                        .build(request, &self.config)?
+                        .streaming();
+                    (
+                        to_value(&body, &self.config)?,
+                        Box::new(gemini::Decoder::default()),
+                    )
+                }
+                ProviderDialect::Anthropic => {
+                    let body = anthropic::AnthropicProvider
+                        .build(request, &self.config)?
+                        .streaming();
+                    (
+                        to_value(&body, &self.config)?,
+                        Box::new(anthropic::Decoder::default()),
+                    )
+                }
+            };
+
+        let response = self.post(self.config.stream_url(), &wire).await?;
+
+        let status = response.status();
+        if !status.is_success() {
+            let body = response
+                .text()
+                .await
+                .map_err(|error| ProviderError::Http(error.to_string()))?;
+            return Err(ProviderError::Api {
+                provider: self.config.name.clone(),
+                status: status.as_u16(),
+                body,
+            });
+        }
+
+        Ok(EventStream::new(
+            self.config.name.clone(),
+            decoder,
+            response,
+        ))
+    }
+
     /// Convert, POST, check status, parse. Shared by every dialect, which is
     /// why none of them owns transport code.
     async fn run<P: Provider>(
@@ -376,27 +485,7 @@ impl Client {
         request: &GenerateRequest,
     ) -> Result<GenerateResponse, ProviderError> {
         let wire = provider.build(request, &self.config)?;
-
-        let mut post = self.http.post(self.config.url());
-        for (name, value) in self.config.dialect.required_headers() {
-            post = post.header(*name, *value);
-        }
-        for (name, value) in &self.config.extra_headers {
-            post = post.header(name, value);
-        }
-        if let Some(key) = &self.api_key {
-            post = match self.config.auth {
-                Auth::Bearer => post.bearer_auth(key),
-                Auth::Header(name) => post.header(name, key),
-                Auth::None => post,
-            };
-        }
-
-        let response = post
-            .json(&wire)
-            .send()
-            .await
-            .map_err(|error| ProviderError::Http(error.to_string()))?;
+        let response = self.post(self.config.url(), &wire).await?;
 
         let status = response.status();
         let body = response
@@ -414,6 +503,33 @@ impl Client {
 
         provider.parse(&body, &self.config)
     }
+
+    /// Sends one POST with this endpoint's headers and credentials.
+    async fn post<T: Serialize>(
+        &self,
+        url: String,
+        wire: &T,
+    ) -> Result<reqwest::Response, ProviderError> {
+        let mut post = self.http.post(url);
+        for (name, value) in self.config.dialect.required_headers() {
+            post = post.header(*name, *value);
+        }
+        for (name, value) in &self.config.extra_headers {
+            post = post.header(name, value);
+        }
+        if let Some(key) = &self.api_key {
+            post = match self.config.auth {
+                Auth::Bearer => post.bearer_auth(key),
+                Auth::Header(name) => post.header(name, key),
+                Auth::None => post,
+            };
+        }
+
+        post.json(wire)
+            .send()
+            .await
+            .map_err(|error| ProviderError::Http(error.to_string()))
+    }
 }
 
 fn default_http() -> reqwest::Client {
@@ -421,6 +537,18 @@ fn default_http() -> reqwest::Client {
         .read_timeout(DEFAULT_TIMEOUT)
         .build()
         .unwrap_or_default()
+}
+
+/// Erases a dialect's request type so `stream` can pick a decoder and a body in
+/// one `match` without four near-identical arms after it.
+fn to_value<T: Serialize>(
+    wire: &T,
+    config: &ProviderConfig,
+) -> Result<serde_json::Value, ProviderError> {
+    serde_json::to_value(wire).map_err(|error| ProviderError::InvalidRequest {
+        provider: config.name.clone(),
+        message: error.to_string(),
+    })
 }
 
 #[cfg(test)]
@@ -507,5 +635,20 @@ mod tests {
             config.model_for(&GenerateRequest::new()),
             Err(ProviderError::InvalidRequest { .. })
         ));
+    }
+
+    #[test]
+    fn stream_url_appends_alt_sse_for_gemini() {
+        let gemini = ProviderConfig::new(ProviderDialect::Gemini, "g", "https://x.test/v1");
+        assert_eq!(gemini.url(), "https://x.test/v1/interactions");
+        assert_eq!(
+            gemini.stream_url(),
+            "https://x.test/v1/interactions?alt=sse",
+            "Gemini selects SSE by query parameter, not by body field alone"
+        );
+
+        // Every other dialect streams from the same URL it generates from.
+        let anthropic = ProviderConfig::new(ProviderDialect::Anthropic, "a", "https://x.test/v1");
+        assert_eq!(anthropic.stream_url(), anthropic.url());
     }
 }

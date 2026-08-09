@@ -32,6 +32,8 @@ pub struct Request {
     tool_choice: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     metadata: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    stream: Option<bool>,
 }
 
 /// Unlike OpenAI and Gemini, Anthropic nests: tool calls and tool results are
@@ -244,7 +246,14 @@ impl Request {
                 .collect(),
             tool_choice,
             metadata: value.metadata.clone(),
+            stream: None,
         })
+    }
+
+    /// Marks this body as a streaming request.
+    pub(crate) fn streaming(mut self) -> Self {
+        self.stream = Some(true);
+        self
     }
 }
 

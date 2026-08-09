@@ -29,6 +29,8 @@ pub struct Request {
     previous_response_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     metadata: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    stream: Option<bool>,
 }
 
 /// Responses API input items are a flat list: messages, tool calls, and tool
@@ -223,7 +225,14 @@ impl Request {
             tool_choice,
             previous_response_id: value.previous_response_id.clone(),
             metadata: value.metadata.clone(),
+            stream: None,
         })
+    }
+
+    /// Marks this body as a streaming request.
+    pub(crate) fn streaming(mut self) -> Self {
+        self.stream = Some(true);
+        self
     }
 }
 

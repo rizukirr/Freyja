@@ -26,3 +26,17 @@ impl Provider for OpenAiChatProvider {
         types::parse(body, config)
     }
 }
+
+/// Decodes this dialect's SSE frames. Filled in by its own task.
+#[derive(Default)]
+pub(crate) struct Decoder;
+
+impl crate::provider::stream::StreamDecoder for Decoder {
+    fn decode(
+        &mut self,
+        _frame: &crate::provider::sse::SseFrame,
+        _out: &mut Vec<crate::provider::stream::RawDelta>,
+    ) -> Result<(), crate::provider::ProviderError> {
+        Ok(())
+    }
+}

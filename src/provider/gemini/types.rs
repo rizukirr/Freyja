@@ -25,6 +25,8 @@ pub struct Request {
     previous_interaction_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     labels: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    stream: Option<bool>,
 }
 
 impl Request {
@@ -201,7 +203,14 @@ impl Request {
                 .collect(),
             previous_interaction_id: value.previous_response_id.clone(),
             labels: value.metadata.clone(),
+            stream: None,
         })
+    }
+
+    /// Marks this body as a streaming request.
+    pub(crate) fn streaming(mut self) -> Self {
+        self.stream = Some(true);
+        self
     }
 }
 
