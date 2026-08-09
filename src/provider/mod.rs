@@ -17,9 +17,11 @@ pub(crate) mod openai_responses;
 mod model;
 mod presets;
 mod sse;
+mod stream;
 
 pub use model::*;
 pub use presets::ProviderType;
+pub use stream::{EventStream, StreamEvent};
 
 use serde::Serialize;
 use std::fmt;
