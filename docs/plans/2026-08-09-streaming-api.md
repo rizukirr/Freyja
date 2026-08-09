@@ -3773,3 +3773,154 @@ produces, not from what the decoder happens to do. Committed failing so
 the divergences are enumerated in one place rather than discovered one
 review at a time."
 ```
+
+---
+
+### Task 19: Make every decoder agree with its parser → verify: `cargo test --all-features --lib streamed_response_matches_generate` reports 4 tests run and 4 passed, with no fixture weakened
+
+Task 18's four parity tests are committed failing. This task makes them pass by
+correcting the decoders — never by editing a fixture or relaxing an assertion.
+If a test can only be made to pass by changing what it expects, stop and report:
+that means the parser and the spec disagree, which is a different problem.
+
+**Files:**
+- Modify: `src/provider/stream.rs`
+- Modify: `src/provider/anthropic/mod.rs`
+- Modify: `src/provider/gemini/mod.rs`
+- Modify: `src/provider/openai_chat/mod.rs`
+- Modify: `src/provider/openai_responses/mod.rs`
+- Modify: `src/lib.rs` (re-export only, see Step 1)
+
+- [ ] **Step 1: Add a refusal to the event model**
+
+Neither `RawDelta` nor `StreamEvent` can currently express a refusal, so no
+decoder fix alone can close that gap. The parsers keep `OutputContent::Refusal`
+distinct from text, and `to_message()` renders it as text; streaming must be able
+to do the same.
+
+This extends the public API beyond the approved spec, deliberately: without it a
+streaming caller cannot observe a refusal at all, and `into_response()` silently
+loses a whole content part. `StreamEvent` is `#[non_exhaustive]`, so the addition
+breaks no downstream matcher.
+
+In `src/provider/stream.rs`, add to `RawDelta`:
+
+```rust
+    /// The model declined to answer.
+    Refusal(String),
+```
+
+and to `StreamEvent`, after `TextDelta`:
+
+```rust
+    /// The model declined to answer. Kept distinct from text because the
+    /// non-streaming path does, and because a caller may want to render or
+    /// log it differently.
+    RefusalDelta(String),
+```
+
+In `Assembler::absorb`, handle it alongside `Text` but WITHOUT coalescing into a
+neighbouring `Text` part — the parser emits refusals as their own part:
+
+```rust
+            RawDelta::Refusal(text) => {
+                match self.captured.last_mut() {
+                    Some(OutputContent::Refusal(existing)) => existing.push_str(&text),
+                    _ => self.captured.push(OutputContent::Refusal(text.clone())),
+                }
+                out.push(StreamEvent::RefusalDelta(text));
+            }
+```
+
+`src/lib.rs` needs no change if `StreamEvent` is already re-exported; confirm it is.
+
+- [ ] **Step 2: Anthropic — sum the cache tokens**
+
+`src/provider/anthropic/mod.rs` stores `self.input_tokens` from `message_start`.
+The parser sums `input_tokens + cache_creation_input_tokens + cache_read_input_tokens`.
+Mirror it exactly:
+
+```rust
+                let usage = &message["usage"];
+                self.input_tokens = usage["input_tokens"].as_u64().unwrap_or(0)
+                    + usage["cache_creation_input_tokens"].as_u64().unwrap_or(0)
+                    + usage["cache_read_input_tokens"].as_u64().unwrap_or(0);
+```
+
+- [ ] **Step 3: Gemini — complete the status map**
+
+Read the parser's status match and reproduce every arm. It maps at least
+`requires_action` → `RequiresAction`, `budget_exceeded` → `Incomplete`, and
+`cancelled` → `Failed`, in addition to the three the decoder already has. Copy
+the parser's arms verbatim rather than paraphrasing them.
+
+- [ ] **Step 4: Gemini — accumulate deltas into opaque steps**
+
+`Step::Opaque(Value)` is snapshotted at `step.start` and never updated. Give it a
+delta buffer the way Anthropic's opaque blocks now have one. The concrete case
+the test exercises is a `code_execution` step whose `code` field arrives in a
+`step.delta`. Merge whatever fields a delta carries into the stored step before
+emitting it at `step.stop`, so the blob matches what the parser would have
+stored. Read the failing test's fixture for the exact delta shape.
+
+- [ ] **Step 5: OpenAiChat — decode refusals and complete the status map**
+
+Add a refusal read alongside the existing content read:
+
+```rust
+        if let Some(text) = choice["delta"]["refusal"].as_str()
+            && !text.is_empty()
+        {
+            out.push(RawDelta::Refusal(text.to_string()));
+        }
+```
+
+and add the parser's missing finish-reason arm:
+
+```rust
+            "function_call" => ResponseStatus::RequiresAction,
+```
+
+- [ ] **Step 6: OpenAiResponses — decode refusals and map requires_action**
+
+Add `"requires_action" => ResponseStatus::RequiresAction` to the status match.
+For refusals, read the failing test's fixture: it carries both a
+`response.refusal.delta` event and a refusal part inside the message item on
+`response.output_item.done`. Decode the delta form; make sure the `output_item.done`
+path does not double-count it.
+
+- [ ] **Step 7: Run the parity suite**
+
+Run: `cargo test --all-features --lib streamed_response_matches_generate`
+Expected: `running 4 tests` and `4 passed`. Confirm the count is 4, not 0.
+
+If any test still fails, report the verbatim `left:`/`right:` and stop. Do not
+edit the fixture.
+
+- [ ] **Step 8: Run everything**
+
+Run: `cargo test --all-features` → PASS, all tests.
+Run: `cargo clippy --all-targets --all-features -- -D warnings` → no warnings.
+Run: `cargo fmt --all` then `cargo fmt --all --check` → no output.
+
+- [ ] **Step 9: Correct the into_response doc**
+
+The doc comment claims usage matches. That is now true for Anthropic; confirm the
+wording is accurate for all four and adjust if not.
+
+- [ ] **Step 10: Commit**
+
+```bash
+git add src/provider src/lib.rs
+git commit -m "fix: make every streaming decoder agree with its parser
+
+Closes the seven divergences the per-dialect parity tests enumerated:
+Anthropic's usage ignored both cache token fields; Gemini and
+OpenAiResponses never mapped requires_action; Gemini's opaque steps were
+snapshotted before their payload streamed in; neither OpenAI dialect
+decoded refusals, which the event model could not express at all.
+
+Adds StreamEvent::RefusalDelta -- a deliberate extension beyond the
+approved spec, since without it a streaming caller cannot observe a
+refusal and into_response drops a whole content part."
+```
