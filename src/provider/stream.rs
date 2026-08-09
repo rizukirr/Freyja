@@ -93,6 +93,166 @@ pub(crate) trait StreamDecoder: Send {
     -> Result<(), ProviderError>;
 }
 
+use crate::provider::{GenerateResponse, OutputContent};
+use std::collections::HashMap;
+use std::sync::Arc;
+
+/// A tool call being assembled from fragments.
+struct PendingCall {
+    id: String,
+    name: String,
+    arguments: String,
+}
+
+/// Turns one dialect's [`RawDelta`]s into neutral [`StreamEvent`]s.
+///
+/// Owns the only mutable state streaming needs: partial tool arguments, and the
+/// completed parts that [`EventStream::into_response`] hands back.
+struct Assembler {
+    provider: Arc<str>,
+    pending: HashMap<usize, PendingCall>,
+    captured: Vec<OutputContent>,
+    id: String,
+    model: String,
+    status: ResponseStatus,
+    usage: Option<Usage>,
+    finished: bool,
+}
+
+impl Assembler {
+    fn new(provider: Arc<str>) -> Self {
+        Self {
+            provider,
+            pending: HashMap::new(),
+            captured: Vec::new(),
+            id: String::new(),
+            model: String::new(),
+            // Overwritten by the terminal frame. A stream that ends without one
+            // was cut short, and this is the answer the caller should see.
+            status: ResponseStatus::Incomplete,
+            usage: None,
+            finished: false,
+        }
+    }
+
+    /// Applies one delta, pushing any resulting events onto `out`.
+    fn absorb(&mut self, delta: RawDelta, out: &mut Vec<StreamEvent>) {
+        match delta {
+            RawDelta::Text(text) => {
+                // Consecutive deltas coalesce into one content part, so
+                // `captured` matches the shape `generate()` produces.
+                match self.captured.last_mut() {
+                    Some(OutputContent::Text(existing)) => existing.push_str(&text),
+                    _ => self.captured.push(OutputContent::Text(text.clone())),
+                }
+                out.push(StreamEvent::TextDelta(text));
+            }
+            RawDelta::ReasoningText(text) => out.push(StreamEvent::ReasoningDelta(text)),
+            RawDelta::ReasoningBlob(data) => {
+                self.captured
+                    .push(OutputContent::Reasoning { data: data.clone() });
+                out.push(StreamEvent::Reasoning { data });
+            }
+            RawDelta::Meta {
+                id,
+                model,
+                status,
+                usage,
+            } => {
+                if let Some(id) = id {
+                    self.id = id;
+                }
+                if let Some(model) = model {
+                    self.model = model;
+                }
+                if let Some(status) = status {
+                    self.status = status;
+                }
+                if usage.is_some() {
+                    self.usage = usage;
+                }
+            }
+            RawDelta::ToolStart { slot, id, name } => {
+                self.pending.insert(
+                    slot,
+                    PendingCall {
+                        id,
+                        name,
+                        arguments: String::new(),
+                    },
+                );
+            }
+            RawDelta::ToolArgs { slot, fragment } => {
+                if let Some(call) = self.pending.get_mut(&slot) {
+                    call.arguments.push_str(&fragment);
+                }
+            }
+            RawDelta::ToolReplace { slot, arguments } => {
+                if let Some(call) = self.pending.get_mut(&slot) {
+                    call.arguments = arguments;
+                }
+            }
+            RawDelta::ToolEnd { slot } => self.finish_call(slot, out),
+        }
+    }
+
+    /// Emits a completed tool call, if `slot` has one pending.
+    fn finish_call(&mut self, slot: usize, out: &mut Vec<StreamEvent>) {
+        let Some(call) = self.pending.remove(&slot) else {
+            return;
+        };
+        self.captured.push(OutputContent::ToolCall {
+            id: call.id.clone(),
+            name: call.name.clone(),
+            arguments: call.arguments.clone(),
+        });
+        out.push(StreamEvent::ToolCall {
+            id: call.id,
+            name: call.name,
+            arguments: call.arguments,
+        });
+    }
+
+    /// Called when the body closes: flushes calls the dialect never ended, then
+    /// emits the terminal event.
+    ///
+    /// OpenAiChat has no end frame at all, so without this its tool calls would
+    /// be silently dropped.
+    fn close(&mut self, out: &mut Vec<StreamEvent>) {
+        let mut slots: Vec<usize> = self.pending.keys().copied().collect();
+        slots.sort_unstable();
+        for slot in slots {
+            self.finish_call(slot, out);
+        }
+
+        self.finished = true;
+        out.push(StreamEvent::Done {
+            id: self.id.clone(),
+            model: self.model.clone(),
+            status: self.status.clone(),
+            usage: self.usage,
+        });
+    }
+
+    /// The whole response, once the stream has closed.
+    fn into_response(self) -> Result<GenerateResponse, ProviderError> {
+        if !self.finished {
+            return Err(ProviderError::Stream {
+                provider: self.provider,
+                message: "into_response called before the stream was drained".into(),
+            });
+        }
+        Ok(GenerateResponse {
+            id: self.id,
+            model: self.model,
+            status: self.status,
+            content: self.captured,
+            usage: self.usage,
+            provider_metadata: None,
+        })
+    }
+}
+
 /// A live stream of [`StreamEvent`]s.
 ///
 /// Replaced with the real implementation in the following task; this shell
@@ -104,6 +264,7 @@ pub struct EventStream {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::provider::OutputContent;
 
     #[test]
     fn event_is_non_exhaustive_and_comparable() {
@@ -117,5 +278,40 @@ mod tests {
             arguments: "{\"a\":1}".into(),
         };
         assert_ne!(call, delta);
+    }
+
+    #[test]
+    fn assembler_coalesces_text() {
+        let mut assembler = Assembler::new("acme".into());
+        let mut out = Vec::new();
+
+        assembler.absorb(RawDelta::Text("a".into()), &mut out);
+        assembler.absorb(RawDelta::Text("b".into()), &mut out);
+        assembler.absorb(
+            RawDelta::Meta {
+                id: Some("resp_1".into()),
+                model: Some("test-model".into()),
+                status: Some(ResponseStatus::Completed),
+                usage: None,
+            },
+            &mut out,
+        );
+
+        assert_eq!(
+            out,
+            vec![
+                StreamEvent::TextDelta("a".into()),
+                StreamEvent::TextDelta("b".into()),
+            ],
+            "metadata produces no event of its own"
+        );
+
+        // Deltas are separate events but one content part, matching generate().
+        assert_eq!(
+            assembler.captured,
+            vec![OutputContent::Text("ab".into())]
+        );
+        assert_eq!(assembler.id, "resp_1");
+        assert_eq!(assembler.model, "test-model");
     }
 }
