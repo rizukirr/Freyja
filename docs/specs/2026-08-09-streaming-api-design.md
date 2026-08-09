@@ -1,7 +1,7 @@
 ---
 title: streaming-api
 date: 2026-08-09
-status: draft
+status: approved
 ---
 
 # Streaming API — Design
