@@ -35,7 +35,7 @@ Verified against the live endpoint: a full tool round trip completes, prompt to 
 | `metadata` | yes | Forwarded unchanged |
 | Usage reporting | yes | Total computed, cached tokens folded in |
 | Refusals | partly | Surfaced as `ResponseStatus::Other("refusal")` |
-| Streaming | no | Not implemented in Freyja |
+| Streaming | yes | `stream: true`, decoded from `message_start` / `content_block_*` / `message_delta` |
 
 ## The one place Freyja invents a value
 

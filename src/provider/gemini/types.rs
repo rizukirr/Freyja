@@ -25,6 +25,8 @@ pub struct Request {
     previous_interaction_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     labels: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    stream: Option<bool>,
 }
 
 impl Request {
@@ -201,7 +203,14 @@ impl Request {
                 .collect(),
             previous_interaction_id: value.previous_response_id.clone(),
             labels: value.metadata.clone(),
+            stream: None,
         })
+    }
+
+    /// Marks this body as a streaming request.
+    pub(crate) fn streaming(mut self) -> Self {
+        self.stream = Some(true);
+        self
     }
 }
 
@@ -343,6 +352,137 @@ pub(crate) fn parse(
 mod tests {
     use super::*;
     use crate::provider::ProviderType;
+    use crate::provider::sse::SseFrame;
+    use crate::provider::stream::{RawDelta, StreamDecoder};
+
+    fn decode_all(frames: &[&str]) -> Vec<RawDelta> {
+        let mut decoder = crate::provider::gemini::Decoder::default();
+        let mut out = Vec::new();
+        for data in frames {
+            // The Interactions API repeats event_type inside the payload, so
+            // the decoder reads it there rather than from the SSE event line.
+            let frame = SseFrame {
+                event: None,
+                data: (*data).to_string(),
+            };
+            decoder.decode(&frame, &mut out).expect("decodes");
+        }
+        out
+    }
+
+    #[test]
+    fn decodes_streaming_text() {
+        let deltas = decode_all(&[
+            r#"{"index":0,"step":{"type":"model_output"},"event_type":"step.start"}"#,
+            r#"{"index":0,"delta":{"type":"text","text":"Hello"},"event_type":"step.delta"}"#,
+        ]);
+
+        assert!(
+            deltas.iter().any(|d| *d == RawDelta::Text("Hello".into())),
+            "{deltas:?}"
+        );
+    }
+
+    #[test]
+    fn decodes_streaming_tool_call() {
+        let deltas = decode_all(&[
+            r#"{"index":0,"step":{"type":"function_call","id":"un6k8t18","name":"get_weather","arguments":{}},"event_type":"step.start"}"#,
+            r#"{"index":0,"delta":{"type":"arguments_delta","arguments":"{\"location\": "},"event_type":"step.delta"}"#,
+            r#"{"index":0,"delta":{"type":"arguments_delta","arguments":"\"San Francisco, CA\"}"},"event_type":"step.delta"}"#,
+            r#"{"index":0,"event_type":"step.stop"}"#,
+        ]);
+
+        assert_eq!(
+            deltas,
+            vec![
+                RawDelta::ToolStart {
+                    slot: 0,
+                    id: "un6k8t18".into(),
+                    name: "get_weather".into(),
+                },
+                RawDelta::ToolArgs {
+                    slot: 0,
+                    fragment: "{\"location\": ".into(),
+                },
+                RawDelta::ToolArgs {
+                    slot: 0,
+                    fragment: "\"San Francisco, CA\"}".into(),
+                },
+                RawDelta::ToolEnd { slot: 0 },
+            ],
+            "arguments_delta fragments accumulate; the docs require it"
+        );
+    }
+
+    #[test]
+    fn decodes_streaming_thought_into_a_replayable_blob() {
+        let deltas = decode_all(&[
+            r#"{"index":0,"step":{"type":"thought"},"event_type":"step.start"}"#,
+            r#"{"index":0,"delta":{"type":"thought_summary","content":{"type":"text","text":"Working it out."}},"event_type":"step.delta"}"#,
+            r#"{"index":0,"delta":{"type":"thought_signature","signature":"sig-abc"},"event_type":"step.delta"}"#,
+            r#"{"index":0,"event_type":"step.stop"}"#,
+        ]);
+
+        assert_eq!(deltas[0], RawDelta::ReasoningText("Working it out.".into()));
+        assert_eq!(
+            deltas[1],
+            RawDelta::ReasoningBlob(serde_json::json!({
+                "type": "thought",
+                "signature": "sig-abc",
+            })),
+            "the signature is the part the API requires resent verbatim"
+        );
+    }
+
+    #[test]
+    fn preserves_unrecognised_steps_when_streaming() {
+        let deltas = decode_all(&[
+            r#"{"index":0,"step":{"type":"safety_report","verdict":"ok"},"event_type":"step.start"}"#,
+            r#"{"index":0,"event_type":"step.stop"}"#,
+        ]);
+
+        assert_eq!(
+            deltas,
+            vec![RawDelta::ReasoningBlob(serde_json::json!({
+                "type": "safety_report",
+                "verdict": "ok",
+            }))],
+            "the non-streaming parser preserves any unmodeled step verbatim"
+        );
+    }
+
+    #[test]
+    fn decodes_streaming_completion() {
+        let deltas = decode_all(&[
+            r#"{"interaction":{"id":"v1_abc123","model":"gemini-3.6-flash","status":"completed","usage":{"total_tokens":346,"total_input_tokens":11,"total_output_tokens":90}},"event_type":"interaction.completed"}"#,
+        ]);
+
+        assert_eq!(
+            deltas,
+            vec![RawDelta::Meta {
+                id: Some("v1_abc123".into()),
+                model: Some("gemini-3.6-flash".into()),
+                status: Some(ResponseStatus::Completed),
+                usage: Some(Usage {
+                    input_tokens: 11,
+                    output_tokens: 90,
+                    total_tokens: 346,
+                }),
+                // The terminal frame's own object, carried whole so a caller
+                // can read fields Freyja does not model.
+                provider_metadata: Some(serde_json::json!({
+                    "id": "v1_abc123",
+                    "model": "gemini-3.6-flash",
+                    "status": "completed",
+                    "usage": {
+                        "total_tokens": 346,
+                        "total_input_tokens": 11,
+                        "total_output_tokens": 90,
+                    },
+                })),
+            }]
+        );
+    }
 
     /// The shipped endpoint for this dialect, so tests cover the real defaults.
     fn config() -> ProviderConfig {
@@ -496,6 +636,93 @@ mod tests {
             InputContent::Reasoning {
                 data: serde_json::json!({"type": "thought", "signature": "opaque-blob"}),
             }
+        );
+    }
+
+    /// Streaming must reproduce, part for part, what `parse()` builds from the
+    /// non-streaming body describing the same logical turn.
+    ///
+    /// The expectations below are derived from the parser, which is the
+    /// specification. `From<Response>` maps `completed` onto
+    /// [`ResponseStatus::Completed`], `incomplete` and `budget_exceeded` onto
+    /// [`ResponseStatus::Incomplete`], `requires_action` onto
+    /// [`ResponseStatus::RequiresAction`], `failed` and `cancelled` onto
+    /// [`ResponseStatus::Failed`], and anything else onto
+    /// [`ResponseStatus::Other`]. Usage is a straight copy of
+    /// `total_input_tokens` / `total_output_tokens` / `total_tokens`.
+    /// `convert_step` models exactly `model_output` (its `text` parts) and
+    /// `function_call`, and preserves every other step verbatim as
+    /// [`OutputContent::Reasoning`]. No shape in this dialect yields
+    /// [`OutputContent::Refusal`], so the fixture has none.
+    #[test]
+    fn streamed_response_matches_generate() {
+        // A tool-calling turn: text in two deltas, a thought with a signature,
+        // a function call with fragmented arguments, an unmodeled step whose
+        // payload arrives as a delta, and a terminal `requires_action`.
+        //
+        // The call's arguments stream in non-alphabetical key order:
+        // convert_step maps them through `Value::to_string`, which sorts the
+        // keys, so the streaming path has to sort too.
+        let frames = [
+            r#"{"index":0,"step":{"type":"model_output"},"event_type":"step.start"}"#,
+            r#"{"index":0,"delta":{"type":"text","text":"Hel"},"event_type":"step.delta"}"#,
+            r#"{"index":0,"delta":{"type":"text","text":"lo"},"event_type":"step.delta"}"#,
+            r#"{"index":0,"event_type":"step.stop"}"#,
+            // A second, adjacent model_output step. The parser makes one
+            // OutputContent::Text per text part of a step, so the step boundary
+            // has to survive the stream rather than merging into the one before.
+            r#"{"index":1,"step":{"type":"model_output"},"event_type":"step.start"}"#,
+            r#"{"index":1,"delta":{"type":"text","text":"Bye"},"event_type":"step.delta"}"#,
+            r#"{"index":1,"event_type":"step.stop"}"#,
+            r#"{"index":2,"step":{"type":"thought"},"event_type":"step.start"}"#,
+            r#"{"index":2,"delta":{"type":"thought_summary","content":{"type":"text","text":"Working it out."}},"event_type":"step.delta"}"#,
+            r#"{"index":2,"delta":{"type":"thought_signature","signature":"sig-abc"},"event_type":"step.delta"}"#,
+            r#"{"index":2,"event_type":"step.stop"}"#,
+            r#"{"index":3,"step":{"type":"function_call","id":"call_1","name":"get_weather","arguments":{}},"event_type":"step.start"}"#,
+            r#"{"index":3,"delta":{"type":"arguments_delta","arguments":"{\"unit\":\"c\","},"event_type":"step.delta"}"#,
+            r#"{"index":3,"delta":{"type":"arguments_delta","arguments":"\"location\":\"NYC\"}"},"event_type":"step.delta"}"#,
+            r#"{"index":3,"event_type":"step.stop"}"#,
+            r#"{"index":4,"step":{"type":"code_execution","language":"python"},"event_type":"step.start"}"#,
+            r#"{"index":4,"delta":{"type":"code","code":"print(1)"},"event_type":"step.delta"}"#,
+            r#"{"index":4,"event_type":"step.stop"}"#,
+            r#"{"interaction":{"id":"v1_abc123","model":"gemini-3.6-flash","status":"requires_action","usage":{"total_input_tokens":11,"total_output_tokens":90,"total_tokens":101}},"event_type":"interaction.completed"}"#,
+        ];
+
+        let streamed = crate::provider::stream::drain_for_test(
+            "gemini".into(),
+            Box::new(crate::provider::gemini::Decoder::default()),
+            frames
+                .iter()
+                .map(|frame| format!("data: {frame}\n\n").into_bytes())
+                .collect(),
+        )
+        .expect("drained");
+
+        let parsed = parse(
+            r#"{"id":"v1_abc123","model":"gemini-3.6-flash","status":"requires_action","steps":[{"type":"model_output","content":[{"type":"text","text":"Hello"}]},{"type":"model_output","content":[{"type":"text","text":"Bye"}]},{"type":"thought","signature":"sig-abc"},{"type":"function_call","id":"call_1","name":"get_weather","arguments":{"unit":"c","location":"NYC"}},{"type":"code_execution","language":"python","code":"print(1)"}],"usage":{"total_input_tokens":11,"total_output_tokens":90,"total_tokens":101}}"#,
+            &config(),
+        )
+        .expect("parsed");
+
+        assert_eq!(streamed.id, parsed.id);
+        assert_eq!(streamed.model, parsed.model);
+        assert_eq!(
+            streamed.status, parsed.status,
+            "the parser maps requires_action, budget_exceeded and cancelled; a \
+             tool-calling turn is the case a streaming caller hits most"
+        );
+        assert_eq!(streamed.usage, parsed.usage);
+        assert_eq!(
+            streamed.content, parsed.content,
+            "content must match part for part, including that two text deltas \
+             coalesce into one OutputContent::Text while a second model_output \
+             step starts a part of its own, and that an unmodeled step replays \
+             with the payload that streamed into it"
+        );
+        assert_eq!(
+            streamed.to_message(),
+            parsed.to_message(),
+            "the assistant turn replayed into the next request must be identical"
         );
     }
 

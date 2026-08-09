@@ -1,18 +1,22 @@
 # Errors
 
-Every fallible call returns `Result<_, ProviderError>`. There is one error type, with five variants covering the five distinct ways a request can fail.
+Every fallible call returns `Result<_, ProviderError>`. There is one error type, with six variants covering the six distinct ways a request can fail.
 
 ```rust
+#[non_exhaustive]
 pub enum ProviderError {
     UnsupportedCapability { provider: Arc<str>, capability: &'static str },
     InvalidRequest { provider: Arc<str>, message: String },
     Http(String),
     Api { provider: Arc<str>, status: u16, body: String },
     InvalidResponse { provider: Arc<str>, message: String },
+    Stream { provider: Arc<str>, message: String },
 }
 ```
 
 Implements `Debug`, `Display`, and `std::error::Error`, so it works with `?`, `anyhow`, `thiserror`, and anything else expecting a standard error.
+
+The enum is `#[non_exhaustive]`, so a `match` on it needs a catch-all arm. A future variant, such as the typed rate-limit error that is Phase 1 work, will not break your build.
 
 Every variant except `Http` carries the endpoint's configured name, so an error from a multi provider application says which backend produced it. It is the endpoint rather than the dialect, so a failure against a Claude-compatible gateway reports that gateway and not "Anthropic".
 
@@ -105,6 +109,20 @@ invalid OpenAI response: missing field `id`; body: {...}
 ```
 
 This means the vendor changed something Freyja models as required. Unknown fields, unknown output types, and unknown status strings are all tolerated already, so this only fires on a genuine break. Retrying will not help. Report it as a bug.
+
+### Stream
+
+A stream that the provider accepted then failed part-way through, reported in the provider's own error frame.
+
+```
+OpenAI stream failed: rate limit exceeded
+```
+
+Only streaming produces it, and it surfaces from `EventStream::next` rather than from `Client::stream`, which returns before the first frame is read. Calling `EventStream::into_response` on a stream you have not drained raises it too, rather than handing back a response that looks complete and is not.
+
+It is distinct from `Api`, which reports a non-success HTTP status, and from `InvalidResponse`, which reports a body that could not be parsed at all. Whatever text arrived before the failure is already yours to keep; the response as a whole is not. Retrying means re-sending the request from the start.
+
+A stream that simply stops, with no error frame, is not this variant. It ends normally, and the `Done` event carries `ResponseStatus::Incomplete` because no terminal frame set anything else. Check `status` on `Done`, or on the response from `into_response()`, before treating a short answer as a complete one. See [Streaming](../reference/streaming.md).
 
 ## Handling errors
 

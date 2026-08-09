@@ -173,6 +173,8 @@ if let Some(meta) = &response.provider_metadata {
 }
 ```
 
+A streamed response fills this field differently: `generate` collects the leftovers, while a drained stream carries the provider's terminal object whole. Everything else on the response matches. See [Streaming](streaming.md#into_response).
+
 The same forward compatibility applies inside `content`. Unknown output item types and unknown content block types are skipped rather than failing deserialization, so a provider shipping a new block type does not break your build. The tradeoff is that new content silently disappears until Freyja models it. Check `provider_metadata` when output looks shorter than expected.
 
 ## Handling a response

@@ -32,6 +32,8 @@ pub struct Request {
     tool_choice: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     metadata: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    stream: Option<bool>,
 }
 
 /// Unlike OpenAI and Gemini, Anthropic nests: tool calls and tool results are
@@ -244,7 +246,14 @@ impl Request {
                 .collect(),
             tool_choice,
             metadata: value.metadata.clone(),
+            stream: None,
         })
+    }
+
+    /// Marks this body as a streaming request.
+    pub(crate) fn streaming(mut self) -> Self {
+        self.stream = Some(true);
+        self
     }
 }
 
@@ -620,6 +629,97 @@ mod tests {
         assert_eq!(response.provider_metadata.unwrap()["role"], "assistant");
     }
 
+    /// Streaming must reproduce, part for part, what `parse()` builds from the
+    /// non-streaming body describing the same logical turn.
+    ///
+    /// The expectations below are derived from the parser, which is the
+    /// specification: `parse_status` maps `tool_use` onto
+    /// [`ResponseStatus::RequiresAction`], `From<Response>` sums
+    /// `input_tokens`, `cache_creation_input_tokens` and
+    /// `cache_read_input_tokens` into the neutral input total, and
+    /// `convert_block` models exactly `text` and `tool_use` while preserving
+    /// every other block verbatim as [`OutputContent::Reasoning`]. This dialect
+    /// has no shape that yields [`OutputContent::Refusal`]; a refusal is a
+    /// `stop_reason`, so it is covered by the status map rather than by content.
+    #[test]
+    fn streamed_response_matches_generate() {
+        // The same logical answer, expressed both ways. The tool call's
+        // streamed fragments spell its keys in non-alphabetical order:
+        // convert_block re-serializes the parsed input, which sorts them, so
+        // the streaming path has to sort too or the two sides disagree.
+        let streamed = crate::provider::stream::drain_for_test(
+            "anthropic".into(),
+            Box::new(crate::provider::anthropic::Decoder::default()),
+            vec![
+                b"event: message_start\ndata: {\"message\":{\"id\":\"msg_1\",\"model\":\"claude-sonnet-4\",\"usage\":{\"input_tokens\":11,\"cache_creation_input_tokens\":100,\"cache_read_input_tokens\":1000,\"output_tokens\":0}}}\n\n".to_vec(),
+                b"event: content_block_start\ndata: {\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n".to_vec(),
+                b"event: content_block_delta\ndata: {\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"Hel\"}}\n\n".to_vec(),
+                b"event: content_block_delta\ndata: {\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"lo\"}}\n\n".to_vec(),
+                b"event: content_block_stop\ndata: {\"index\":0}\n\n".to_vec(),
+                // A second, adjacent text block. The parser makes one
+                // OutputContent::Text per block, so the boundary has to survive
+                // the stream rather than merging into the block before it.
+                b"event: content_block_start\ndata: {\"index\":1,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n".to_vec(),
+                b"event: content_block_delta\ndata: {\"index\":1,\"delta\":{\"type\":\"text_delta\",\"text\":\"Bye\"}}\n\n".to_vec(),
+                b"event: content_block_stop\ndata: {\"index\":1}\n\n".to_vec(),
+                b"event: content_block_start\ndata: {\"index\":2,\"content_block\":{\"type\":\"thinking\",\"thinking\":\"\",\"signature\":\"\"}}\n\n".to_vec(),
+                b"event: content_block_delta\ndata: {\"index\":2,\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\"Considering.\"}}\n\n".to_vec(),
+                b"event: content_block_delta\ndata: {\"index\":2,\"delta\":{\"type\":\"signature_delta\",\"signature\":\"sig-1\"}}\n\n".to_vec(),
+                b"event: content_block_stop\ndata: {\"index\":2}\n\n".to_vec(),
+                b"event: content_block_start\ndata: {\"index\":3,\"content_block\":{\"type\":\"tool_use\",\"id\":\"toolu_1\",\"name\":\"get_weather\",\"input\":{}}}\n\n".to_vec(),
+                b"event: content_block_delta\ndata: {\"index\":3,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"unit\\\":\\\"c\\\",\"}}\n\n".to_vec(),
+                b"event: content_block_delta\ndata: {\"index\":3,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"\\\"location\\\":\\\"NYC\\\"}\"}}\n\n".to_vec(),
+                b"event: content_block_stop\ndata: {\"index\":3}\n\n".to_vec(),
+                b"event: content_block_start\ndata: {\"index\":4,\"content_block\":{\"type\":\"server_tool_use\",\"id\":\"srvtoolu_1\",\"name\":\"web_search\",\"input\":{}}}\n\n".to_vec(),
+                b"event: content_block_delta\ndata: {\"index\":4,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"query\\\":\\\"rust\\\"}\"}}\n\n".to_vec(),
+                b"event: content_block_stop\ndata: {\"index\":4}\n\n".to_vec(),
+                b"event: message_delta\ndata: {\"delta\":{\"stop_reason\":\"tool_use\"},\"usage\":{\"output_tokens\":9}}\n\n".to_vec(),
+            ],
+        )
+        .expect("drained");
+
+        let config =
+            ProviderConfig::new(ProviderDialect::Anthropic, "anthropic", "https://x.test/v1");
+        let parsed = parse(
+            r#"{"id":"msg_1","model":"claude-sonnet-4","stop_reason":"tool_use","content":[{"type":"text","text":"Hello"},{"type":"text","text":"Bye"},{"type":"thinking","thinking":"Considering.","signature":"sig-1"},{"type":"tool_use","id":"toolu_1","name":"get_weather","input":{"unit":"c","location":"NYC"}},{"type":"server_tool_use","id":"srvtoolu_1","name":"web_search","input":{"query":"rust"}}],"usage":{"input_tokens":11,"cache_creation_input_tokens":100,"cache_read_input_tokens":1000,"output_tokens":9}}"#,
+            &config,
+        )
+        .expect("parsed");
+
+        assert_eq!(streamed.id, parsed.id);
+        assert_eq!(streamed.model, parsed.model);
+        assert_eq!(streamed.status, parsed.status);
+        assert_eq!(
+            streamed.usage, parsed.usage,
+            "the parser sums input_tokens with both cache token fields, so a \
+             stream that reads input_tokens alone reports a smaller prompt"
+        );
+        assert_eq!(
+            streamed.content, parsed.content,
+            "content must match part for part, including that two text deltas \
+             coalesce into the single OutputContent::Text the parser produces \
+             for their block, while the next block starts a part of its own"
+        );
+        assert_eq!(streamed.output_text(), "HelloBye");
+        assert!(
+            streamed.provider_metadata.is_some(),
+            "metadata must be populated, not silently dropped as it was before"
+        );
+        assert_eq!(
+            streamed.content.len(),
+            5,
+            "both text blocks, thinking, the tool call, and the unmodeled \
+             server_tool_use block must all survive the stream"
+        );
+        assert!(streamed.has_tool_calls());
+        assert_eq!(
+            streamed.to_message(),
+            parsed.to_message(),
+            "the assistant turn replayed into the next request must be identical, \
+             which is the whole point of into_response"
+        );
+    }
+
     #[test]
     fn counts_cached_prompt_tokens_toward_the_input_total() {
         let wire: Response = serde_json::from_value(serde_json::json!({
@@ -684,5 +784,200 @@ mod tests {
             GenerateResponse::from(wire).status,
             ResponseStatus::Other("refusal".into())
         );
+    }
+
+    use crate::provider::sse::SseFrame;
+    use crate::provider::stream::{RawDelta, StreamDecoder};
+
+    fn decode_all(frames: &[(&str, &str)]) -> Vec<RawDelta> {
+        let mut decoder = crate::provider::anthropic::Decoder::default();
+        let mut out = Vec::new();
+        for (event, data) in frames {
+            let frame = SseFrame {
+                event: Some((*event).to_string()),
+                data: (*data).to_string(),
+            };
+            decoder.decode(&frame, &mut out).expect("decodes");
+        }
+        out
+    }
+
+    #[test]
+    fn decodes_streaming_text() {
+        let deltas = decode_all(&[
+            (
+                "message_start",
+                r#"{"message":{"id":"msg_1","model":"claude-sonnet-4","usage":{"input_tokens":11,"output_tokens":0}}}"#,
+            ),
+            (
+                "content_block_start",
+                r#"{"index":0,"content_block":{"type":"text","text":""}}"#,
+            ),
+            (
+                "content_block_delta",
+                r#"{"index":0,"delta":{"type":"text_delta","text":"Hello"}}"#,
+            ),
+        ]);
+
+        assert!(
+            deltas.iter().any(|d| *d == RawDelta::Text("Hello".into())),
+            "{deltas:?}"
+        );
+    }
+
+    #[test]
+    fn decodes_streaming_tool_call() {
+        let deltas = decode_all(&[
+            (
+                "content_block_start",
+                r#"{"index":0,"content_block":{"type":"text","text":""}}"#,
+            ),
+            (
+                "content_block_delta",
+                r#"{"index":0,"delta":{"type":"text_delta","text":"Let me check."}}"#,
+            ),
+            ("content_block_stop", r#"{"index":0}"#),
+            (
+                "content_block_start",
+                r#"{"index":1,"content_block":{"type":"tool_use","id":"toolu_01","name":"get_weather","input":{}}}"#,
+            ),
+            (
+                "content_block_delta",
+                r#"{"index":1,"delta":{"type":"input_json_delta","partial_json":"{\"loc"}}"#,
+            ),
+            (
+                "content_block_delta",
+                r#"{"index":1,"delta":{"type":"input_json_delta","partial_json":"ation\":\"NYC\"}"}}"#,
+            ),
+            ("content_block_stop", r#"{"index":1}"#),
+        ]);
+
+        assert_eq!(
+            deltas,
+            vec![
+                RawDelta::Text("Let me check.".into()),
+                RawDelta::TextEnd,
+                RawDelta::ToolStart {
+                    slot: 1,
+                    id: "toolu_01".into(),
+                    name: "get_weather".into(),
+                },
+                RawDelta::ToolArgs {
+                    slot: 1,
+                    fragment: "{\"loc".into(),
+                },
+                RawDelta::ToolArgs {
+                    slot: 1,
+                    fragment: "ation\":\"NYC\"}".into(),
+                },
+                RawDelta::ToolEnd { slot: 1 },
+            ],
+            "the index counts content blocks, so prose ahead of the call \
+             pushes it to 1; stopping a text block closes that block and must \
+             emit no ToolEnd"
+        );
+    }
+
+    #[test]
+    fn decodes_streaming_thinking_into_a_replayable_blob() {
+        let deltas = decode_all(&[
+            (
+                "content_block_start",
+                r#"{"index":0,"content_block":{"type":"thinking","thinking":"","signature":""}}"#,
+            ),
+            (
+                "content_block_delta",
+                r#"{"index":0,"delta":{"type":"thinking_delta","thinking":"Let me work through it."}}"#,
+            ),
+            (
+                "content_block_delta",
+                r#"{"index":0,"delta":{"type":"signature_delta","signature":"abc123"}}"#,
+            ),
+            ("content_block_stop", r#"{"index":0}"#),
+        ]);
+
+        assert_eq!(
+            deltas[0],
+            RawDelta::ReasoningText("Let me work through it.".into())
+        );
+        assert_eq!(
+            deltas[1],
+            RawDelta::ReasoningBlob(serde_json::json!({
+                "type": "thinking",
+                "thinking": "Let me work through it.",
+                "signature": "abc123",
+            })),
+            "the blob must be the whole reconstructed block, because that is \
+             what the non-streaming parser produces and what must be replayed"
+        );
+    }
+
+    #[test]
+    fn preserves_unrecognised_blocks_when_streaming() {
+        let deltas = decode_all(&[
+            (
+                "content_block_start",
+                r#"{"index":0,"content_block":{"type":"redacted_thinking","data":"EncryptedPayload=="}}"#,
+            ),
+            ("content_block_stop", r#"{"index":0}"#),
+        ]);
+
+        assert_eq!(
+            deltas,
+            vec![RawDelta::ReasoningBlob(serde_json::json!({
+                "type": "redacted_thinking",
+                "data": "EncryptedPayload==",
+            }))],
+            "the non-streaming parser preserves any unmodeled block verbatim; \
+             streaming must not silently drop one, or a replayed transcript \
+             is incomplete and the provider rejects the next turn"
+        );
+    }
+
+    #[test]
+    fn opaque_blocks_capture_their_streamed_input() {
+        let deltas = decode_all(&[
+            (
+                "content_block_start",
+                r#"{"index":0,"content_block":{"type":"server_tool_use","id":"srvtoolu_1","name":"web_search","input":{}}}"#,
+            ),
+            (
+                "content_block_delta",
+                r#"{"index":0,"delta":{"type":"input_json_delta","partial_json":"{\"query\":"}}"#,
+            ),
+            (
+                "content_block_delta",
+                r#"{"index":0,"delta":{"type":"input_json_delta","partial_json":"\"rust\"}"}}"#,
+            ),
+            ("content_block_stop", r#"{"index":0}"#),
+        ]);
+
+        assert_eq!(
+            deltas,
+            vec![RawDelta::ReasoningBlob(serde_json::json!({
+                "type": "server_tool_use",
+                "id": "srvtoolu_1",
+                "name": "web_search",
+                "input": {"query": "rust"},
+            }))],
+            "an unmodeled block whose input arrives as deltas must replay with \
+             that input filled in; the start frame's empty object is not what \
+             the non-streaming parser would have stored"
+        );
+    }
+
+    #[test]
+    fn decodes_streaming_error_frame() {
+        let mut decoder = crate::provider::anthropic::Decoder::default();
+        let mut out = Vec::new();
+        let frame = SseFrame {
+            event: Some("error".into()),
+            data: r#"{"error":{"type":"overloaded_error","message":"Overloaded"}}"#.into(),
+        };
+
+        assert!(matches!(
+            decoder.decode(&frame, &mut out),
+            Err(ProviderError::Stream { .. })
+        ));
     }
 }

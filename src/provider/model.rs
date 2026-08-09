@@ -467,6 +467,7 @@ pub struct Usage {
 /// failure against a Claude-compatible gateway reports that gateway and not
 /// "Anthropic".
 #[derive(Debug)]
+#[non_exhaustive]
 pub enum ProviderError {
     /// The request asked for something this provider cannot express. Freyja
     /// refuses rather than silently dropping the capability.
@@ -501,6 +502,18 @@ pub enum ProviderError {
         /// Parse failure detail, including the body.
         message: String,
     },
+    /// The response streamed successfully up to a point, then failed.
+    ///
+    /// Covers a provider's own mid-stream error frame and a body that ends
+    /// before the response is complete. Distinct from [`Self::Api`], which
+    /// reports a non-success HTTP status, and from [`Self::InvalidResponse`],
+    /// which reports a body that could not be parsed at all.
+    Stream {
+        /// Endpoint whose stream failed.
+        provider: Arc<str>,
+        /// What went wrong.
+        message: String,
+    },
 }
 
 impl fmt::Display for ProviderError {
@@ -521,6 +534,9 @@ impl fmt::Display for ProviderError {
             } => write!(f, "{provider} returned HTTP {status}: {body}"),
             Self::InvalidResponse { provider, message } => {
                 write!(f, "invalid {provider} response: {message}")
+            }
+            Self::Stream { provider, message } => {
+                write!(f, "{provider} stream failed: {message}")
             }
         }
     }
@@ -591,5 +607,15 @@ mod tests {
                 output: "3".into(),
             }]
         );
+    }
+
+    #[test]
+    fn error_stream_displays_provider_and_message() {
+        let error = ProviderError::Stream {
+            provider: "acme".into(),
+            message: "boom".into(),
+        };
+
+        assert_eq!(error.to_string(), "acme stream failed: boom");
     }
 }

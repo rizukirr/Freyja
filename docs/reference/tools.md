@@ -157,6 +157,8 @@ for _ in 0..5 {
 
 The bound is not optional. A model can keep requesting tools indefinitely, and without a cap the loop can run until your budget is gone.
 
+The same loop works while streaming. Drain the stream, call `into_response()`, and everything from `has_tool_calls()` onwards is unchanged. See [Streaming](streaming.md#a-streaming-tool-loop).
+
 ## Returning errors to the model
 
 A failed tool is not an error in your program. Report it as the tool's output and let the model recover:

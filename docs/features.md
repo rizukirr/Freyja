@@ -16,6 +16,9 @@ What Freyja does today, and what it does not. The second list matters as much as
 | Reasoning effort | Where the provider supports it, refused where it does not |
 | Structured output | JSON schema, and free JSON where the provider offers it |
 | Token accounting | Yes, normalized across providers |
+| Streaming | Yes, on every dialect, see [Streaming](reference/streaming.md) |
+
+Streaming delivers the same answer incrementally, and a drained stream converts back into the same `GenerateResponse`, so a tool loop written against `generate` keeps working. Tool-call arguments and reasoning blobs are assembled for you and surface only once complete, so nothing stitches partial JSON.
 
 ### Building agents
 
@@ -45,8 +48,8 @@ Built-in means Freyja ships and tests the URL and default model. It does not mea
 | | |
 |---|---|
 | Connection pooling | One HTTP client per `Client`, reused |
-| Timeouts | 120 seconds by default, or supply your own HTTP client |
-| Errors | Five variants, each attributed to the endpoint that failed |
+| Timeouts | 120 seconds of inactivity by default, or supply your own HTTP client |
+| Errors | Six variants, each attributed to the endpoint that failed |
 | Credential safety | `Debug` redacts the API key |
 | Dependencies | Three: `reqwest`, `serde`, `serde_json` |
 
@@ -56,7 +59,6 @@ Be sure none of these is on your critical path before adopting.
 
 | | Status | Workaround |
 |---|---|---|
-| **Streaming** | Not implemented | Responses are buffered whole. There is no token-by-token output. |
 | **Retries** | Not implemented | A 429 or 5xx surfaces once. Retry at your call site; [Errors](reference/errors.md) says which are worth retrying. |
 | **Automatic tool dispatch** | Not implemented | You match on the tool name and call your function. There is no registry or `Tool` trait yet. |
 | **Schema derivation** | Not implemented | Tool parameter schemas are hand-written JSON. |
@@ -88,4 +90,4 @@ Freyja distinguishes "the tests pass" from "a real vendor accepted it", because 
 | Anthropic | Yes |
 | A Chat Completions endpoint (DeepSeek) | Yes |
 
-Beyond text and tool calling, coverage is offline tests only. Images, structured output, and reasoning effort have not been exercised against a live API on any provider.
+Beyond text and tool calling, coverage is offline tests only. Images, structured output, reasoning effort, and streaming have not been exercised against a live API on any provider. Each dialect's streaming frames are taken from the vendor's own documentation and tested against recorded fixtures, including a test per dialect asserting that a drained stream matches what `generate` builds from the same turn.

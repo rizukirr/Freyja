@@ -29,6 +29,8 @@ pub struct Request {
     previous_response_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     metadata: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    stream: Option<bool>,
 }
 
 /// Responses API input items are a flat list: messages, tool calls, and tool
@@ -223,7 +225,14 @@ impl Request {
             tool_choice,
             previous_response_id: value.previous_response_id.clone(),
             metadata: value.metadata.clone(),
+            stream: None,
         })
+    }
+
+    /// Marks this body as a streaming request.
+    pub(crate) fn streaming(mut self) -> Self {
+        self.stream = Some(true);
+        self
     }
 }
 
@@ -481,5 +490,266 @@ mod tests {
         assert_eq!(input[1]["type"], "function_call");
         assert_eq!(input[2]["type"], "function_call_output");
         assert_eq!(input[2]["output"], "42");
+    }
+
+    /// Streaming must reproduce, part for part, what `parse()` builds from the
+    /// non-streaming body describing the same logical turn.
+    ///
+    /// The expectations below are derived from the parser, which is the
+    /// specification. `parse_status` maps `completed`, `incomplete`,
+    /// `requires_action` and `failed` onto their neutral counterparts and
+    /// anything else onto [`ResponseStatus::Other`]. Usage is a straight copy of
+    /// `input_tokens` / `output_tokens` / `total_tokens`. `convert_item` models
+    /// exactly `message` — whose `output_text` parts become
+    /// [`OutputContent::Text`] and whose `refusal` parts become
+    /// [`OutputContent::Refusal`] — and `function_call`, preserving every other
+    /// item verbatim as [`OutputContent::Reasoning`].
+    #[test]
+    fn streamed_response_matches_generate() {
+        // A tool-calling turn: a reasoning item, text in two deltas, a refusal,
+        // a call with fragmented arguments, and a terminal `requires_action`.
+        //
+        // Unlike Anthropic and Gemini, this dialect's parser hands back the
+        // model's raw `arguments` string untouched, so the streamed order is
+        // deliberately left as the model emitted it and is not re-sorted.
+        let frames = [
+            (
+                "response.created",
+                r#"{"response":{"id":"resp_1","model":"gpt-5","status":"in_progress"}}"#,
+            ),
+            (
+                "response.output_item.added",
+                r#"{"output_index":0,"item":{"type":"reasoning","id":"rs_1","summary":[]}}"#,
+            ),
+            (
+                "response.reasoning_summary_text.delta",
+                r#"{"item_id":"rs_1","output_index":0,"delta":"Thinking."}"#,
+            ),
+            (
+                "response.output_item.done",
+                r#"{"output_index":0,"item":{"type":"reasoning","id":"rs_1","summary":[{"type":"summary_text","text":"Thinking."}]}}"#,
+            ),
+            (
+                "response.output_item.added",
+                r#"{"output_index":1,"item":{"type":"message","id":"msg_1","role":"assistant","content":[]}}"#,
+            ),
+            (
+                "response.output_text.delta",
+                r#"{"item_id":"msg_1","output_index":1,"delta":"Hel"}"#,
+            ),
+            (
+                "response.output_text.delta",
+                r#"{"item_id":"msg_1","output_index":1,"delta":"lo"}"#,
+            ),
+            // convert_item makes one OutputContent::Text per output_text part,
+            // so this frame ends the first part and the next delta opens a
+            // second one rather than merging into it.
+            (
+                "response.output_text.done",
+                r#"{"item_id":"msg_1","output_index":1,"content_index":0,"text":"Hello"}"#,
+            ),
+            (
+                "response.output_text.delta",
+                r#"{"item_id":"msg_1","output_index":1,"content_index":1,"delta":"Bye"}"#,
+            ),
+            (
+                "response.output_text.done",
+                r#"{"item_id":"msg_1","output_index":1,"content_index":1,"text":"Bye"}"#,
+            ),
+            (
+                "response.refusal.delta",
+                r#"{"item_id":"msg_1","output_index":1,"delta":"I cannot help"}"#,
+            ),
+            (
+                "response.output_item.done",
+                r#"{"output_index":1,"item":{"type":"message","id":"msg_1","role":"assistant","content":[{"type":"output_text","text":"Hello"},{"type":"output_text","text":"Bye"},{"type":"refusal","refusal":"I cannot help"}]}}"#,
+            ),
+            (
+                "response.output_item.added",
+                r#"{"output_index":2,"item":{"type":"function_call","id":"fc_1","call_id":"call_1","name":"get_weather","arguments":""}}"#,
+            ),
+            (
+                "response.function_call_arguments.delta",
+                r#"{"item_id":"fc_1","output_index":2,"delta":"{\"loc"}"#,
+            ),
+            (
+                "response.function_call_arguments.done",
+                r#"{"item_id":"fc_1","output_index":2,"arguments":"{\"location\":\"NYC\"}"}"#,
+            ),
+            (
+                "response.output_item.done",
+                r#"{"output_index":2,"item":{"type":"function_call","id":"fc_1","call_id":"call_1","name":"get_weather","arguments":"{\"location\":\"NYC\"}"}}"#,
+            ),
+            (
+                "response.completed",
+                r#"{"response":{"id":"resp_1","model":"gpt-5","status":"requires_action","usage":{"input_tokens":11,"output_tokens":9,"total_tokens":20}}}"#,
+            ),
+        ];
+
+        let streamed = crate::provider::stream::drain_for_test(
+            "openai".into(),
+            Box::new(crate::provider::openai_responses::Decoder),
+            frames
+                .iter()
+                .map(|(event, data)| format!("event: {event}\ndata: {data}\n\n").into_bytes())
+                .collect(),
+        )
+        .expect("drained");
+
+        let parsed = parse(
+            r#"{"id":"resp_1","model":"gpt-5","status":"requires_action","output":[{"type":"reasoning","id":"rs_1","summary":[{"type":"summary_text","text":"Thinking."}]},{"type":"message","id":"msg_1","role":"assistant","content":[{"type":"output_text","text":"Hello"},{"type":"output_text","text":"Bye"},{"type":"refusal","refusal":"I cannot help"}]},{"type":"function_call","id":"fc_1","call_id":"call_1","name":"get_weather","arguments":"{\"location\":\"NYC\"}"}],"usage":{"input_tokens":11,"output_tokens":9,"total_tokens":20}}"#,
+            &config(),
+        )
+        .expect("parsed");
+
+        assert_eq!(streamed.id, parsed.id);
+        assert_eq!(streamed.model, parsed.model);
+        assert_eq!(
+            streamed.status, parsed.status,
+            "the parser maps requires_action; a tool-calling turn is the case a \
+             streaming caller hits most"
+        );
+        assert_eq!(streamed.usage, parsed.usage);
+        assert_eq!(
+            streamed.content, parsed.content,
+            "content must match part for part: two text deltas coalesce into one \
+             OutputContent::Text while a second output_text part becomes a part \
+             of its own, the refusal becomes OutputContent::Refusal as the \
+             parser produces it, and the unmodeled reasoning item survives"
+        );
+        assert_eq!(
+            streamed.to_message(),
+            parsed.to_message(),
+            "the assistant turn replayed into the next request must be identical"
+        );
+    }
+
+    use crate::provider::sse::SseFrame;
+    use crate::provider::stream::{RawDelta, StreamDecoder};
+
+    fn decode_all(frames: &[(&str, &str)]) -> Vec<RawDelta> {
+        let mut decoder = crate::provider::openai_responses::Decoder;
+        let mut out = Vec::new();
+        for (event, data) in frames {
+            let frame = SseFrame {
+                event: Some((*event).to_string()),
+                data: (*data).to_string(),
+            };
+            decoder.decode(&frame, &mut out).expect("decodes");
+        }
+        out
+    }
+
+    #[test]
+    fn decodes_streaming_text() {
+        let deltas = decode_all(&[
+            (
+                "response.created",
+                r#"{"response":{"id":"resp_1","model":"gpt-5","status":"in_progress"}}"#,
+            ),
+            (
+                "response.output_text.delta",
+                r#"{"item_id":"msg_1","output_index":0,"delta":"Hello"}"#,
+            ),
+        ]);
+
+        assert!(
+            deltas.iter().any(|d| *d == RawDelta::Text("Hello".into())),
+            "{deltas:?}"
+        );
+    }
+
+    #[test]
+    fn decodes_streaming_tool_call() {
+        let deltas = decode_all(&[
+            (
+                "response.output_item.added",
+                r#"{"output_index":0,"item":{"type":"function_call","id":"fc_1","call_id":"call_abc","name":"get_weather","arguments":""}}"#,
+            ),
+            (
+                "response.function_call_arguments.delta",
+                r#"{"item_id":"fc_1","output_index":0,"delta":"{\"loc"}"#,
+            ),
+            (
+                "response.function_call_arguments.done",
+                r#"{"item_id":"fc_1","output_index":0,"arguments":"{\"location\":\"NYC\"}"}"#,
+            ),
+        ]);
+
+        assert_eq!(
+            deltas,
+            vec![
+                RawDelta::ToolStart {
+                    slot: 0,
+                    id: "call_abc".into(),
+                    name: "get_weather".into(),
+                },
+                RawDelta::ToolArgs {
+                    slot: 0,
+                    fragment: "{\"loc".into(),
+                },
+                RawDelta::ToolReplace {
+                    slot: 0,
+                    arguments: "{\"location\":\"NYC\"}".into(),
+                },
+                RawDelta::ToolEnd { slot: 0 },
+            ],
+            "the done frame repeats the complete arguments, so it must replace \
+             the buffer rather than append and double-count"
+        );
+    }
+
+    #[test]
+    fn decodes_streaming_completion() {
+        let deltas = decode_all(&[(
+            "response.completed",
+            r#"{"response":{"id":"resp_1","model":"gpt-5","status":"completed","usage":{"input_tokens":11,"output_tokens":9,"total_tokens":20}}}"#,
+        )]);
+
+        assert_eq!(
+            deltas,
+            vec![RawDelta::Meta {
+                id: Some("resp_1".into()),
+                model: Some("gpt-5".into()),
+                status: Some(ResponseStatus::Completed),
+                usage: Some(Usage {
+                    input_tokens: 11,
+                    output_tokens: 9,
+                    total_tokens: 20,
+                }),
+                // The terminal frame's own object, carried whole so a caller
+                // can read fields Freyja does not model.
+                provider_metadata: Some(serde_json::json!({
+                    "id": "resp_1",
+                    "model": "gpt-5",
+                    "status": "completed",
+                    "usage": {
+                        "input_tokens": 11,
+                        "output_tokens": 9,
+                        "total_tokens": 20,
+                    },
+                })),
+            }]
+        );
+    }
+
+    #[test]
+    fn preserves_unrecognised_items_when_streaming() {
+        let deltas = decode_all(&[(
+            "response.output_item.done",
+            r#"{"output_index":0,"item":{"type":"web_search_call","id":"ws_1","status":"completed"}}"#,
+        )]);
+
+        assert_eq!(
+            deltas,
+            vec![RawDelta::ReasoningBlob(serde_json::json!({
+                "type": "web_search_call",
+                "id": "ws_1",
+                "status": "completed",
+            }))],
+            "convert_item catch-alls every item that is not message or \
+             function_call; streaming must preserve the same set or a replayed \
+             transcript loses items the provider expects back"
+        );
     }
 }

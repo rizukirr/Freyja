@@ -29,6 +29,10 @@ pub struct Request {
     tool_choice: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     metadata: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    stream: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    stream_options: Option<serde_json::Value>,
 }
 
 /// Unlike every other dialect Freyja speaks, `system` is a real message role
@@ -253,7 +257,20 @@ impl Request {
                 .collect(),
             tool_choice,
             metadata: value.metadata.clone(),
+            stream: None,
+            stream_options: None,
         })
+    }
+
+    /// Marks this body as a streaming request.
+    ///
+    /// `include_usage` is required or the dialect reports no token counts at
+    /// all when streaming, which would leave `Done.usage` empty on the most
+    /// widely-spoken dialect.
+    pub(crate) fn streaming(mut self) -> Self {
+        self.stream = Some(true);
+        self.stream_options = Some(serde_json::json!({"include_usage": true}));
+        self
     }
 }
 
@@ -681,5 +698,199 @@ mod tests {
         );
         // output_text deliberately excludes refusals.
         assert_eq!(response.output_text(), "");
+    }
+
+    /// Streaming must reproduce, part for part, what `parse()` builds from the
+    /// non-streaming body describing the same logical turn.
+    ///
+    /// The expectations below are derived from the parser, which is the
+    /// specification. `parse_finish_reason` maps `stop` and a missing reason
+    /// onto [`ResponseStatus::Completed`], `length` onto
+    /// [`ResponseStatus::Incomplete`], `tool_calls` and `function_call` onto
+    /// [`ResponseStatus::RequiresAction`], and anything else onto
+    /// [`ResponseStatus::Other`]. Usage is a straight copy of `prompt_tokens` /
+    /// `completion_tokens` / `total_tokens`. `From<Response>` builds content in
+    /// a fixed order — non-empty `content` as [`OutputContent::Text`], then
+    /// non-empty `refusal` as [`OutputContent::Refusal`], then every entry of
+    /// `tool_calls` — and models nothing else, so there is no reasoning shape
+    /// for this dialect to cover.
+    #[test]
+    fn streamed_response_matches_generate() {
+        // A tool-calling turn: text in two deltas, a refusal, and a call whose
+        // arguments arrive fragmented.
+        //
+        // No second text block here: this dialect's parser builds a single
+        // OutputContent::Text from `message.content`, so it has no block
+        // boundaries to preserve.
+        //
+        // Unlike Anthropic and Gemini, this dialect's parser hands back the
+        // model's raw `arguments` string untouched, so the streamed order is
+        // deliberately left as the model emitted it and is not re-sorted.
+        let frames = [
+            r#"{"id":"chatcmpl-1","model":"gpt-4o","choices":[{"index":0,"delta":{"role":"assistant","content":"Hel"}}]}"#,
+            r#"{"id":"chatcmpl-1","model":"gpt-4o","choices":[{"index":0,"delta":{"content":"lo"}}]}"#,
+            r#"{"id":"chatcmpl-1","model":"gpt-4o","choices":[{"index":0,"delta":{"refusal":"I cannot help"}}]}"#,
+            r#"{"id":"chatcmpl-1","model":"gpt-4o","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"get_weather","arguments":""}}]}}]}"#,
+            r#"{"id":"chatcmpl-1","model":"gpt-4o","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"loc"}}]}}]}"#,
+            r#"{"id":"chatcmpl-1","model":"gpt-4o","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"ation\":\"NYC\"}"}}]}}]}"#,
+            r#"{"id":"chatcmpl-1","model":"gpt-4o","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}"#,
+            r#"{"id":"chatcmpl-1","model":"gpt-4o","choices":[],"usage":{"prompt_tokens":11,"completion_tokens":9,"total_tokens":20}}"#,
+            "[DONE]",
+        ];
+
+        let streamed = crate::provider::stream::drain_for_test(
+            "test-endpoint".into(),
+            Box::new(crate::provider::openai_chat::Decoder),
+            frames
+                .iter()
+                .map(|frame| format!("data: {frame}\n\n").into_bytes())
+                .collect(),
+        )
+        .expect("drained");
+
+        let parsed = parse(
+            r#"{"id":"chatcmpl-1","model":"gpt-4o","choices":[{"index":0,"message":{"role":"assistant","content":"Hello","refusal":"I cannot help","tool_calls":[{"id":"call_1","type":"function","function":{"name":"get_weather","arguments":"{\"location\":\"NYC\"}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":11,"completion_tokens":9,"total_tokens":20}}"#,
+            &config(),
+        )
+        .expect("parsed");
+
+        assert_eq!(streamed.id, parsed.id);
+        assert_eq!(streamed.model, parsed.model);
+        assert_eq!(streamed.status, parsed.status);
+        assert_eq!(streamed.usage, parsed.usage);
+        assert_eq!(
+            streamed.content, parsed.content,
+            "content must match part for part: two text deltas coalesce into \
+             one OutputContent::Text, the refusal becomes OutputContent::Refusal \
+             as the parser produces it, and the fragmented call is assembled"
+        );
+        assert_eq!(
+            streamed.to_message(),
+            parsed.to_message(),
+            "the assistant turn replayed into the next request must be identical"
+        );
+    }
+
+    use crate::provider::sse::SseFrame;
+    use crate::provider::stream::{RawDelta, StreamDecoder};
+
+    fn decode_all(frames: &[&str]) -> Vec<RawDelta> {
+        let mut decoder = crate::provider::openai_chat::Decoder;
+        let mut out = Vec::new();
+        for data in frames {
+            let frame = SseFrame {
+                event: None,
+                data: (*data).to_string(),
+            };
+            decoder.decode(&frame, &mut out).expect("decodes");
+        }
+        out
+    }
+
+    #[test]
+    fn decodes_streaming_text() {
+        let deltas = decode_all(&[
+            r#"{"id":"chatcmpl-1","model":"gpt-4o","choices":[{"delta":{"content":"Hel"}}]}"#,
+            r#"{"id":"chatcmpl-1","model":"gpt-4o","choices":[{"delta":{"content":"lo"}}]}"#,
+            "[DONE]",
+        ]);
+
+        assert!(
+            deltas.iter().any(|d| *d == RawDelta::Text("Hel".into())),
+            "{deltas:?}"
+        );
+        assert!(
+            deltas.iter().any(|d| *d == RawDelta::Text("lo".into())),
+            "{deltas:?}"
+        );
+        assert!(
+            !deltas
+                .iter()
+                .any(|d| matches!(d, RawDelta::Text(t) if t == "[DONE]")),
+            "the sentinel must not become text: {deltas:?}"
+        );
+    }
+
+    #[test]
+    fn decodes_streaming_tool_call() {
+        let deltas = decode_all(&[
+            r#"{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_abc","function":{"name":"get_weather","arguments":""}}]}}]}"#,
+            r#"{"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"loc"}}]}}]}"#,
+            r#"{"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"ation\":\"NYC\"}"}}]}}]}"#,
+        ]);
+
+        assert_eq!(
+            deltas,
+            vec![
+                RawDelta::ToolStart {
+                    slot: 0,
+                    id: "call_abc".into(),
+                    name: "get_weather".into(),
+                },
+                RawDelta::ToolArgs {
+                    slot: 0,
+                    fragment: "{\"loc".into(),
+                },
+                RawDelta::ToolArgs {
+                    slot: 0,
+                    fragment: "ation\":\"NYC\"}".into(),
+                },
+            ],
+            "this dialect never ends a call; the assembler flushes at close"
+        );
+    }
+
+    #[test]
+    fn decodes_streaming_usage_and_finish_reason() {
+        let deltas = decode_all(&[
+            r#"{"id":"chatcmpl-1","model":"gpt-4o","choices":[{"delta":{},"finish_reason":"stop"}]}"#,
+            r#"{"id":"chatcmpl-1","model":"gpt-4o","choices":[],"usage":{"prompt_tokens":11,"completion_tokens":9,"total_tokens":20}}"#,
+        ]);
+
+        let usage = deltas
+            .iter()
+            .find_map(|d| match d {
+                RawDelta::Meta {
+                    usage: Some(usage), ..
+                } => Some(*usage),
+                _ => None,
+            })
+            .expect("usage arrives when stream_options.include_usage is set");
+        assert_eq!(usage.total_tokens, 20);
+
+        assert!(
+            deltas.iter().any(|d| matches!(
+                d,
+                RawDelta::Meta {
+                    status: Some(ResponseStatus::Completed),
+                    ..
+                }
+            )),
+            "{deltas:?}"
+        );
+    }
+
+    /// The parser's `UsageWire` marks every subfield `#[serde(default)]`, so a
+    /// partial usage object still yields a `Usage`. The decoder must default
+    /// the same way rather than collapsing the whole thing to `None`.
+    #[test]
+    fn usage_defaults_missing_fields() {
+        let deltas = decode_all(&[
+            r#"{"id":"chatcmpl-1","model":"gpt-4o","choices":[],"usage":{"prompt_tokens":11,"completion_tokens":9}}"#,
+        ]);
+
+        let usage = deltas
+            .iter()
+            .find_map(|d| match d {
+                RawDelta::Meta { usage: Some(u), .. } => Some(*u),
+                _ => None,
+            })
+            .expect(
+                "a partial usage object still yields usage, as the parser's \
+                 #[serde(default)] fields do — not None",
+            );
+        assert_eq!(usage.input_tokens, 11);
+        assert_eq!(usage.output_tokens, 9);
+        assert_eq!(usage.total_tokens, 0);
     }
 }

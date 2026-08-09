@@ -35,7 +35,7 @@ This backend is less complete than OpenAI. Read the gaps below before relying on
 | `metadata` | yes | Sent as `labels` |
 | Usage reporting | yes | Field names normalized |
 | Refusals | no | Not carried as a distinct block |
-| Streaming | no | Not implemented in Freyja |
+| Streaming | yes | `stream: true` **and** `?alt=sse` on the URL, which is what selects SSE |
 
 ## Two capabilities are rejected outright
 
@@ -160,6 +160,12 @@ Gemini has two statuses OpenAI does not:
 |---|---|
 | `budget_exceeded` | `ResponseStatus::Incomplete` |
 | `cancelled` | `ResponseStatus::Failed` |
+
+## Streaming needs the URL as well as the body
+
+Gemini is the only dialect here where `stream: true` in the body is not enough. The Interactions API also takes `?alt=sse` on the URL, and that query parameter is what selects SSE framing. `Client::stream` appends it for you, which is why `ProviderConfig::stream_url` exists alongside `url`.
+
+Frames repeat their event name inside the payload as `event_type`, so the SSE event line is redundant and Freyja reads the body. Steps arrive as `step.start` / `step.delta` / `step.stop`, with the interaction's terminal frame carrying id, model, status, and usage. Thought signatures stream in as deltas and are merged back into the step before it surfaces, so what you replay is what the API sent. See [Streaming](../reference/streaming.md).
 
 ## Rejected before the network
 
