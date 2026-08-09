@@ -66,7 +66,7 @@ Modified:
 - Modify: `src/provider/model.rs:469-529`
 - Modify: `src/provider/mod.rs:28-29`, `src/provider/mod.rs:264-271`, `src/provider/mod.rs:408-413`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Append to the `mod tests` block at the end of `src/provider/model.rs` (after `tool_result_builds_a_tool_turn`, before the closing `}`):
 
@@ -82,12 +82,12 @@ Append to the `mod tests` block at the end of `src/provider/model.rs` (after `to
     }
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `cargo test --all-features error_stream_displays_provider_and_message`
 Expected: FAIL to compile, with an error naming `Stream` as not a variant of `ProviderError`.
 
-- [ ] **Step 3: Add the variant**
+- [x] **Step 3: Add the variant**
 
 In `src/provider/model.rs`, replace the attribute and opening line of the enum at line 469-470:
 
@@ -121,7 +121,7 @@ Then add this variant immediately before the closing `}` of the enum (after the 
     },
 ```
 
-- [ ] **Step 4: Add the Display arm**
+- [x] **Step 4: Add the Display arm**
 
 In the same file, inside `impl fmt::Display for ProviderError`, add this arm immediately before the closing `}` of the `match` (after the `InvalidResponse` arm):
 
@@ -131,12 +131,12 @@ In the same file, inside `impl fmt::Display for ProviderError`, add this arm imm
             }
 ```
 
-- [ ] **Step 5: Run the test to verify it passes**
+- [x] **Step 5: Run the test to verify it passes**
 
 Run: `cargo test --all-features error_stream_displays_provider_and_message`
 Expected: PASS.
 
-- [ ] **Step 6: Switch the default client to a read timeout**
+- [x] **Step 6: Switch the default client to a read timeout**
 
 In `src/provider/mod.rs`, replace lines 28-29:
 
@@ -178,7 +178,7 @@ fn default_http() -> reqwest::Client {
 }
 ```
 
-- [ ] **Step 7: Document the change on the constructor**
+- [x] **Step 7: Document the change on the constructor**
 
 In `src/provider/mod.rs`, replace the doc comment on `Client::new` at lines 265-268:
 
@@ -202,12 +202,12 @@ with:
     /// [`ProviderType`] preset.
 ```
 
-- [ ] **Step 8: Run the whole suite**
+- [x] **Step 8: Run the whole suite**
 
 Run: `cargo test --all-features`
 Expected: PASS, all tests.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add src/provider/model.rs src/provider/mod.rs
