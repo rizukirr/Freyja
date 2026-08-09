@@ -1358,7 +1358,7 @@ untested would put the most stateful code in the crate beyond reach."
 **Files:**
 - Modify: `src/provider/mod.rs:56-87`, `src/provider/mod.rs:344-406`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 In `src/provider/mod.rs`, add to the `mod tests` block at the end of the file:
 
@@ -1379,12 +1379,12 @@ In `src/provider/mod.rs`, add to the `mod tests` block at the end of the file:
     }
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `cargo test --all-features --lib stream_url_appends_alt_sse_for_gemini`
 Expected: FAIL to compile, with an error naming `stream_url` as not found for `ProviderConfig`.
 
-- [ ] **Step 3: Add the dialect's stream query and the config helper**
+- [x] **Step 3: Add the dialect's stream query and the config helper**
 
 In `src/provider/mod.rs`, add this method to `impl ProviderDialect`, immediately after `required_headers` (which ends at line 86):
 
@@ -1413,12 +1413,12 @@ Then add this method to `impl ProviderConfig`, immediately after `url` (which en
     }
 ```
 
-- [ ] **Step 4: Run the test to verify it passes**
+- [x] **Step 4: Run the test to verify it passes**
 
 Run: `cargo test --all-features --lib stream_url_appends_alt_sse_for_gemini`
 Expected: PASS.
 
-- [ ] **Step 5: Factor the shared POST out of `run`**
+- [x] **Step 5: Factor the shared POST out of `run`**
 
 In `src/provider/mod.rs`, replace the body of `run` at lines 362-405 with this pair of methods:
 
@@ -1478,7 +1478,7 @@ In `src/provider/mod.rs`, replace the body of `run` at lines 362-405 with this p
     }
 ```
 
-- [ ] **Step 6: Add `Client::stream` with stub decoders**
+- [x] **Step 6: Add `Client::stream` with stub decoders**
 
 In `src/provider/mod.rs`, add this method to `impl Client`, immediately after `generate` (which ends at line 358):
 
@@ -1581,7 +1581,7 @@ fn to_value<T: Serialize>(
 }
 ```
 
-- [ ] **Step 7: Add stub decoders and `streaming()` to each dialect**
+- [x] **Step 7: Add stub decoders and `streaming()` to each dialect**
 
 For each of the four dialect modules, add a stub so the crate compiles. In `src/provider/anthropic/mod.rs`, `src/provider/gemini/mod.rs`, `src/provider/openai_chat/mod.rs`, and `src/provider/openai_responses/mod.rs`, append this to each file, adjusting nothing but the module it lives in:
 
@@ -1646,7 +1646,7 @@ Each `Request::build` constructs the struct with a struct literal; add `stream: 
 
 Also make the two internal modules visible to the dialects: in `src/provider/mod.rs`, change `mod sse;` to `pub(crate) mod sse;` and `mod stream;` to `pub(crate) mod stream;`.
 
-- [ ] **Step 8: Verify the build and the existing suite**
+- [x] **Step 8: Verify the build and the existing suite**
 
 Run: `cargo build --all-targets`
 Expected: success.
@@ -1654,7 +1654,7 @@ Expected: success.
 Run: `cargo test --all-features --lib`
 Expected: PASS, all tests. In particular the dialects' existing `build` tests must still pass, proving `stream: None` did not change `generate()`'s serialized body.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add src/provider/mod.rs src/provider/anthropic src/provider/gemini src/provider/openai_chat src/provider/openai_responses
