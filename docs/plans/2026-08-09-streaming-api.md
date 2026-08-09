@@ -3007,7 +3007,7 @@ decoders instead match only the types they name and drop the rest, which loses
 `redacted_thinking` and anything Anthropic or Google adds later. The fix is to
 mirror the parsers: remember the whole block at start, emit it whole at stop.
 
-- [ ] **Step 1: Write the failing Anthropic test**
+- [x] **Step 1: Write the failing Anthropic test**
 
 In `src/provider/anthropic/types.rs`, add to `mod tests`:
 
@@ -3035,13 +3035,13 @@ In `src/provider/anthropic/types.rs`, add to `mod tests`:
     }
 ```
 
-- [ ] **Step 2: Run it and confirm it fails**
+- [x] **Step 2: Run it and confirm it fails**
 
 Run: `cargo test --all-features --lib preserves_unrecognised_blocks_when_streaming`
 Expected: FAIL. The assertion reports `left: []` because the decoder's
 `_ => {}` arm discards the block.
 
-- [ ] **Step 3: Make the Anthropic decoder preserve unknown blocks**
+- [x] **Step 3: Make the Anthropic decoder preserve unknown blocks**
 
 In `src/provider/anthropic/mod.rs`, extend the decoder's state to remember whole
 blocks. Change the `Decoder` struct to add a field alongside `tools` and `thinking`:
@@ -3068,12 +3068,12 @@ In `content_block_stop`, add a final branch after the `thinking` branch:
                 }
 ```
 
-- [ ] **Step 4: Confirm the Anthropic test passes**
+- [x] **Step 4: Confirm the Anthropic test passes**
 
 Run: `cargo test --all-features --lib preserves_unrecognised_blocks_when_streaming`
 Expected: PASS, 1 test.
 
-- [ ] **Step 5: Write the failing Gemini test**
+- [x] **Step 5: Write the failing Gemini test**
 
 In `src/provider/gemini/types.rs`, add to `mod tests`:
 
@@ -3096,12 +3096,12 @@ In `src/provider/gemini/types.rs`, add to `mod tests`:
     }
 ```
 
-- [ ] **Step 6: Run it and confirm it fails**
+- [x] **Step 6: Run it and confirm it fails**
 
 Run: `cargo test --all-features --lib preserves_unrecognised_steps_when_streaming`
 Expected: FAIL with `left: []`.
 
-- [ ] **Step 7: Make the Gemini decoder preserve unknown steps and whole thoughts**
+- [x] **Step 7: Make the Gemini decoder preserve unknown steps and whole thoughts**
 
 In `src/provider/gemini/mod.rs`, change the `Step` enum so a thought carries the
 original step object rather than only its signature:
@@ -3170,7 +3170,7 @@ In `step.stop`, replace the match with:
             },
 ```
 
-- [ ] **Step 8: Update the existing Gemini thought test for the new blob shape**
+- [x] **Step 8: Update the existing Gemini thought test for the new blob shape**
 
 The blob is now the whole step with the signature merged in, not a synthesised
 `{type,signature}` pair. In `src/provider/gemini/types.rs`, the expected value in
@@ -3187,7 +3187,7 @@ which is unchanged *only if* the fixture's `step.start` carried no other fields.
 Read the fixture; if `step` has more fields, include them. Do not weaken the
 assertion to make it pass — the point is that the whole step survives.
 
-- [ ] **Step 9: Confirm both new tests and the whole suite pass**
+- [x] **Step 9: Confirm both new tests and the whole suite pass**
 
 Run: `cargo test --all-features --lib preserves_unrecognised`
 Expected: PASS, 2 tests. Confirm the count is 2 and not 0.
@@ -3195,7 +3195,7 @@ Expected: PASS, 2 tests. Confirm the count is 2 and not 0.
 Run: `cargo test --all-features`
 Expected: PASS, all tests.
 
-- [ ] **Step 10: Commit**
+- [x] **Step 10: Commit**
 
 ```bash
 git add src/provider/anthropic src/provider/gemini
@@ -3226,7 +3226,7 @@ delivers is (a) metadata that is actually populated rather than always `None`,
 and (b) a test proving the fields a tool loop depends on — id, model, status,
 content in order, usage — are equal across both paths.
 
-- [ ] **Step 1: Add the field to the internal delta and the assembler**
+- [x] **Step 1: Add the field to the internal delta and the assembler**
 
 In `src/provider/stream.rs`, add to `RawDelta::Meta`'s field list:
 
@@ -3258,7 +3258,7 @@ and in `into_response` replace `provider_metadata: None` with:
 Every existing `RawDelta::Meta { .. }` construction across the four decoders and
 the test modules must gain `provider_metadata: None`; the compiler will list them.
 
-- [ ] **Step 2: Populate it in the Anthropic decoder**
+- [x] **Step 2: Populate it in the Anthropic decoder**
 
 In `src/provider/anthropic/mod.rs`, the `message_start` arm carries the provider's
 own message object. Change its `RawDelta::Meta` to pass it through:
@@ -3271,7 +3271,7 @@ Leave the other three decoders passing `None` for now; Anthropic is the one this
 task's parity test exercises, and a partial rollout is visible rather than a
 silent claim of completeness.
 
-- [ ] **Step 3: Expose a drain helper for cross-module tests**
+- [x] **Step 3: Expose a drain helper for cross-module tests**
 
 In `src/provider/stream.rs`, add next to the other `#[cfg(test)]` helpers:
 
@@ -3294,7 +3294,7 @@ Note it must sit outside the `impl EventStream` block or be an associated
 function on it — either is fine, but it must be reachable as
 `crate::provider::stream::drain_for_test` or `EventStream::drain_for_test`.
 
-- [ ] **Step 4: Write the failing parity test**
+- [x] **Step 4: Write the failing parity test**
 
 In `src/provider/anthropic/types.rs`, add to `mod tests`:
 
@@ -3340,14 +3340,14 @@ In `src/provider/anthropic/types.rs`, add to `mod tests`:
     }
 ```
 
-- [ ] **Step 5: Run it and confirm it fails, then passes**
+- [x] **Step 5: Run it and confirm it fails, then passes**
 
 Run: `cargo test --all-features --lib streamed_response_matches_generate`
 Expected before Steps 1-3 are complete: FAIL to compile. After: PASS, 1 test.
 If the content assertion fails, do NOT weaken it — a mismatch means the
 coalescing or ordering is genuinely wrong and is the bug this task exists to find.
 
-- [ ] **Step 6: Run the whole suite and the linter**
+- [x] **Step 6: Run the whole suite and the linter**
 
 Run: `cargo test --all-features`
 Expected: PASS, all tests.
@@ -3358,7 +3358,7 @@ Expected: no warnings.
 Run: `cargo fmt --all` then `cargo fmt --all --check`
 Expected: the check produces no output.
 
-- [ ] **Step 7: Document the remaining limit**
+- [x] **Step 7: Document the remaining limit**
 
 On `EventStream::into_response` in `src/provider/stream.rs`, add to the doc comment:
 
@@ -3370,7 +3370,7 @@ On `EventStream::into_response` in `src/provider/stream.rs`, add to the doc comm
     /// loop depends on — id, model, status, content, usage — does match.
 ```
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add src/provider/stream.rs src/provider/anthropic
