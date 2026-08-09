@@ -87,6 +87,7 @@ impl StreamDecoder for Decoder {
                     model: message["model"].as_str().map(str::to_string),
                     status: None,
                     usage: None,
+                    provider_metadata: Some(message.clone()),
                 });
             }
             "content_block_start" => {
@@ -179,6 +180,7 @@ impl StreamDecoder for Decoder {
                         output_tokens,
                         total_tokens: self.input_tokens + output_tokens,
                     }),
+                    provider_metadata: None,
                 });
             }
             _ => {}

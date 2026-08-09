@@ -468,6 +468,7 @@ mod tests {
                     output_tokens: 90,
                     total_tokens: 346,
                 }),
+                provider_metadata: None,
             }]
         );
     }

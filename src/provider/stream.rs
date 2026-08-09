@@ -80,6 +80,7 @@ pub(crate) enum RawDelta {
         model: Option<String>,
         status: Option<ResponseStatus>,
         usage: Option<Usage>,
+        provider_metadata: Option<Value>,
     },
 }
 
@@ -115,6 +116,7 @@ struct Assembler {
     model: String,
     status: ResponseStatus,
     usage: Option<Usage>,
+    provider_metadata: Option<Value>,
     finished: bool,
 }
 
@@ -130,6 +132,7 @@ impl Assembler {
             // was cut short, and this is the answer the caller should see.
             status: ResponseStatus::Incomplete,
             usage: None,
+            provider_metadata: None,
             finished: false,
         }
     }
@@ -157,6 +160,7 @@ impl Assembler {
                 model,
                 status,
                 usage,
+                provider_metadata,
             } => {
                 if let Some(id) = id {
                     self.id = id;
@@ -169,6 +173,9 @@ impl Assembler {
                 }
                 if usage.is_some() {
                     self.usage = usage;
+                }
+                if provider_metadata.is_some() {
+                    self.provider_metadata = provider_metadata;
                 }
             }
             RawDelta::ToolStart { slot, id, name } => {
@@ -247,7 +254,7 @@ impl Assembler {
             status: self.status,
             content: self.captured,
             usage: self.usage,
-            provider_metadata: None,
+            provider_metadata: self.provider_metadata,
         })
     }
 }
@@ -334,6 +341,12 @@ impl EventStream {
     /// Errors with [`ProviderError::Stream`] if [`EventStream::next`] has not
     /// yet returned `None`. A response that looks complete but is not, replayed
     /// to a provider, fails in ways that are hard to trace back to here.
+    ///
+    /// `provider_metadata` carries the provider's own terminal-frame object
+    /// where the dialect supplies one. It is not byte-identical to the
+    /// non-streaming path's value: `generate()` collects the fields Freyja does
+    /// not model, while a stream carries the object whole. Every field a tool
+    /// loop depends on — id, model, status, content, usage — does match.
     pub fn into_response(self) -> Result<GenerateResponse, ProviderError> {
         self.assembler.into_response()
     }
@@ -412,6 +425,19 @@ impl EventStream {
     }
 }
 
+/// Drives a decoder over recorded frames and returns the assembled response,
+/// so a dialect's tests can compare streaming against its own parser.
+#[cfg(test)]
+pub(crate) fn drain_for_test(
+    provider: Arc<str>,
+    decoder: Box<dyn StreamDecoder>,
+    chunks: Vec<Vec<u8>>,
+) -> Result<GenerateResponse, ProviderError> {
+    let mut stream = EventStream::for_test(provider, decoder, chunks);
+    while stream.next_blocking()?.is_some() {}
+    stream.into_response()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -444,6 +470,7 @@ mod tests {
                 model: Some("test-model".into()),
                 status: Some(ResponseStatus::Completed),
                 usage: None,
+                provider_metadata: None,
             },
             &mut out,
         );
@@ -630,6 +657,7 @@ mod tests {
                     model: Some("test-model".into()),
                     status: Some(ResponseStatus::Completed),
                     usage: None,
+                    provider_metadata: None,
                 });
             } else {
                 out.push(RawDelta::Text(frame.data.clone()));
@@ -687,6 +715,7 @@ mod tests {
                     output_tokens: 2,
                     total_tokens: 3,
                 }),
+                provider_metadata: None,
             },
             &mut out,
         );

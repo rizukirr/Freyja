@@ -585,6 +585,7 @@ mod tests {
                     output_tokens: 9,
                     total_tokens: 20,
                 }),
+                provider_metadata: None,
             }]
         );
     }

@@ -630,6 +630,47 @@ mod tests {
     }
 
     #[test]
+    fn streamed_response_matches_generate() {
+        // The same logical answer, expressed both ways.
+        let streamed = crate::provider::stream::drain_for_test(
+            "anthropic".into(),
+            Box::new(crate::provider::anthropic::Decoder::default()),
+            vec![
+                b"event: message_start\ndata: {\"message\":{\"id\":\"msg_1\",\"model\":\"claude-sonnet-4\",\"usage\":{\"input_tokens\":11,\"output_tokens\":0}}}\n\n".to_vec(),
+                b"event: content_block_start\ndata: {\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n".to_vec(),
+                b"event: content_block_delta\ndata: {\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"Hel\"}}\n\n".to_vec(),
+                b"event: content_block_delta\ndata: {\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"lo\"}}\n\n".to_vec(),
+                b"event: content_block_stop\ndata: {\"index\":0}\n\n".to_vec(),
+                b"event: message_delta\ndata: {\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":9}}\n\n".to_vec(),
+            ],
+        )
+        .expect("drained");
+
+        let config =
+            ProviderConfig::new(ProviderDialect::Anthropic, "anthropic", "https://x.test/v1");
+        let parsed = parse(
+            r#"{"id":"msg_1","model":"claude-sonnet-4","stop_reason":"end_turn","content":[{"type":"text","text":"Hello"}],"usage":{"input_tokens":11,"output_tokens":9}}"#,
+            &config,
+        )
+        .expect("parsed");
+
+        assert_eq!(streamed.id, parsed.id);
+        assert_eq!(streamed.model, parsed.model);
+        assert_eq!(streamed.status, parsed.status);
+        assert_eq!(streamed.usage, parsed.usage);
+        assert_eq!(
+            streamed.content, parsed.content,
+            "content must match part for part, including that two text deltas \
+             coalesce into the single OutputContent::Text the parser produces"
+        );
+        assert_eq!(streamed.output_text(), "Hello");
+        assert!(
+            streamed.provider_metadata.is_some(),
+            "metadata must be populated, not silently dropped as it was before"
+        );
+    }
+
+    #[test]
     fn counts_cached_prompt_tokens_toward_the_input_total() {
         let wire: Response = serde_json::from_value(serde_json::json!({
             "id": "msg_1", "model": "claude-test", "stop_reason": "end_turn", "content": [],

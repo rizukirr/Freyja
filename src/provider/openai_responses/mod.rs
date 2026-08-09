@@ -118,6 +118,7 @@ impl StreamDecoder for Decoder {
                         None => ResponseStatus::Completed,
                     }),
                     usage,
+                    provider_metadata: None,
                 });
             }
             "error" => {
