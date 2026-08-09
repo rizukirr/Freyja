@@ -613,7 +613,7 @@ others in public API."
 **Files:**
 - Modify: `src/provider/stream.rs`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 In `src/provider/stream.rs`, add to the `mod tests` block:
 
@@ -661,12 +661,12 @@ Also extend the test module's imports — replace `use super::*;` at the top of 
     use crate::provider::OutputContent;
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `cargo test --all-features stream::tests::assembler_coalesces_text`
 Expected: FAIL to compile, with an error naming `Assembler` as not found in this scope.
 
-- [ ] **Step 3: Write the assembler**
+- [x] **Step 3: Write the assembler**
 
 In `src/provider/stream.rs`, add this after the `StreamDecoder` trait and before the `EventStream` placeholder:
 
@@ -832,12 +832,12 @@ impl Assembler {
 }
 ```
 
-- [ ] **Step 4: Run the test to verify it passes**
+- [x] **Step 4: Run the test to verify it passes**
 
 Run: `cargo test --all-features stream::tests::assembler_coalesces_text`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/provider/stream.rs
