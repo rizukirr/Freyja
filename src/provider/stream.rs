@@ -314,4 +314,188 @@ mod tests {
         assert_eq!(assembler.id, "resp_1");
         assert_eq!(assembler.model, "test-model");
     }
+
+    #[test]
+    fn assembler_assembles_fragmented_arguments() {
+        let mut assembler = Assembler::new("acme".into());
+        let mut out = Vec::new();
+
+        assembler.absorb(
+            RawDelta::ToolStart {
+                slot: 0,
+                id: "call_1".into(),
+                name: "get_weather".into(),
+            },
+            &mut out,
+        );
+        assembler.absorb(
+            RawDelta::ToolArgs {
+                slot: 0,
+                fragment: "{\"loc".into(),
+            },
+            &mut out,
+        );
+        assembler.absorb(
+            RawDelta::ToolArgs {
+                slot: 0,
+                fragment: "ation\":\"NYC\"}".into(),
+            },
+            &mut out,
+        );
+
+        assert!(out.is_empty(), "nothing is emitted until the call ends");
+
+        assembler.absorb(RawDelta::ToolEnd { slot: 0 }, &mut out);
+
+        assert_eq!(
+            out,
+            vec![StreamEvent::ToolCall {
+                id: "call_1".into(),
+                name: "get_weather".into(),
+                arguments: "{\"location\":\"NYC\"}".into(),
+            }]
+        );
+    }
+
+    #[test]
+    fn assembler_keeps_concurrent_calls_apart() {
+        let mut assembler = Assembler::new("acme".into());
+        let mut out = Vec::new();
+
+        for (slot, id, name) in [(0, "call_a", "alpha"), (1, "call_b", "beta")] {
+            assembler.absorb(
+                RawDelta::ToolStart {
+                    slot,
+                    id: id.into(),
+                    name: name.into(),
+                },
+                &mut out,
+            );
+        }
+        // Interleaved fragments must not cross-contaminate.
+        assembler.absorb(
+            RawDelta::ToolArgs {
+                slot: 0,
+                fragment: "{\"a\":".into(),
+            },
+            &mut out,
+        );
+        assembler.absorb(
+            RawDelta::ToolArgs {
+                slot: 1,
+                fragment: "{\"b\":".into(),
+            },
+            &mut out,
+        );
+        assembler.absorb(
+            RawDelta::ToolArgs {
+                slot: 0,
+                fragment: "1}".into(),
+            },
+            &mut out,
+        );
+        assembler.absorb(
+            RawDelta::ToolArgs {
+                slot: 1,
+                fragment: "2}".into(),
+            },
+            &mut out,
+        );
+        assembler.absorb(RawDelta::ToolEnd { slot: 1 }, &mut out);
+        assembler.absorb(RawDelta::ToolEnd { slot: 0 }, &mut out);
+
+        assert_eq!(
+            out,
+            vec![
+                StreamEvent::ToolCall {
+                    id: "call_b".into(),
+                    name: "beta".into(),
+                    arguments: "{\"b\":2}".into(),
+                },
+                StreamEvent::ToolCall {
+                    id: "call_a".into(),
+                    name: "alpha".into(),
+                    arguments: "{\"a\":1}".into(),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn assembler_flushes_unended_calls() {
+        let mut assembler = Assembler::new("acme".into());
+        let mut out = Vec::new();
+
+        assembler.absorb(
+            RawDelta::ToolStart {
+                slot: 0,
+                id: "call_1".into(),
+                name: "add".into(),
+            },
+            &mut out,
+        );
+        assembler.absorb(
+            RawDelta::ToolArgs {
+                slot: 0,
+                fragment: "{}".into(),
+            },
+            &mut out,
+        );
+
+        // OpenAiChat never sends an end frame; the body simply closes.
+        assembler.close(&mut out);
+
+        assert_eq!(
+            out,
+            vec![
+                StreamEvent::ToolCall {
+                    id: "call_1".into(),
+                    name: "add".into(),
+                    arguments: "{}".into(),
+                },
+                StreamEvent::Done {
+                    id: String::new(),
+                    model: String::new(),
+                    status: ResponseStatus::Incomplete,
+                    usage: None,
+                },
+            ],
+            "the call must be flushed before Done, and a stream with no \
+             terminal frame reports Incomplete"
+        );
+    }
+
+    #[test]
+    fn assembler_into_response_requires_a_drained_stream() {
+        let mut assembler = Assembler::new("acme".into());
+        let mut out = Vec::new();
+        assembler.absorb(RawDelta::Text("hi".into()), &mut out);
+
+        assert!(matches!(
+            Assembler::new("acme".into()).into_response(),
+            Err(ProviderError::Stream { .. })
+        ));
+
+        assembler.absorb(
+            RawDelta::Meta {
+                id: Some("resp_1".into()),
+                model: Some("test-model".into()),
+                status: Some(ResponseStatus::Completed),
+                usage: Some(Usage {
+                    input_tokens: 1,
+                    output_tokens: 2,
+                    total_tokens: 3,
+                }),
+            },
+            &mut out,
+        );
+        assembler.close(&mut out);
+
+        let response = assembler.into_response().expect("drained");
+        assert_eq!(response.id, "resp_1");
+        assert_eq!(response.model, "test-model");
+        assert_eq!(response.status, ResponseStatus::Completed);
+        assert_eq!(response.output_text(), "hi");
+        assert_eq!(response.usage.expect("usage").total_tokens, 3);
+    }
 }
