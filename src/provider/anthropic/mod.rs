@@ -49,6 +49,9 @@ struct PendingThinking {
 pub(crate) struct Decoder {
     tools: HashMap<usize, ()>,
     thinking: HashMap<usize, PendingThinking>,
+    /// Blocks whose type this decoder does not model, kept whole so
+    /// `content_block_stop` can emit them exactly as the parser would.
+    opaque: HashMap<usize, Value>,
     input_tokens: u64,
 }
 
@@ -100,7 +103,12 @@ impl StreamDecoder for Decoder {
                     Some("thinking") => {
                         self.thinking.insert(index, PendingThinking::default());
                     }
-                    _ => {}
+                    // Text is modeled: it arrives through text_delta and needs
+                    // no state, so it must not be kept as an opaque blob.
+                    Some("text") => {}
+                    _ => {
+                        self.opaque.insert(index, block.clone());
+                    }
                 }
             }
             "content_block_delta" => {
@@ -146,6 +154,8 @@ impl StreamDecoder for Decoder {
                         "thinking": pending.thinking,
                         "signature": pending.signature,
                     })));
+                } else if let Some(block) = self.opaque.remove(&index) {
+                    out.push(RawDelta::ReasoningBlob(block));
                 }
             }
             "message_delta" => {

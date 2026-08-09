@@ -820,6 +820,28 @@ mod tests {
     }
 
     #[test]
+    fn preserves_unrecognised_blocks_when_streaming() {
+        let deltas = decode_all(&[
+            (
+                "content_block_start",
+                r#"{"index":0,"content_block":{"type":"redacted_thinking","data":"EncryptedPayload=="}}"#,
+            ),
+            ("content_block_stop", r#"{"index":0}"#),
+        ]);
+
+        assert_eq!(
+            deltas,
+            vec![RawDelta::ReasoningBlob(serde_json::json!({
+                "type": "redacted_thinking",
+                "data": "EncryptedPayload==",
+            }))],
+            "the non-streaming parser preserves any unmodeled block verbatim; \
+             streaming must not silently drop one, or a replayed transcript \
+             is incomplete and the provider rejects the next turn"
+        );
+    }
+
+    #[test]
     fn decodes_streaming_error_frame() {
         let mut decoder = crate::provider::anthropic::Decoder::default();
         let mut out = Vec::new();

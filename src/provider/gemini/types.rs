@@ -435,6 +435,23 @@ mod tests {
     }
 
     #[test]
+    fn preserves_unrecognised_steps_when_streaming() {
+        let deltas = decode_all(&[
+            r#"{"index":0,"step":{"type":"safety_report","verdict":"ok"},"event_type":"step.start"}"#,
+            r#"{"index":0,"event_type":"step.stop"}"#,
+        ]);
+
+        assert_eq!(
+            deltas,
+            vec![RawDelta::ReasoningBlob(serde_json::json!({
+                "type": "safety_report",
+                "verdict": "ok",
+            }))],
+            "the non-streaming parser preserves any unmodeled step verbatim"
+        );
+    }
+
+    #[test]
     fn decodes_streaming_completion() {
         let deltas = decode_all(&[
             r#"{"interaction":{"id":"v1_abc123","model":"gemini-3.6-flash","status":"completed","usage":{"total_tokens":346,"total_input_tokens":11,"total_output_tokens":90}},"event_type":"interaction.completed"}"#,

@@ -39,7 +39,15 @@ use std::collections::HashMap;
 /// started there.
 enum Step {
     Tool,
-    Thought { signature: String },
+    /// The step as it arrived, plus the signature accumulated from its deltas.
+    /// Kept whole because the non-streaming parser stores the whole step and
+    /// the API requires model-generated steps replayed exactly as received.
+    Thought {
+        step: Value,
+        signature: String,
+    },
+    /// A step type this decoder does not model, kept verbatim.
+    Opaque(Value),
 }
 
 /// Decodes Interactions API SSE frames.
@@ -78,11 +86,17 @@ impl StreamDecoder for Decoder {
                         self.steps.insert(
                             slot,
                             Step::Thought {
+                                step: step.clone(),
                                 signature: String::new(),
                             },
                         );
                     }
-                    _ => {}
+                    // Model output is modeled: it arrives through text deltas
+                    // and must not be kept as an opaque blob.
+                    Some("model_output") => {}
+                    _ => {
+                        self.steps.insert(slot, Step::Opaque(step.clone()));
+                    }
                 }
             }
             "step.delta" => {
@@ -108,7 +122,7 @@ impl StreamDecoder for Decoder {
                     }
                     Some("thought_signature") => {
                         if let Some(value) = delta["signature"].as_str()
-                            && let Some(Step::Thought { signature }) = self.steps.get_mut(&slot)
+                            && let Some(Step::Thought { signature, .. }) = self.steps.get_mut(&slot)
                         {
                             signature.push_str(value);
                         }
@@ -118,12 +132,20 @@ impl StreamDecoder for Decoder {
             }
             "step.stop" => match self.steps.remove(&slot) {
                 Some(Step::Tool) => out.push(RawDelta::ToolEnd { slot }),
-                Some(Step::Thought { signature }) => {
-                    out.push(RawDelta::ReasoningBlob(serde_json::json!({
-                        "type": "thought",
-                        "signature": signature,
-                    })));
+                Some(Step::Thought {
+                    mut step,
+                    signature,
+                }) => {
+                    // Merge the streamed signature back into the step the API
+                    // sent, so the blob matches what the parser would store.
+                    if !signature.is_empty()
+                        && let Some(object) = step.as_object_mut()
+                    {
+                        object.insert("signature".into(), Value::String(signature));
+                    }
+                    out.push(RawDelta::ReasoningBlob(step));
                 }
+                Some(Step::Opaque(step)) => out.push(RawDelta::ReasoningBlob(step)),
                 None => {}
             },
             "interaction.completed" | "interaction.failed" | "interaction.incomplete" => {
