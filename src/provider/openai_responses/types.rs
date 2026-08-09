@@ -491,4 +491,101 @@ mod tests {
         assert_eq!(input[2]["type"], "function_call_output");
         assert_eq!(input[2]["output"], "42");
     }
+
+    use crate::provider::sse::SseFrame;
+    use crate::provider::stream::{RawDelta, StreamDecoder};
+
+    fn decode_all(frames: &[(&str, &str)]) -> Vec<RawDelta> {
+        let mut decoder = crate::provider::openai_responses::Decoder::default();
+        let mut out = Vec::new();
+        for (event, data) in frames {
+            let frame = SseFrame {
+                event: Some((*event).to_string()),
+                data: (*data).to_string(),
+            };
+            decoder.decode(&frame, &mut out).expect("decodes");
+        }
+        out
+    }
+
+    #[test]
+    fn decodes_streaming_text() {
+        let deltas = decode_all(&[
+            (
+                "response.created",
+                r#"{"response":{"id":"resp_1","model":"gpt-5","status":"in_progress"}}"#,
+            ),
+            (
+                "response.output_text.delta",
+                r#"{"item_id":"msg_1","output_index":0,"delta":"Hello"}"#,
+            ),
+        ]);
+
+        assert!(
+            deltas.iter().any(|d| *d == RawDelta::Text("Hello".into())),
+            "{deltas:?}"
+        );
+    }
+
+    #[test]
+    fn decodes_streaming_tool_call() {
+        let deltas = decode_all(&[
+            (
+                "response.output_item.added",
+                r#"{"output_index":0,"item":{"type":"function_call","id":"fc_1","call_id":"call_abc","name":"get_weather","arguments":""}}"#,
+            ),
+            (
+                "response.function_call_arguments.delta",
+                r#"{"item_id":"fc_1","output_index":0,"delta":"{\"loc"}"#,
+            ),
+            (
+                "response.function_call_arguments.done",
+                r#"{"item_id":"fc_1","output_index":0,"arguments":"{\"location\":\"NYC\"}"}"#,
+            ),
+        ]);
+
+        assert_eq!(
+            deltas,
+            vec![
+                RawDelta::ToolStart {
+                    slot: 0,
+                    id: "call_abc".into(),
+                    name: "get_weather".into(),
+                },
+                RawDelta::ToolArgs {
+                    slot: 0,
+                    fragment: "{\"loc".into(),
+                },
+                RawDelta::ToolReplace {
+                    slot: 0,
+                    arguments: "{\"location\":\"NYC\"}".into(),
+                },
+                RawDelta::ToolEnd { slot: 0 },
+            ],
+            "the done frame repeats the complete arguments, so it must replace \
+             the buffer rather than append and double-count"
+        );
+    }
+
+    #[test]
+    fn decodes_streaming_completion() {
+        let deltas = decode_all(&[(
+            "response.completed",
+            r#"{"response":{"id":"resp_1","model":"gpt-5","status":"completed","usage":{"input_tokens":11,"output_tokens":9,"total_tokens":20}}}"#,
+        )]);
+
+        assert_eq!(
+            deltas,
+            vec![RawDelta::Meta {
+                id: Some("resp_1".into()),
+                model: Some("gpt-5".into()),
+                status: Some(ResponseStatus::Completed),
+                usage: Some(Usage {
+                    input_tokens: 11,
+                    output_tokens: 9,
+                    total_tokens: 20,
+                }),
+            }]
+        );
+    }
 }

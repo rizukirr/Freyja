@@ -27,16 +27,111 @@ impl Provider for OpenAiResponsesProvider {
     }
 }
 
-/// Decodes this dialect's SSE frames. Filled in by its own task.
+use crate::provider::sse::SseFrame;
+use crate::provider::stream::{RawDelta, StreamDecoder};
+use crate::provider::{ResponseStatus, Usage};
+use serde_json::Value;
+
+/// Decodes Responses API SSE frames.
+///
+/// Stateless: every frame carries its own `output_index`, so no correlation
+/// has to be remembered between frames.
 #[derive(Default)]
 pub(crate) struct Decoder;
 
-impl crate::provider::stream::StreamDecoder for Decoder {
+impl StreamDecoder for Decoder {
     fn decode(
         &mut self,
-        _frame: &crate::provider::sse::SseFrame,
-        _out: &mut Vec<crate::provider::stream::RawDelta>,
+        frame: &SseFrame,
+        out: &mut Vec<RawDelta>,
     ) -> Result<(), crate::provider::ProviderError> {
+        let Ok(value) = serde_json::from_str::<Value>(&frame.data) else {
+            return Ok(());
+        };
+        let event = frame.event.as_deref().unwrap_or_default();
+        let slot = value["output_index"].as_u64().unwrap_or(0) as usize;
+
+        match event {
+            "response.output_text.delta" => {
+                if let Some(text) = value["delta"].as_str() {
+                    out.push(RawDelta::Text(text.to_string()));
+                }
+            }
+            "response.reasoning_summary_text.delta" => {
+                if let Some(text) = value["delta"].as_str() {
+                    out.push(RawDelta::ReasoningText(text.to_string()));
+                }
+            }
+            "response.output_item.added" => {
+                let item = &value["item"];
+                if item["type"] == "function_call" {
+                    out.push(RawDelta::ToolStart {
+                        slot,
+                        // call_id is the id quoted back in a tool result; id is
+                        // the item's own handle and is not interchangeable.
+                        id: item["call_id"].as_str().unwrap_or_default().to_string(),
+                        name: item["name"].as_str().unwrap_or_default().to_string(),
+                    });
+                }
+            }
+            "response.output_item.done" => {
+                let item = &value["item"];
+                // Reasoning items must be replayed exactly as received, which
+                // is what the non-streaming parser stores for them too.
+                if item["type"] == "reasoning" {
+                    out.push(RawDelta::ReasoningBlob(item.clone()));
+                }
+            }
+            "response.function_call_arguments.delta" => {
+                if let Some(fragment) = value["delta"].as_str() {
+                    out.push(RawDelta::ToolArgs {
+                        slot,
+                        fragment: fragment.to_string(),
+                    });
+                }
+            }
+            "response.function_call_arguments.done" => {
+                if let Some(arguments) = value["arguments"].as_str() {
+                    out.push(RawDelta::ToolReplace {
+                        slot,
+                        arguments: arguments.to_string(),
+                    });
+                }
+                out.push(RawDelta::ToolEnd { slot });
+            }
+            "response.completed" | "response.incomplete" | "response.failed" => {
+                let response = &value["response"];
+                let usage = response.get("usage").and_then(|usage| {
+                    Some(Usage {
+                        input_tokens: usage["input_tokens"].as_u64()?,
+                        output_tokens: usage["output_tokens"].as_u64()?,
+                        total_tokens: usage["total_tokens"].as_u64()?,
+                    })
+                });
+                out.push(RawDelta::Meta {
+                    id: response["id"].as_str().map(str::to_string),
+                    model: response["model"].as_str().map(str::to_string),
+                    status: Some(match response["status"].as_str() {
+                        Some("completed") => ResponseStatus::Completed,
+                        Some("incomplete") => ResponseStatus::Incomplete,
+                        Some("failed") => ResponseStatus::Failed,
+                        Some(other) => ResponseStatus::Other(other.to_string()),
+                        None => ResponseStatus::Completed,
+                    }),
+                    usage,
+                });
+            }
+            "error" => {
+                return Err(crate::provider::ProviderError::Stream {
+                    provider: "openai".into(),
+                    message: value["message"]
+                        .as_str()
+                        .unwrap_or("unknown streaming error")
+                        .to_string(),
+                });
+            }
+            _ => {}
+        }
         Ok(())
     }
 }
