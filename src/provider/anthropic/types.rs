@@ -797,7 +797,9 @@ mod tests {
                 event: Some((*event).to_string()),
                 data: (*data).to_string(),
             };
-            decoder.decode(&frame, &mut out).expect("decodes");
+            decoder
+                .decode(&frame, &"test-endpoint".into(), &mut out)
+                .expect("decodes");
         }
         out
     }
@@ -976,8 +978,31 @@ mod tests {
         };
 
         assert!(matches!(
-            decoder.decode(&frame, &mut out),
+            decoder.decode(&frame, &"test-endpoint".into(), &mut out),
             Err(ProviderError::Stream { .. })
         ));
+    }
+
+    #[test]
+    fn a_streaming_error_reports_the_endpoint_not_the_dialect() {
+        let mut decoder = crate::provider::anthropic::Decoder::default();
+        let mut out = Vec::new();
+        let frame = SseFrame {
+            event: Some("error".into()),
+            data: r#"{"error":{"type":"overloaded_error","message":"Overloaded"}}"#.into(),
+        };
+
+        let error = decoder
+            .decode(&frame, &"z.ai".into(), &mut out)
+            .expect_err("an error frame must fail the stream");
+
+        match error {
+            ProviderError::Stream { provider, .. } => assert_eq!(
+                &*provider, "z.ai",
+                "a Claude-compatible gateway must report its own name, not \"anthropic\" \
+                 -- see the invariant documented on ProviderError in model.rs"
+            ),
+            other => panic!("expected ProviderError::Stream, got {other:?}"),
+        }
     }
 }

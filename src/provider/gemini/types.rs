@@ -365,7 +365,9 @@ mod tests {
                 event: None,
                 data: (*data).to_string(),
             };
-            decoder.decode(&frame, &mut out).expect("decodes");
+            decoder
+                .decode(&frame, &"test-endpoint".into(), &mut out)
+                .expect("decodes");
         }
         out
     }

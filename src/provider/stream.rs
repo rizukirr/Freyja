@@ -99,7 +99,18 @@ pub(crate) enum RawDelta {
 /// one frame and its content in later ones.
 pub(crate) trait StreamDecoder: Send {
     /// Appends everything this frame means to `out`.
-    fn decode(&mut self, frame: &SseFrame, out: &mut Vec<RawDelta>) -> Result<(), ProviderError>;
+    ///
+    /// `provider` is the endpoint's configured name, not the dialect. Any
+    /// [`ProviderError`] this raises must carry it verbatim: a Claude-compatible
+    /// gateway has to report itself and not "anthropic", which is the invariant
+    /// documented on [`ProviderError`] in `model.rs` and which the non-streaming
+    /// path honours through `ProviderConfig::name`.
+    fn decode(
+        &mut self,
+        frame: &SseFrame,
+        provider: &Arc<str>,
+        out: &mut Vec<RawDelta>,
+    ) -> Result<(), ProviderError>;
 
     /// Whether this dialect's parser re-serializes tool arguments from parsed
     /// JSON rather than passing the raw string through.
@@ -346,6 +357,9 @@ enum Body {
 /// # }
 /// ```
 pub struct EventStream {
+    /// The endpoint's configured name, handed to the decoder so a streaming
+    /// error names the gateway rather than the dialect.
+    provider: Arc<str>,
     body: Body,
     buffer: crate::provider::sse::SseBuffer,
     decoder: Box<dyn StreamDecoder>,
@@ -362,6 +376,7 @@ impl EventStream {
     ) -> Self {
         let normalize_arguments = decoder.normalizes_tool_arguments();
         Self {
+            provider: provider.clone(),
             body: Body::Live(response),
             buffer: crate::provider::sse::SseBuffer::default(),
             decoder,
@@ -415,7 +430,10 @@ impl EventStream {
             return Ok(false);
         };
         let mut deltas = Vec::new();
-        self.decoder.decode(&frame, &mut deltas)?;
+        // Cloned first: passing `&self.provider` would borrow `self` while
+        // `self.decoder` is borrowed mutably.
+        let provider = self.provider.clone();
+        self.decoder.decode(&frame, &provider, &mut deltas)?;
 
         let mut events = Vec::new();
         for delta in deltas {
@@ -456,6 +474,7 @@ impl EventStream {
     fn for_test(provider: Arc<str>, decoder: Box<dyn StreamDecoder>, chunks: Vec<Vec<u8>>) -> Self {
         let normalize_arguments = decoder.normalizes_tool_arguments();
         Self {
+            provider: provider.clone(),
             body: Body::Recorded(chunks.into()),
             buffer: crate::provider::sse::SseBuffer::default(),
             decoder,
@@ -769,6 +788,7 @@ mod tests {
         fn decode(
             &mut self,
             frame: &SseFrame,
+            _provider: &Arc<str>,
             out: &mut Vec<RawDelta>,
         ) -> Result<(), ProviderError> {
             if frame.data == "[DONE]" {

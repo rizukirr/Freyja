@@ -85,6 +85,7 @@ impl StreamDecoder for Decoder {
     fn decode(
         &mut self,
         frame: &SseFrame,
+        _provider: &std::sync::Arc<str>,
         out: &mut Vec<RawDelta>,
     ) -> Result<(), crate::provider::ProviderError> {
         let Ok(value) = serde_json::from_str::<Value>(&frame.data) else {

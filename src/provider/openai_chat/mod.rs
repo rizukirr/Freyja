@@ -40,6 +40,7 @@ impl StreamDecoder for Decoder {
     fn decode(
         &mut self,
         frame: &SseFrame,
+        _provider: &std::sync::Arc<str>,
         out: &mut Vec<RawDelta>,
     ) -> Result<(), crate::provider::ProviderError> {
         // The sentinel is not JSON and carries nothing.

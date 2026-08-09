@@ -63,6 +63,7 @@ impl StreamDecoder for Decoder {
     fn decode(
         &mut self,
         frame: &SseFrame,
+        provider: &std::sync::Arc<str>,
         out: &mut Vec<RawDelta>,
     ) -> Result<(), crate::provider::ProviderError> {
         let Ok(value) = serde_json::from_str::<Value>(&frame.data) else {
@@ -76,7 +77,9 @@ impl StreamDecoder for Decoder {
         match event {
             "error" => {
                 return Err(crate::provider::ProviderError::Stream {
-                    provider: "anthropic".into(),
+                    // The endpoint's own name, never the dialect: see the
+                    // invariant on ProviderError in model.rs.
+                    provider: provider.clone(),
                     message: value["error"]["message"]
                         .as_str()
                         .unwrap_or("unknown streaming error")
