@@ -337,3 +337,75 @@ accumulation into agreement with its parser, and add a parity test per dialect
 rather than for Anthropic alone. The durable fix is the per-dialect parity test:
 it converts this class of defect from something review must catch into something
 CI catches.
+
+---
+
+# Rounds 4-5 — CR5 satisfied, CR6 one divergence remaining
+
+**Commit:** `6780ca4` + plan updates
+**Repo-level:** 91 lib tests, 10 doctests, clippy `-D warnings`, `cargo fmt --check`, all clean.
+
+## What changed in approach
+
+Round 4 inverted the method. Rather than patching individually-reported defects,
+a `streamed_response_matches_generate` parity test was added to **all four
+dialects**, each derived from that dialect's *parser* and asserting id, model,
+status, usage, content part-for-part, and `to_message()` equality. The four were
+committed **failing** (`bc96c60`), enumerating seven divergences at once; the
+decoders were then fixed (`bb6af30`) with **no `types.rs` touched**, so no
+fixture or assertion was weakened to obtain a pass.
+
+## CR5 — satisfied
+
+Three independent passes returned yes/yes/yes in round 4. Each dialect's decoder
+catch-all now mirrors its parser's exactly, opaque payloads accumulate from
+deltas rather than being snapshotted at start, and OpenAiChat correctly has no
+catch-all because its parser models no reasoning shape.
+
+## Divergences found and fixed across all five rounds
+
+Eleven in total, ten fixed:
+
+1. Anthropic streaming dropped unmodeled content blocks the parser preserved.
+2. Gemini streaming dropped unmodeled steps the parser preserved.
+3. `into_response` hardcoded `provider_metadata: None`.
+4. OpenAiResponses preserved only `reasoning` items, not every unmodeled item.
+5. Anthropic opaque blocks were snapshotted before their input streamed in.
+6. Gemini and OpenAiResponses never mapped `requires_action`.
+7. Anthropic usage ignored both cache-token fields.
+8. Neither OpenAI decoder decoded refusals — the event model could not express
+   one, so `StreamEvent::RefusalDelta` was added.
+9. An argumentless tool call streamed as `""` where every parser yields `"{}"`.
+10. Anthropic/Gemini parsers re-serialize tool arguments (`Value::to_string`,
+    key-sorted); the stream concatenated raw fragments. Fixed per dialect, since
+    the OpenAI dialects deliberately pass the raw string through.
+11. **Open.** See below.
+
+## Remaining: adjacent text blocks merge
+
+`convert_block` (`anthropic/types.rs:363-370`) emits one `OutputContent::Text`
+**per text block**; `convert_step` does the same for Gemini. `Assembler::absorb`
+coalesces every consecutive `RawDelta::Text` into a single part, and no decoder
+emits a block boundary:
+
+```rust
+            RawDelta::Text(text) => {
+                match self.captured.last_mut() {
+                    Some(OutputContent::Text(existing)) => existing.push_str(&text),
+                    _ => self.captured.push(OutputContent::Text(text.clone())),
+                }
+```
+
+So a response carrying two text blocks — Anthropic produces these with citations
+and after server tool use — drains to `[Text("AB")]` where `generate()` returns
+`[Text("A"), Text("B")]`. `content` and `to_message()` both differ.
+
+Note the coalescing itself is required: within one block, consecutive deltas must
+merge or every fragment would become its own part. The missing piece is a
+block-boundary signal, which would touch `RawDelta`, the assembler, and three
+decoders.
+
+## Verdict
+
+CR5 **satisfied**. CR6 **partial** — one divergence, of the same class as the
+other ten, in a case the fixtures do not construct.
