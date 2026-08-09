@@ -35,6 +35,8 @@ This is the Responses API, not Chat Completions. The two are different endpoints
 
 Only `model` and `input` are required. Freyja omits every unset field rather than sending null.
 
+The request also carries `stream`, which `generate()` leaves unset and which is therefore omitted rather than sent as `false`. Every body on this page is byte-accurate for a `generate()` call. See [Streaming](#streaming).
+
 Note the naming: `instructions` rather than a system message, `max_output_tokens` rather than `max_tokens`, and response format nested under `text.format` rather than at the top level.
 
 ## Input is a flat item list
@@ -189,7 +191,7 @@ Trimmed from a live call:
 }
 ```
 
-Everything Freyja does not model, and that is most of the above, stays reachable through `response.provider_metadata`.
+Every **top-level** field Freyja does not model, and that is most of the above, stays reachable through `response.provider_metadata`. Nested fields do not: `provider_metadata` is built by flattening the body's unknown top-level keys, so anything inside a named field such as `usage` or inside an `output` item is dropped once the field itself is deserialized. See [Usage](#usage).
 
 ### Output item types
 
@@ -212,7 +214,38 @@ This is why `response.has_tool_calls()` is the correct loop condition and `respo
 "usage": { "input_tokens": 42, "output_tokens": 15, "total_tokens": 57 }
 ```
 
-Field names map straight onto the neutral `Usage`. Reasoning models add `output_tokens_details.reasoning_tokens`, reachable through `provider_metadata`.
+Field names map straight onto the neutral `Usage`.
+
+Reasoning models add `output_tokens_details.reasoning_tokens`, and **that field is discarded, not preserved**. `usage` is a named field deserialized into a struct holding exactly `input_tokens`, `output_tokens`, and `total_tokens`, with no catch-all, so any other subfield is dropped. It is not in `provider_metadata`, which only ever holds unknown *top-level* keys. Reasoning tokens are billed as output tokens and are included in `output_tokens`, so the total is right; the breakdown is what is gone. Read the raw body if you need it.
+
+## Streaming
+
+`Client::stream()` sends the same body to the same URL with `"stream": true` added. There is no query parameter and no extra header.
+
+The response is SSE with **semantic event names on the `event:` line**, one per kind of change, rather than one repeating chunk shape. Freyja consumes these:
+
+| Event | What the decoder does with it |
+|---|---|
+| `response.output_text.delta` | A fragment of text, from `delta` |
+| `response.output_text.done` | Ends that text part. This is the block boundary for this dialect, so two `output_text` parts stay two parts |
+| `response.refusal.delta` | A fragment of a refusal, kept separate from text |
+| `response.reasoning_summary_text.delta` | A fragment of human-readable reasoning |
+| `response.output_item.added` | Starts a tool call when `item.type` is `function_call`, taking `call_id` and `name` |
+| `response.output_item.done` | Any item that is not `message` or `function_call`, `reasoning` above all, is preserved whole for replay |
+| `response.function_call_arguments.delta` | A fragment of the arguments JSON string |
+| `response.function_call_arguments.done` | Replaces the accumulated fragments with the authoritative `arguments` string and closes the call |
+| `response.completed`, `response.incomplete`, `response.failed` | Terminal. Carries the whole `response` object: `id`, `model`, `status`, and `usage` |
+| `error` | Fails the stream as `ProviderError::Stream`, attributed to the endpoint's name |
+
+Every other event, and there are many, is ignored.
+
+Calls are correlated by `output_index`, which each frame carries, so nothing has to be remembered between frames.
+
+Note that `response.function_call_arguments.done` carries the complete `arguments` string and Freyja prefers it over the deltas it just assembled. If a stream's arguments look truncated, that frame is the one to check.
+
+The terminal frame's `usage` is read strictly: this dialect's usage struct has no defaulted fields, so a partial `usage` object yields no `Usage` at all rather than zeros. That mirrors the non-streaming parser, which fails outright on the same input.
+
+See [Streaming](../streaming.md).
 
 ## Errors
 

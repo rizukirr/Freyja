@@ -27,7 +27,6 @@ A fourth header, `anthropic-beta`, gates preview features. Freyja sends none of 
   "system": "Be concise",
   "temperature": 0.2,
   "top_p": 0.9,
-  "thinking": { "type": "adaptive" },
   "output_config": { "effort": "high", "format": {} },
   "tools": [],
   "tool_choice": { "type": "auto" },
@@ -36,6 +35,10 @@ A fourth header, `anthropic-beta`, gates preview features. Freyja sends none of 
 ```
 
 `model`, `max_tokens`, and `messages` are required. Freyja omits every unset optional field rather than sending null.
+
+**`thinking` is absent from that sample on purpose.** Freyja populates it in exactly one case: `ReasoningEffort::None` becomes `"thinking": {"type": "disabled"}`. Every other effort level goes to `output_config.effort` and leaves `thinking` unset. The two fields are never sent together, and Freyja never sends `{"type": "adaptive"}` or any `display` setting.
+
+The request also carries `stream`, which `generate()` leaves unset and therefore off the wire. Every body on this page is byte-accurate for a `generate()` call. See [Streaming](#streaming).
 
 Note the naming: `system` is a top level field rather than a message role, `max_tokens` is mandatory rather than optional, and there is no equivalent of OpenAI's `previous_response_id` or Gemini's `previous_interaction_id`. The API is fully stateless, so the whole transcript goes on every request.
 
@@ -174,7 +177,7 @@ Reading the thinking text and displaying it is fine. Only modification is a prob
 
 Two details specific to Anthropic:
 
-- **The text may be empty.** `thinking.display` defaults to `"omitted"` on current models, so blocks arrive with an empty `thinking` string. Replay them anyway; the signature is what matters. Set `"thinking": {"type": "adaptive", "display": "summarized"}` to get readable text.
+- **The text may be empty.** `thinking.display` defaults to `"omitted"` on current models, so blocks arrive with an empty `thinking` string. Replay them anyway; the signature is what matters. Readable text needs `"thinking": {"type": "adaptive", "display": "summarized"}` on the request, and **Freyja never sends that** — it only ever sends `thinking` to disable reasoning, see [Request body](#request-body). Through Freyja, expect the empty string.
 - **Replaying to a different model is safe.** Other models drop the block from the prompt rather than erroring, and it is not billed. Gemini, by contrast, hard fails.
 
 Freyja handles all of this with `OutputContent::Reasoning { data }`, which preserves any block it does not model, and `GenerateResponse::to_message()`, which carries it into the next request. Append `response.to_message()` before your tool results and it works. See [Tool calling](../../reference/tools.md).
@@ -206,7 +209,7 @@ Freyja handles all of this with `OutputContent::Reasoning { data }`, which prese
 
 Output arrives in `content`, not `output` as on OpenAI or `steps` as on Gemini. The top level shape is the same object you echo back as an assistant message, which is why the round trip is simpler here.
 
-Everything Freyja does not model, including `type`, `role`, `stop_sequence`, and `stop_details`, stays reachable through `response.provider_metadata`.
+Everything Freyja does not model at the **top level**, including `type`, `role`, `stop_sequence`, and `stop_details`, stays reachable through `response.provider_metadata`. Nested fields do not: see [Usage](#usage) for what that costs.
 
 ### Output block types
 
@@ -249,9 +252,40 @@ Unlike OpenAI, where a pending tool call still reports `"status": "completed"`, 
 
 **There is no `total_tokens` field**, and `input_tokens` is the *uncached remainder only*. The true prompt size is `input_tokens + cache_creation_input_tokens + cache_read_input_tokens`, which is 1110 in the example above rather than 10.
 
-Freyja sums them into `Usage::input_tokens` and computes `total_tokens` itself. The raw fields stay in `provider_metadata`, which matters because the three are priced differently: a cache read costs roughly a tenth of an uncached input token, while a cache write costs roughly 1.25 times one.
+Freyja sums them into `Usage::input_tokens` and computes `total_tokens` itself.
 
-If `cache_read_input_tokens` is zero across requests that share a prefix, caching is silently not happening, usually because something volatile such as a timestamp sits early in the prompt.
+**The three raw fields do not survive that.** `provider_metadata` is built by flattening the *unknown top-level keys* of the response body. `usage` is a named field, deserialized into a struct with no catch-all, so any subfield of it that Freyja does not map is dropped on the floor. `input_tokens`, `cache_creation_input_tokens`, and `cache_read_input_tokens` are read, summed, and then gone; only the sum is left.
+
+That is worth knowing because the three are priced differently: a cache read costs roughly a tenth of an uncached input token, while a cache write costs roughly 1.25 times one. A Freyja `Usage` cannot tell you what a turn cost.
+
+It also blocks the standard caching check. If `cache_read_input_tokens` is zero across requests that share a prefix, caching is silently not happening, usually because something volatile such as a timestamp sits early in the prompt. **You cannot run that check through Freyja** — the field is not in `provider_metadata` and not in `Usage`. Read the raw body, from a proxy or a direct `curl`, to see it.
+
+## Streaming
+
+`Client::stream()` sends the same body to the same URL with `"stream": true` added. There is no query parameter and no extra header. `generate()` leaves `stream` unset, which is why the bodies above are exactly what it puts on the wire.
+
+The response is SSE, and **the event name is on the SSE `event:` line**, which is authoritative here; the JSON payload does not repeat it. That is the opposite of Gemini, where the name is in the body.
+
+| Event | What the decoder does with it |
+|---|---|
+| `message_start` | Reads `message.id`, `message.model`, and the three `message.usage` input token fields, summed the same way the non-streaming parser sums them |
+| `content_block_start` | Opens a block at `index`. `tool_use` starts a call, `thinking` starts a reconstruction, `text` is noted so its end can be marked, anything else is held whole to be replayed |
+| `content_block_delta` | `text_delta` → text, `input_json_delta` → a fragment of tool arguments, `thinking_delta` → reasoning text, `signature_delta` → the thinking signature |
+| `content_block_stop` | Closes the block at `index`. This is what separates two adjacent text blocks into two parts rather than one |
+| `message_delta` | Carries `delta.stop_reason` and `usage.output_tokens` |
+| `error` | Fails the stream as `ProviderError::Stream`, attributed to the endpoint's name |
+
+Everything else, including `ping` and `message_stop`, is ignored.
+
+`index` counts **content blocks**, not tool calls. Prose before a tool call pushes the call's index up, unlike the OpenAI Chat Completions dialect, where the index counts calls only.
+
+Two details that bite when debugging:
+
+**The token total is only knowable at the end.** `usage.input_tokens` arrives in `message_start`, `usage.output_tokens` in `message_delta`. Neither frame has both. Freyja holds the input count from the first and combines it at the second, which is why `StreamEvent::Done` is the only place a complete `Usage` exists.
+
+**Thinking blocks are reconstructed, not echoed.** Streaming does not send the block whole. It sends `thinking_delta` text fragments and `signature_delta` signature fragments, and Freyja rebuilds `{"type": "thinking", "thinking": ..., "signature": ...}` from them at `content_block_stop`. Given that this page's headline requirement is replaying thinking blocks verbatim, that is worth stating plainly: on the streaming path "verbatim" means the reassembled block, which is byte-identical to the non-streaming one for the same turn and is what `into_response().to_message()` replays. Do not assemble it yourself from `StreamEvent::ReasoningDelta` text — that is the human-readable half, without the signature.
+
+See [Streaming](../streaming.md).
 
 ## Errors
 
@@ -282,4 +316,4 @@ Freyja preserves the whole body in `ProviderError::Api` alongside the HTTP statu
 
 ## What Freyja does not send
 
-`stream`, `stop_sequences`, `top_k`, `container`, `mcp_servers`, `context_management`, `fallbacks`, `speed`, and `cache_control` are all left off. Prompt caching in particular is worth knowing about if your prompts are long and stable, and it is the most likely thing to be added next. See [Anthropic](../../providers/anthropic.md) for the capability table.
+`stop_sequences`, `top_k`, `container`, `mcp_servers`, `context_management`, `fallbacks`, `speed`, and `cache_control` are all left off. (`stream` used to be on this list and no longer is: it is part of the request, set by `Client::stream()`, and unset by `generate()`.) Prompt caching in particular is worth knowing about if your prompts are long and stable, and it is the most likely thing to be added next. See [Anthropic](../../providers/anthropic.md) for the capability table.

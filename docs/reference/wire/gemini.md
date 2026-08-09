@@ -15,6 +15,14 @@ Content-Type: application/json
 
 The `Api-Revision` header selects the API generation. It is what puts the endpoint in steps mode, described below.
 
+Streaming uses the same path with `?alt=sse` appended:
+
+```http
+POST https://generativelanguage.googleapis.com/v1beta/interactions?alt=sse
+```
+
+That query parameter is what actually selects SSE framing on this API; `"stream": true` in the body alone is not enough. Freyja appends it for `Client::stream()` and never for `generate()`. See [Streaming](#streaming).
+
 ## Request body
 
 ```json
@@ -33,6 +41,8 @@ The `Api-Revision` header selects the API generation. It is what puts the endpoi
 ```
 
 Only `model` and `input` are required. Freyja omits every unset field rather than sending null.
+
+The request also carries `stream`, which `generate()` leaves unset and which is therefore omitted rather than sent as `false`. Every body on this page is byte-accurate for a `generate()` call.
 
 Note the naming: `system_instruction` rather than a system turn, `max_output_tokens` rather than `max_tokens`, `previous_interaction_id` rather than `previous_response_id`, and `labels` rather than `metadata`.
 
@@ -223,9 +233,51 @@ Output arrives in `steps`, not `output` or `candidates`. Text lives inside a `mo
 
 ### Usage
 
-Gemini reports more detail than the neutral `Usage` models. Freyja maps `total_input_tokens`, `total_output_tokens`, and `total_tokens`, and the rest, including `total_thought_tokens` and the per-modality breakdown, stays available through `response.provider_metadata`.
+Gemini reports more detail than the neutral `Usage` models. Freyja maps `total_input_tokens`, `total_output_tokens`, and `total_tokens`.
 
-Note that thinking tokens are billed. The 190 total above includes 105 thought tokens for a one-line arithmetic question.
+**The rest is discarded, not preserved.** `total_thought_tokens`, `total_cached_tokens`, `total_tool_use_tokens`, `raw_prompt_token`, and `input_tokens_by_modality` are all dropped. `provider_metadata` is built by flattening the response body's unknown *top-level* keys; `usage` is a named field deserialized into a struct holding exactly the three mapped counts, with no catch-all, so its other subfields do not survive deserialization. Top-level fields such as `object`, `created`, `updated`, and `service_tier` do reach `provider_metadata`. Usage detail does not — read the raw body for it.
+
+Note that thinking tokens are billed. The 190 total above includes 105 thought tokens for a one-line arithmetic question, and `total_tokens` is the only place that cost is visible through Freyja.
+
+## Streaming
+
+`Client::stream()` sends the same body with `"stream": true` added, to the same URL with **`?alt=sse` appended**. Both are needed: the body field asks for incremental generation, the query parameter is what makes the response SSE-framed.
+
+Then the part most likely to trip you up, and the mirror image of Anthropic:
+
+**The event name is inside the JSON body, as `event_type`, not on the SSE `event:` line.** Freyja reads `event_type` and ignores the `event:` line entirely. If you are tailing frames by hand and matching on `event:`, you will see nothing useful.
+
+```
+data: {"event_type":"step.delta","index":0,"delta":{"type":"text","text":"The answer"}}
+```
+
+| `event_type` | What the decoder does with it |
+|---|---|
+| `step.start` | Opens a step at `index`. `function_call` starts a call with its `id` and `name`, `thought` starts a signature reconstruction, `model_output` is noted so its end can be marked, any other step type is held whole to be replayed |
+| `step.delta` | Dispatches on `delta.type`, see below |
+| `step.stop` | Closes the step at `index`. This is what keeps two adjacent `model_output` steps as two text parts rather than one |
+| `interaction.completed`, `interaction.failed`, `interaction.incomplete` | Terminal. Carries the whole `interaction` object: `id`, `model`, `status`, and `usage` |
+
+The delta subtypes:
+
+| `delta.type` | Carries |
+|---|---|
+| `text` | `delta.text`, a fragment of generated text |
+| `arguments_delta` | `delta.arguments`, a fragment of the tool call's arguments |
+| `thought_summary` | `delta.content.text`, human-readable reasoning. Note the extra nesting |
+| `thought_signature` | `delta.signature`, appended into the thought step being reconstructed |
+
+Anything else is merged field by field into the unmodeled step at that index, string fields appending and everything else replacing, so a step type Freyja does not model still replays with whatever its deltas carried. A `code_execution` step would otherwise lose its `code`.
+
+Both `arguments_delta` and `thought_signature` are correlated by the frame's `index`, which counts steps.
+
+The thought step is reconstructed rather than echoed whole: the signature streams in as fragments and Freyja merges them back into the step the API sent at `step.stop`. Since [replaying thought signatures verbatim](#thought-signatures-must-be-replayed) is what makes multi-turn tool calling work here, use `into_response().to_message()` to build the next turn rather than assembling one from `StreamEvent::ReasoningDelta`, which is the human-readable summary and carries no signature.
+
+Any `event_type` not listed above is ignored, including an error frame: this decoder has no error arm, so a failure surfaces as the HTTP status before the stream begins, or as the terminal `interaction.failed` status.
+
+`usage` on the terminal frame is read leniently, defaulting to zero, matching the non-streaming parser.
+
+See [Streaming](../streaming.md).
 
 ## Errors
 

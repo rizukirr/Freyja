@@ -33,6 +33,8 @@ There is no version header. The base URL is whatever the vendor documents, `http
 
 Only `model` and `messages` are required. Freyja omits every unset field rather than sending null.
 
+The request also carries `stream` and `stream_options`, both of which `generate()` leaves unset and therefore off the wire. Every body on this page is byte-accurate for a `generate()` call. See [Streaming](#streaming).
+
 Note what is absent: no `system` field, no `instructions`, and no continuation token. System instructions are a message role, and the API is fully stateless, so the whole transcript goes on every request.
 
 ## Messages carry everything
@@ -160,7 +162,9 @@ Bare strings for the first three, matching the Responses API, unlike Anthropic w
 
 Output arrives in `choices`, an array, rather than `output` on the Responses API, `steps` on Gemini, or `content` on Anthropic. Freyja reads `choices[0]` only, since the neutral request has no way to ask for more than one.
 
-Everything Freyja does not model, including `object`, `created`, and `logprobs`, stays reachable through `response.provider_metadata`.
+`provider_metadata` holds the **top-level** fields Freyja does not model, `object` and `created` among them. It is built by flattening the body's unknown top-level keys, so nothing nested survives: `logprobs` sits inside `choices[]` and is discarded, as is everything else in a choice that Freyja does not map. `usage` subfields go the same way, see [Usage](#usage).
+
+One key in `provider_metadata` is Freyja's own rather than the provider's: if the response has no `choices` at all, Freyja inserts `"freya_note": "no choices returned"` so an empty answer is distinguishable from a parse failure.
 
 ### finish_reason
 
@@ -182,20 +186,55 @@ Like Anthropic and unlike the Responses API, this field is accurate about pendin
 
 Three fields, a total included, and no cache accounting to fold in, which makes this the simplest usage mapping of the four dialects. Only the names differ from the neutral `Usage`.
 
-Some endpoints add extra fields. DeepSeek reports `prompt_cache_hit_tokens` and `prompt_cache_miss_tokens`, and reasoning endpoints often add `completion_tokens_details`. Those are not summed into anything and stay in `provider_metadata`.
+Some endpoints add extra fields. DeepSeek reports `prompt_cache_hit_tokens` and `prompt_cache_miss_tokens`, and reasoning endpoints often add `completion_tokens_details`. **None of those reach you.** `usage` is a named field deserialized into a struct holding exactly `prompt_tokens`, `completion_tokens`, and `total_tokens`, with no catch-all, so every other subfield is dropped. They are not in `provider_metadata` either, which only ever holds unknown *top-level* keys. Read the raw body if you need cache accounting on this dialect.
 
 ## Non-standard fields you may see
 
-This is where "compatible" starts to fray. None of these are read by Freyja, and all remain reachable through `provider_metadata`:
+This is where "compatible" starts to fray. None of these are read by Freyja, and **only the top-level ones survive into `provider_metadata`**:
 
-| Field | Where | What it is |
-|---|---|---|
-| `message.reasoning_content` | DeepSeek | Chain of thought. **Do not send it back**, the endpoint rejects it |
-| `usage.prompt_cache_hit_tokens` | DeepSeek | Cache accounting |
-| `x_groq` | Groq | Timing and request metadata |
-| `provider` | OpenRouter | Which upstream actually served the request |
+| Field | Where | What it is | Reaches you |
+|---|---|---|---|
+| `message.reasoning_content` | DeepSeek | Chain of thought. **Do not send it back**, the endpoint rejects it | No, it is nested in `choices[]` |
+| `usage.prompt_cache_hit_tokens` | DeepSeek | Cache accounting | No, it is nested in `usage` |
+| `x_groq` | Groq | Timing and request metadata | Yes, `provider_metadata["x_groq"]` |
+| `provider` | OpenRouter | Which upstream actually served the request | Yes, `provider_metadata["provider"]` |
+
+The rule is mechanical: top-level keys survive, nested ones do not.
 
 The absence of a standard reasoning field is why this dialect drops `InputContent::Reasoning` rather than replaying it, see [OpenAI Chat Completions](../../providers/openai-chat.md).
+
+## Streaming
+
+`Client::stream()` sends the same body to the same URL with two fields added:
+
+```json
+{
+  "stream": true,
+  "stream_options": { "include_usage": true }
+}
+```
+
+`stream_options` is not optional in practice. **Without `include_usage`, this dialect reports no token counts at all when streaming**, and `StreamEvent::Done` would carry no `Usage` on the most widely-spoken dialect of the four. Freyja always sets it.
+
+The response is a sequence of `data:` frames. Unlike the other three dialects there are no event names: every frame is the same chunk shape, and Freyja reads it positionally.
+
+| Where | What the decoder does with it |
+|---|---|
+| `choices[0].delta.content` | A fragment of text. Empty strings are skipped |
+| `choices[0].delta.refusal` | A fragment of a refusal, kept separate from text |
+| `choices[0].delta.tool_calls[]` | Each entry carries an `index`. An entry with an `id` starts that call, with `function.name`; `function.arguments` fragments accumulate into it |
+| `choices[0].finish_reason` | The terminal status, mapped by the table above |
+| `id`, `model`, `usage` | Read off any frame that has them |
+
+The final frame is usually **usage-only**: no choices, just `usage`. That is what `include_usage` buys, and it is where the token counts come from.
+
+The stream ends with `data: [DONE]`, which is **not JSON**. A decoder that parses every frame as JSON fails on it. Freyja recognizes the sentinel and consumes it silently, so it never surfaces as an event or an error.
+
+The tool-call `index` counts **tool calls only**, unlike Anthropic's block index, so the first call is always index 0 no matter how much prose precedes it.
+
+`usage` fields are read leniently, defaulting to zero, matching the non-streaming parser: a partial `usage` object yields a `Usage` of zeros rather than no usage.
+
+See [Streaming](../streaming.md).
 
 ## Errors
 
