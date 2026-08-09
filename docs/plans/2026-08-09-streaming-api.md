@@ -3382,3 +3382,306 @@ GenerateResponse was false. Adds the field to the assembler, populates it
 from Anthropic's message_start, and adds the parity test the plan's
 Testing section promised but never delivered."
 ```
+
+---
+
+### Task 17: Close the residual parity gaps → verify: `cargo test --all-features --lib preserves_unrecognised` passes with 3 tests (one per dialect that has a parser catch-all), and `streamed_response_matches_generate` asserts equality of content containing text, a tool call, AND a reasoning blob
+
+**Files:**
+- Modify: `src/provider/openai_responses/mod.rs`
+- Modify: `src/provider/openai_responses/types.rs`
+- Modify: `src/provider/anthropic/mod.rs`
+- Modify: `src/provider/anthropic/types.rs`
+- Modify: `src/provider/gemini/mod.rs`
+- Modify: `src/provider/openai_chat/mod.rs`
+
+Re-verification after Tasks 15-16 found three residual gaps. Each is the same
+asymmetry as before, in a place the earlier fix did not reach.
+
+**Gap A — OpenAiResponses was never fixed.** `convert_item`
+(`openai_responses/types.rs`) models exactly `message` and `function_call`, and
+catch-alls everything else into a replayable blob. The decoder
+(`openai_responses/mod.rs:80`) emits a blob only when `item["type"] ==
+"reasoning"`, so `web_search_call`, `mcp_call`, `code_interpreter_call` and
+anything OpenAI adds later are dropped when streaming and kept when not.
+
+**Gap B — opaque blobs are snapshotted too early.** Anthropic's decoder stores an
+unmodeled block at `content_block_start`, when its `input` is still empty, and
+emits that snapshot at `content_block_stop`. A block filled by
+`input_json_delta` — `server_tool_use` is the live example — therefore replays
+with empty input, where the parser would have the finished object.
+
+**Gap C — `provider_metadata` is Anthropic-only.** The other three dialects still
+pass `None`, so the CR6 claim holds for one dialect out of four.
+
+- [ ] **Step 1: Write the failing OpenAiResponses test**
+
+In `src/provider/openai_responses/types.rs`, add to `mod tests`:
+
+```rust
+    #[test]
+    fn preserves_unrecognised_items_when_streaming() {
+        let deltas = decode_all(&[(
+            "response.output_item.done",
+            r#"{"output_index":0,"item":{"type":"web_search_call","id":"ws_1","status":"completed"}}"#,
+        )]);
+
+        assert_eq!(
+            deltas,
+            vec![RawDelta::ReasoningBlob(serde_json::json!({
+                "type": "web_search_call",
+                "id": "ws_1",
+                "status": "completed",
+            }))],
+            "convert_item catch-alls every item that is not message or \
+             function_call; streaming must preserve the same set or a replayed \
+             transcript loses items the provider expects back"
+        );
+    }
+```
+
+- [ ] **Step 2: Run it, confirm it fails**
+
+Run: `cargo test --all-features --lib preserves_unrecognised_items_when_streaming`
+Expected: FAIL with `left: []`.
+
+- [ ] **Step 3: Mirror the parser in the Responses decoder**
+
+In `src/provider/openai_responses/mod.rs`, replace the `response.output_item.done`
+arm's body with a check that mirrors `convert_item`'s modeled set:
+
+```rust
+            "response.output_item.done" => {
+                let item = &value["item"];
+                // convert_item models exactly `message` and `function_call`;
+                // everything else it preserves whole, so streaming must too.
+                match item["type"].as_str() {
+                    Some("message") | Some("function_call") => {}
+                    _ => out.push(RawDelta::ReasoningBlob(item.clone())),
+                }
+            }
+```
+
+- [ ] **Step 4: Confirm it passes**
+
+Run: `cargo test --all-features --lib preserves_unrecognised`
+Expected: PASS, 3 tests (anthropic, gemini, openai_responses). Confirm the count
+is 3, not 0 and not 2.
+
+- [ ] **Step 5: Write the failing test for the early-snapshot gap**
+
+In `src/provider/anthropic/types.rs`, add to `mod tests`:
+
+```rust
+    #[test]
+    fn opaque_blocks_capture_their_streamed_input() {
+        let deltas = decode_all(&[
+            (
+                "content_block_start",
+                r#"{"index":0,"content_block":{"type":"server_tool_use","id":"srvtoolu_1","name":"web_search","input":{}}}"#,
+            ),
+            (
+                "content_block_delta",
+                r#"{"index":0,"delta":{"type":"input_json_delta","partial_json":"{\"query\":"}}"#,
+            ),
+            (
+                "content_block_delta",
+                r#"{"index":0,"delta":{"type":"input_json_delta","partial_json":"\"rust\"}"}}"#,
+            ),
+            ("content_block_stop", r#"{"index":0}"#),
+        ]);
+
+        assert_eq!(
+            deltas,
+            vec![RawDelta::ReasoningBlob(serde_json::json!({
+                "type": "server_tool_use",
+                "id": "srvtoolu_1",
+                "name": "web_search",
+                "input": {"query": "rust"},
+            }))],
+            "an unmodeled block whose input arrives as deltas must replay with \
+             that input filled in; the start frame's empty object is not what \
+             the non-streaming parser would have stored"
+        );
+    }
+```
+
+- [ ] **Step 6: Run it, confirm it fails**
+
+Run: `cargo test --all-features --lib opaque_blocks_capture_their_streamed_input`
+Expected: FAIL — the emitted blob carries `"input": {}` because it was snapshotted
+at start.
+
+- [ ] **Step 7: Accumulate deltas into opaque blocks**
+
+In `src/provider/anthropic/mod.rs`, change the `opaque` map to hold the block plus
+an argument buffer. Replace the field declaration with:
+
+```rust
+    /// Blocks whose type this decoder does not model, kept whole so
+    /// `content_block_stop` can emit them exactly as the parser would, together
+    /// with any `input_json_delta` text that arrives after the start frame.
+    opaque: HashMap<usize, (Value, String)>,
+```
+
+In `content_block_start`'s catch-all arm:
+
+```rust
+                    _ => {
+                        self.opaque.insert(index, (block.clone(), String::new()));
+                    }
+```
+
+In `content_block_delta`'s `input_json_delta` arm, accumulate for opaque blocks as
+well as emitting `ToolArgs` for modeled ones:
+
+```rust
+                    Some("input_json_delta") => {
+                        if let Some(fragment) = delta["partial_json"].as_str() {
+                            if let Some((_, buffer)) = self.opaque.get_mut(&index) {
+                                buffer.push_str(fragment);
+                            } else {
+                                out.push(RawDelta::ToolArgs {
+                                    slot: index,
+                                    fragment: fragment.to_string(),
+                                });
+                            }
+                        }
+                    }
+```
+
+In `content_block_stop`'s opaque branch, merge the buffer back in:
+
+```rust
+                } else if let Some((mut block, buffer)) = self.opaque.remove(&index) {
+                    // Replace the start frame's empty placeholder with what
+                    // actually streamed, so the blob matches the parser's.
+                    if !buffer.is_empty()
+                        && let Ok(input) = serde_json::from_str::<Value>(&buffer)
+                        && let Some(object) = block.as_object_mut()
+                    {
+                        object.insert("input".into(), input);
+                    }
+                    out.push(RawDelta::ReasoningBlob(block));
+                }
+```
+
+- [ ] **Step 8: Confirm it passes**
+
+Run: `cargo test --all-features --lib opaque_blocks_capture_their_streamed_input`
+Expected: PASS, 1 test.
+
+- [ ] **Step 9: Populate provider_metadata in the other three dialects**
+
+`src/provider/openai_responses/mod.rs`, in the `response.completed`/`.incomplete`/
+`.failed` arm's `RawDelta::Meta`:
+
+```rust
+                    provider_metadata: Some(response.clone()),
+```
+
+`src/provider/gemini/mod.rs`, in the `interaction.completed`/`.failed`/
+`.incomplete` arm's `RawDelta::Meta`:
+
+```rust
+                    provider_metadata: Some(interaction.clone()),
+```
+
+`src/provider/openai_chat/mod.rs`, in its `RawDelta::Meta`:
+
+```rust
+                provider_metadata: Some(value.clone()),
+```
+
+Chat emits `Meta` on many chunks and the assembler takes the last non-`None`, so
+this lands the final chunk's object — the one carrying usage and finish reason.
+
+- [ ] **Step 10: Extend the parity test to cover a tool call and a reasoning blob**
+
+In `src/provider/anthropic/types.rs`, replace the fixtures inside
+`streamed_response_matches_generate` so both sides carry text, a thinking block,
+and a tool call. The SSE side gains, after the existing text block's stop:
+
+```rust
+                b"event: content_block_start\ndata: {\"index\":1,\"content_block\":{\"type\":\"thinking\",\"thinking\":\"\",\"signature\":\"\"}}\n\n".to_vec(),
+                b"event: content_block_delta\ndata: {\"index\":1,\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\"Considering.\"}}\n\n".to_vec(),
+                b"event: content_block_delta\ndata: {\"index\":1,\"delta\":{\"type\":\"signature_delta\",\"signature\":\"sig-1\"}}\n\n".to_vec(),
+                b"event: content_block_stop\ndata: {\"index\":1}\n\n".to_vec(),
+                b"event: content_block_start\ndata: {\"index\":2,\"content_block\":{\"type\":\"tool_use\",\"id\":\"toolu_1\",\"name\":\"get_weather\",\"input\":{}}}\n\n".to_vec(),
+                b"event: content_block_delta\ndata: {\"index\":2,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"city\\\":\\\"NYC\\\"}\"}}\n\n".to_vec(),
+                b"event: content_block_stop\ndata: {\"index\":2}\n\n".to_vec(),
+```
+
+and the non-streaming body's `content` array becomes:
+
+```json
+[{"type":"text","text":"Hello"},
+ {"type":"thinking","thinking":"Considering.","signature":"sig-1"},
+ {"type":"tool_use","id":"toolu_1","name":"get_weather","input":{"city":"NYC"}}]
+```
+
+with `"stop_reason":"tool_use"` so both sides report `RequiresAction`.
+
+Keep every existing assertion and add:
+
+```rust
+        assert_eq!(
+            streamed.content.len(),
+            3,
+            "text, reasoning blob, and tool call must all survive the stream"
+        );
+        assert!(streamed.has_tool_calls());
+        assert_eq!(
+            streamed.to_message(),
+            parsed.to_message(),
+            "the assistant turn replayed into the next request must be identical, \
+             which is the whole point of into_response"
+        );
+```
+
+If `content` or `to_message` differ, DO NOT weaken the assertion — report the
+verbatim difference. Note the tool-call `arguments` string is produced by
+`Value::to_string()` on the parser side and by concatenated fragments on the
+streaming side; if they differ only by whitespace, that is a real finding worth
+reporting, not something to paper over.
+
+- [ ] **Step 11: Run everything**
+
+Run: `cargo test --all-features --lib streamed_response_matches_generate`
+Expected: PASS, 1 test.
+
+Run: `cargo test --all-features`
+Expected: PASS, all tests.
+
+Run: `cargo clippy --all-targets --all-features -- -D warnings`
+Expected: no warnings.
+
+Run: `cargo fmt --all` then `cargo fmt --all --check`
+Expected: no output.
+
+- [ ] **Step 12: Update the into_response doc to match reality**
+
+In `src/provider/stream.rs`, the doc comment currently hedges with "where the
+dialect supplies one". All four now supply one, so replace that clause:
+
+```rust
+    /// `provider_metadata` carries the provider's own terminal object. It is not
+    /// byte-identical to the non-streaming path's value: `generate()` collects
+    /// the fields Freyja does not model, while a stream carries the object
+    /// whole. Every field a tool loop depends on — id, model, status, content,
+    /// usage — does match, and `to_message()` produces the same assistant turn.
+```
+
+- [ ] **Step 13: Commit**
+
+```bash
+git add src/provider
+git commit -m "fix: close the remaining streaming/parsing asymmetries
+
+Three gaps the first fix round missed. OpenAiResponses kept only
+reasoning items where its parser keeps every unmodeled one. Anthropic
+snapshotted opaque blocks at content_block_start, so a block whose input
+streamed as deltas replayed empty. provider_metadata was populated for
+Anthropic alone. The parity test now covers text, a reasoning blob, and
+a tool call, and asserts to_message() equality across both paths."
+```
