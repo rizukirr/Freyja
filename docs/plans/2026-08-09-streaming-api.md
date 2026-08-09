@@ -227,7 +227,7 @@ a stalled connection."
 - Create: `src/provider/sse.rs`
 - Modify: `src/provider/mod.rs:12-18`
 
-- [ ] **Step 1: Declare the module**
+- [x] **Step 1: Declare the module**
 
 In `src/provider/mod.rs`, replace lines 17-18:
 
@@ -244,7 +244,7 @@ mod presets;
 mod sse;
 ```
 
-- [ ] **Step 2: Write the failing tests**
+- [x] **Step 2: Write the failing tests**
 
 Create `src/provider/sse.rs` containing only this:
 
@@ -309,12 +309,12 @@ mod tests {
 }
 ```
 
-- [ ] **Step 3: Run the tests to verify they fail**
+- [x] **Step 3: Run the tests to verify they fail**
 
 Run: `cargo test --all-features sse::`
 Expected: FAIL to compile, with errors naming `SseBuffer` as not found in this scope.
 
-- [ ] **Step 4: Write the implementation**
+- [x] **Step 4: Write the implementation**
 
 In `src/provider/sse.rs`, insert this above the `#[cfg(test)] mod tests` block, directly under the `//!` doc comment:
 
@@ -387,12 +387,12 @@ fn separator(bytes: &[u8]) -> Option<(usize, usize)> {
 }
 ```
 
-- [ ] **Step 5: Run the tests to verify they pass**
+- [x] **Step 5: Run the tests to verify they pass**
 
 Run: `cargo test --all-features sse::`
 Expected: PASS, 4 tests.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/provider/sse.rs src/provider/mod.rs
