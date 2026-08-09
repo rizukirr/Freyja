@@ -254,3 +254,86 @@ the spec claims and what the implementation delivers.
 Suggested next step: amend the spec's CR5 and CR6 claims to match the intended
 scope, then run a short follow-up plan implementing whichever of the three CR6
 options and the CR5 catch-all the user chooses.
+
+---
+
+# Round 3 — still not ready
+
+**Date:** 2026-08-09
+**Commit verified:** `5eb4c19`
+**Fix commits since round 1:** `9365b86`, `b4f570b` (round 1), `6d95921` (round 2)
+
+Repo-level checks all still pass: 86 lib tests, 10 doctests, clippy `-D warnings`
+clean, `cargo fmt --all --check` clean, working tree clean.
+
+## Verdicts
+
+- **CR5** — yes / partial / yes → **disagreement: escalate**
+- **CR6** — partial / no / yes → **disagreement: escalate**
+
+## The pattern, stated plainly
+
+Three rounds have each found the same class of defect: **a streaming decoder
+disagrees with its own dialect's non-streaming parser.** Each round fixed the
+instances the reviewers named; the next round found more. That is a sign the
+fixes have been treating symptoms.
+
+Root cause: the four decoders were written from recorded SSE fixtures and
+provider documentation, not derived from the parsers they must agree with.
+Nothing in the plan required a field-by-field comparison of decoder against
+parser, so every divergence had to be discovered one at a time by review.
+
+## Confirmed remaining defects
+
+All four verified directly against the source, not taken from a reviewer's report.
+
+**1. Status mapping omits `requires_action` — Gemini and OpenAiResponses.**
+Both parsers map it (`gemini/types.rs:280`, `openai_responses/types.rs:342`):
+
+```rust
+                "requires_action" => ResponseStatus::RequiresAction,
+```
+
+Neither decoder does — `grep requires_action` over `gemini/mod.rs` and
+`openai_responses/mod.rs` returns nothing. A tool-calling turn therefore streams
+as `ResponseStatus::Other("requires_action")` where `generate()` returns
+`RequiresAction`. This hits the single most important streaming case. Gemini
+additionally omits `budget_exceeded` and `cancelled`.
+
+**2. Anthropic usage ignores cache tokens.** The parser sums them
+(`anthropic/types.rs:337-338`):
+
+```rust
+                + u.cache_creation_input_tokens.unwrap_or(0)
+                + u.cache_read_input_tokens.unwrap_or(0);
+```
+
+The decoder reads only `usage.input_tokens`. Under prompt caching the two paths
+report different input totals — and `into_response`'s doc comment, added in
+round 2, now explicitly claims usage matches. The documentation is wrong.
+
+**3. Refusals are dropped when streaming.** `openai_chat/types.rs` and
+`openai_responses/types.rs` both produce `OutputContent::Refusal`; neither
+decoder mentions `refusal` at all. A refused response arrives as content through
+`generate()` and as nothing through `stream()`.
+
+**4. Gemini's opaque steps have the stale-snapshot bug already fixed for
+Anthropic.** `Step::Opaque(step.clone())` is inserted at `gemini/mod.rs:98` and
+emitted unchanged at `:148`, with no delta arm writing into it between. An
+unmodeled step whose payload streams as deltas replays empty — exactly the defect
+`6d95921` fixed for Anthropic's content blocks, left uncorrected one file over.
+
+## Overall verdict
+
+**not ready.**
+
+Both CR5 and CR6 remain escalated. Nothing here is a regression — every repo-level
+check passes and all 86 tests are green — but the spec's cross-turn replay
+guarantee and its `generate()`-parity guarantee do not hold as written.
+
+The remaining work is now fully characterised and is a bounded list, not an open
+search: bring each decoder's status map, usage map, refusal handling, and opaque
+accumulation into agreement with its parser, and add a parity test per dialect
+rather than for Anthropic alone. The durable fix is the per-dialect parity test:
+it converts this class of defect from something review must catch into something
+CI catches.
