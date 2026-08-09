@@ -1,6 +1,8 @@
 # Streaming API Implementation Plan
 
 > **For executing agents:** implement this plan task-by-task. Each step uses checkbox (`- [ ]`) syntax. Do not skip steps. Do not batch commits across tasks.
+>
+> **Vacuous-pass guard.** `cargo test` exits 0 when its filter matches nothing — `test result: ok. 0 passed; N filtered out` is a *failure* to verify, not a pass. After every test command in this plan, check that the count of tests run is greater than zero and that the expected test names appear in the output. If a filter matches nothing, stop and report it rather than treating the exit code as success. Test paths include the module: a test in `mod tests` inside `src/provider/stream.rs` is `provider::stream::tests::<name>`, and inside `src/provider/gemini/types.rs` is `provider::gemini::types::tests::<name>`.
 
 **Goal:** Add `client.stream(&request)` returning an `EventStream` of provider-neutral `StreamEvent`s across all four dialects, with tool-call arguments assembled internally and no new dependencies.
 
@@ -404,7 +406,7 @@ cannot corrupt a frame, which is the failure mode the tests pin down."
 
 ---
 
-### Task 3: StreamEvent and the internal delta model → verify: `cargo build --all-targets` succeeds and `cargo test --all-features stream::event_is_non_exhaustive_and_comparable` passes
+### Task 3: StreamEvent and the internal delta model → verify: `cargo build --all-targets` succeeds and `cargo test --all-features stream::tests::event_is_non_exhaustive_and_comparable` passes
 
 **Files:**
 - Create: `src/provider/stream.rs`
@@ -467,7 +469,7 @@ mod tests {
 
 - [ ] **Step 3: Run the test to verify it fails**
 
-Run: `cargo test --all-features stream::event_is_non_exhaustive_and_comparable`
+Run: `cargo test --all-features stream::tests::event_is_non_exhaustive_and_comparable`
 Expected: FAIL to compile, with errors naming `StreamEvent` as not found in this scope.
 
 - [ ] **Step 4: Write the types**
@@ -585,7 +587,7 @@ pub struct EventStream {
 
 - [ ] **Step 6: Run the test to verify it passes**
 
-Run: `cargo test --all-features stream::event_is_non_exhaustive_and_comparable`
+Run: `cargo test --all-features stream::tests::event_is_non_exhaustive_and_comparable`
 Expected: PASS.
 
 - [ ] **Step 7: Confirm the whole crate builds**
@@ -606,7 +608,7 @@ others in public API."
 
 ---
 
-### Task 4: Assembler, part one — text and metadata → verify: `cargo test --all-features stream::assembler_coalesces_text` passes, asserting two text deltas produce two `TextDelta` events but a single `OutputContent::Text("ab")` in `captured`
+### Task 4: Assembler, part one — text and metadata → verify: `cargo test --all-features stream::tests::assembler_coalesces_text` passes, asserting two text deltas produce two `TextDelta` events but a single `OutputContent::Text("ab")` in `captured`
 
 **Files:**
 - Modify: `src/provider/stream.rs`
@@ -661,7 +663,7 @@ Also extend the test module's imports — replace `use super::*;` at the top of 
 
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run: `cargo test --all-features stream::assembler_coalesces_text`
+Run: `cargo test --all-features stream::tests::assembler_coalesces_text`
 Expected: FAIL to compile, with an error naming `Assembler` as not found in this scope.
 
 - [ ] **Step 3: Write the assembler**
@@ -832,7 +834,7 @@ impl Assembler {
 
 - [ ] **Step 4: Run the test to verify it passes**
 
-Run: `cargo test --all-features stream::assembler_coalesces_text`
+Run: `cargo test --all-features stream::tests::assembler_coalesces_text`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
@@ -848,7 +850,7 @@ would have."
 
 ---
 
-### Task 5: Assembler, part two — tool calls and drain semantics → verify: `cargo test --all-features stream::assembler_` passes all four tests; `assembler_flushes_unended_calls` asserts a call with no `ToolEnd` still emits before `Done`
+### Task 5: Assembler, part two — tool calls and drain semantics → verify: `cargo test --all-features stream::tests::assembler_` passes all four tests; `assembler_flushes_unended_calls` asserts a call with no `ToolEnd` still emits before `Done`
 
 **Files:**
 - Modify: `src/provider/stream.rs`
@@ -1045,7 +1047,7 @@ In `src/provider/stream.rs`, add to the `mod tests` block:
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `cargo test --all-features stream::assembler_`
+Run: `cargo test --all-features stream::tests::assembler_`
 Expected: `assembler_coalesces_text` PASSES; the four new tests FAIL. If they instead all pass, the implementation from Task 4 already covers them — verify by reading `absorb` and `close`, then proceed to Step 4.
 
 - [ ] **Step 3: Confirm no implementation change is needed**
@@ -1054,7 +1056,7 @@ The assembler written in Task 4 already implements every behavior these tests as
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `cargo test --all-features stream::assembler_`
+Run: `cargo test --all-features stream::tests::assembler_`
 Expected: PASS, 5 tests.
 
 - [ ] **Step 5: Commit**
@@ -1070,7 +1072,7 @@ from a stream the caller abandoned early."
 
 ---
 
-### Task 6: EventStream → verify: `cargo test --all-features stream::event_stream_` passes; `event_stream_drains_a_recorded_body` asserts a two-chunk fake body yields `TextDelta("hi")`, `Done`, then `None`
+### Task 6: EventStream → verify: `cargo test --all-features stream::tests::event_stream_` passes; `event_stream_drains_a_recorded_body` asserts a two-chunk fake body yields `TextDelta("hi")`, `Done`, then `None`
 
 **Files:**
 - Modify: `src/provider/stream.rs`
@@ -1136,7 +1138,7 @@ In `src/provider/stream.rs`, add to the `mod tests` block:
 
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run: `cargo test --all-features stream::event_stream_drains_a_recorded_body`
+Run: `cargo test --all-features stream::tests::event_stream_drains_a_recorded_body`
 Expected: FAIL to compile, with errors naming `for_test` and `next_blocking` as not found for `EventStream`.
 
 - [ ] **Step 3: Replace the placeholder with the real EventStream**
@@ -1315,7 +1317,7 @@ In `src/provider/stream.rs`, the test module needs `SseFrame` for `TestDecoder`.
 
 - [ ] **Step 5: Run the test to verify it passes**
 
-Run: `cargo test --all-features stream::event_stream_drains_a_recorded_body`
+Run: `cargo test --all-features stream::tests::event_stream_drains_a_recorded_body`
 Expected: PASS.
 
 - [ ] **Step 6: Run the whole suite and the linter**
@@ -1339,7 +1341,7 @@ untested would put the most stateful code in the crate beyond reach."
 
 ---
 
-### Task 7: Wire Client::stream with stub decoders → verify: `cargo test --all-features mod::stream_url_appends_alt_sse_for_gemini` passes and `cargo build --all-targets` succeeds with all four dialects reachable
+### Task 7: Wire Client::stream with stub decoders → verify: `cargo test --all-features provider::tests::stream_url_appends_alt_sse_for_gemini` passes and `cargo build --all-targets` succeeds with all four dialects reachable
 
 **Files:**
 - Modify: `src/provider/mod.rs:56-87`, `src/provider/mod.rs:344-406`
@@ -1655,7 +1657,7 @@ that follow touch disjoint files and can land independently."
 <!-- parallel-group: dialect-decoders
      rationale: Tasks 8-11 each touch exactly one dialect's mod.rs and types.rs. Task 7 already created the stub, the dispatch, and the Request::streaming method for all four, so no task in this group edits a shared file, references another's output, or touches Cargo.toml. The union of their Files sections has no collision. -->
 
-### Task 8: OpenAiChat decoder → verify: `cargo test --all-features openai_chat::decodes_streaming_` passes; `decodes_streaming_tool_call` asserts the emitted `RawDelta` sequence is `ToolStart{slot:0}`, `ToolArgs{"{\"loc"}`, `ToolArgs{"ation\":\"NYC\"}"}` with no `ToolEnd`
+### Task 8: OpenAiChat decoder → verify: `cargo test --all-features openai_chat::types::tests::decodes_streaming_` passes; `decodes_streaming_tool_call` asserts the emitted `RawDelta` sequence is `ToolStart{slot:0}`, `ToolArgs{"{\"loc"}`, `ToolArgs{"ation\":\"NYC\"}"}` with no `ToolEnd`
 
 **Files:**
 - Modify: `src/provider/openai_chat/mod.rs`
@@ -1766,7 +1768,7 @@ In `src/provider/openai_chat/types.rs`, add to the `mod tests` block:
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `cargo test --all-features openai_chat::decodes_streaming_`
+Run: `cargo test --all-features openai_chat::types::tests::decodes_streaming_`
 Expected: FAIL — `decodes_streaming_text` and the others fail their assertions, because the stub decoder emits nothing.
 
 - [ ] **Step 3: Write the decoder**
@@ -1877,7 +1879,7 @@ that down so it does not read as an omission."
 
 ---
 
-### Task 9: Anthropic decoder → verify: `cargo test --all-features anthropic::decodes_streaming_` passes; `decodes_streaming_tool_call` asserts the tool call lands at `slot: 1` behind a text block at slot 0 and ends with `ToolEnd { slot: 1 }`
+### Task 9: Anthropic decoder → verify: `cargo test --all-features anthropic::types::tests::decodes_streaming_` passes; `decodes_streaming_tool_call` asserts the tool call lands at `slot: 1` behind a text block at slot 0 and ends with `ToolEnd { slot: 1 }`
 
 **Files:**
 - Modify: `src/provider/anthropic/mod.rs`
@@ -2030,7 +2032,7 @@ In `src/provider/anthropic/types.rs`, add to the `mod tests` block:
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `cargo test --all-features anthropic::decodes_streaming_`
+Run: `cargo test --all-features anthropic::types::tests::decodes_streaming_`
 Expected: FAIL — the stub decoder emits nothing and returns `Ok`, so every assertion fails.
 
 - [ ] **Step 3: Write the decoder**
@@ -2206,7 +2208,7 @@ block is what the provider requires replayed."
 
 ---
 
-### Task 10: OpenAiResponses decoder → verify: `cargo test --all-features openai_responses::decodes_streaming_` passes; `decodes_streaming_tool_call` asserts the terminal frame produces `ToolReplace` then `ToolEnd`, never a second `ToolArgs`
+### Task 10: OpenAiResponses decoder → verify: `cargo test --all-features openai_responses::types::tests::decodes_streaming_` passes; `decodes_streaming_tool_call` asserts the terminal frame produces `ToolReplace` then `ToolEnd`, never a second `ToolArgs`
 
 **Files:**
 - Modify: `src/provider/openai_responses/mod.rs`
@@ -2317,7 +2319,7 @@ In `src/provider/openai_responses/types.rs`, add to the `mod tests` block:
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `cargo test --all-features openai_responses::decodes_streaming_`
+Run: `cargo test --all-features openai_responses::types::tests::decodes_streaming_`
 Expected: FAIL — the stub emits nothing.
 
 - [ ] **Step 3: Write the decoder**
@@ -2453,7 +2455,7 @@ tool arguments this dialect produces."
 
 ---
 
-### Task 11: Gemini decoder → verify: `cargo test --all-features gemini::decodes_streaming_` passes; `decodes_streaming_tool_call` asserts `step.start` with `type: function_call` yields `ToolStart` and `step.stop` yields `ToolEnd`
+### Task 11: Gemini decoder → verify: `cargo test --all-features gemini::types::tests::decodes_streaming_` passes; `decodes_streaming_tool_call` asserts `step.start` with `type: function_call` yields `ToolStart` and `step.stop` yields `ToolEnd`
 
 **Files:**
 - Modify: `src/provider/gemini/mod.rs`
@@ -2573,7 +2575,7 @@ In `src/provider/gemini/types.rs`, add to the `mod tests` block:
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `cargo test --all-features gemini::decodes_streaming_`
+Run: `cargo test --all-features gemini::types::tests::decodes_streaming_`
 Expected: FAIL — the stub emits nothing.
 
 - [ ] **Step 3: Write the decoder**
