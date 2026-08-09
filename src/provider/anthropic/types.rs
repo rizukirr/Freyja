@@ -694,4 +694,143 @@ mod tests {
             ResponseStatus::Other("refusal".into())
         );
     }
+
+    use crate::provider::sse::SseFrame;
+    use crate::provider::stream::{RawDelta, StreamDecoder};
+
+    fn decode_all(frames: &[(&str, &str)]) -> Vec<RawDelta> {
+        let mut decoder = crate::provider::anthropic::Decoder::default();
+        let mut out = Vec::new();
+        for (event, data) in frames {
+            let frame = SseFrame {
+                event: Some((*event).to_string()),
+                data: (*data).to_string(),
+            };
+            decoder.decode(&frame, &mut out).expect("decodes");
+        }
+        out
+    }
+
+    #[test]
+    fn decodes_streaming_text() {
+        let deltas = decode_all(&[
+            (
+                "message_start",
+                r#"{"message":{"id":"msg_1","model":"claude-sonnet-4","usage":{"input_tokens":11,"output_tokens":0}}}"#,
+            ),
+            (
+                "content_block_start",
+                r#"{"index":0,"content_block":{"type":"text","text":""}}"#,
+            ),
+            (
+                "content_block_delta",
+                r#"{"index":0,"delta":{"type":"text_delta","text":"Hello"}}"#,
+            ),
+        ]);
+
+        assert!(
+            deltas.iter().any(|d| *d == RawDelta::Text("Hello".into())),
+            "{deltas:?}"
+        );
+    }
+
+    #[test]
+    fn decodes_streaming_tool_call() {
+        let deltas = decode_all(&[
+            (
+                "content_block_start",
+                r#"{"index":0,"content_block":{"type":"text","text":""}}"#,
+            ),
+            (
+                "content_block_delta",
+                r#"{"index":0,"delta":{"type":"text_delta","text":"Let me check."}}"#,
+            ),
+            ("content_block_stop", r#"{"index":0}"#),
+            (
+                "content_block_start",
+                r#"{"index":1,"content_block":{"type":"tool_use","id":"toolu_01","name":"get_weather","input":{}}}"#,
+            ),
+            (
+                "content_block_delta",
+                r#"{"index":1,"delta":{"type":"input_json_delta","partial_json":"{\"loc"}}"#,
+            ),
+            (
+                "content_block_delta",
+                r#"{"index":1,"delta":{"type":"input_json_delta","partial_json":"ation\":\"NYC\"}"}}"#,
+            ),
+            ("content_block_stop", r#"{"index":1}"#),
+        ]);
+
+        assert_eq!(
+            deltas,
+            vec![
+                RawDelta::Text("Let me check.".into()),
+                RawDelta::ToolStart {
+                    slot: 1,
+                    id: "toolu_01".into(),
+                    name: "get_weather".into(),
+                },
+                RawDelta::ToolArgs {
+                    slot: 1,
+                    fragment: "{\"loc".into(),
+                },
+                RawDelta::ToolArgs {
+                    slot: 1,
+                    fragment: "ation\":\"NYC\"}".into(),
+                },
+                RawDelta::ToolEnd { slot: 1 },
+            ],
+            "the index counts content blocks, so prose ahead of the call \
+             pushes it to 1; stopping a text block must emit no ToolEnd"
+        );
+    }
+
+    #[test]
+    fn decodes_streaming_thinking_into_a_replayable_blob() {
+        let deltas = decode_all(&[
+            (
+                "content_block_start",
+                r#"{"index":0,"content_block":{"type":"thinking","thinking":"","signature":""}}"#,
+            ),
+            (
+                "content_block_delta",
+                r#"{"index":0,"delta":{"type":"thinking_delta","thinking":"Let me work through it."}}"#,
+            ),
+            (
+                "content_block_delta",
+                r#"{"index":0,"delta":{"type":"signature_delta","signature":"abc123"}}"#,
+            ),
+            ("content_block_stop", r#"{"index":0}"#),
+        ]);
+
+        assert_eq!(
+            deltas[0],
+            RawDelta::ReasoningText("Let me work through it.".into())
+        );
+        assert_eq!(
+            deltas[1],
+            RawDelta::ReasoningBlob(serde_json::json!({
+                "type": "thinking",
+                "thinking": "Let me work through it.",
+                "signature": "abc123",
+            })),
+            "the blob must be the whole reconstructed block, because that is \
+             what the non-streaming parser produces and what must be replayed"
+        );
+    }
+
+    #[test]
+    fn decodes_streaming_error_frame() {
+        let mut decoder = crate::provider::anthropic::Decoder::default();
+        let mut out = Vec::new();
+        let frame = SseFrame {
+            event: Some("error".into()),
+            data: r#"{"error":{"type":"overloaded_error","message":"Overloaded"}}"#.into(),
+        };
+
+        assert!(matches!(
+            decoder.decode(&frame, &mut out),
+            Err(ProviderError::Stream { .. })
+        ));
+    }
 }
