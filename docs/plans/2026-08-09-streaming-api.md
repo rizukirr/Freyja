@@ -1675,7 +1675,7 @@ that follow touch disjoint files and can land independently."
 - Modify: `src/provider/openai_chat/mod.rs`
 - Modify: `src/provider/openai_chat/types.rs`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 In `src/provider/openai_chat/types.rs`, add to the `mod tests` block:
 
@@ -1778,12 +1778,12 @@ In `src/provider/openai_chat/types.rs`, add to the `mod tests` block:
     }
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `cargo test --all-features --lib openai_chat::types::tests::decodes_streaming_`
 Expected: FAIL — `decodes_streaming_text` and the others fail their assertions, because the stub decoder emits nothing.
 
-- [ ] **Step 3: Write the decoder**
+- [x] **Step 3: Write the decoder**
 
 In `src/provider/openai_chat/mod.rs`, replace the stub `Decoder` added in Task 7 with:
 
@@ -1873,12 +1873,12 @@ impl StreamDecoder for Decoder {
 }
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `cargo test --all-features --lib openai_chat::`
 Expected: PASS, including the pre-existing tests in that module.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/provider/openai_chat
@@ -1897,7 +1897,7 @@ that down so it does not read as an omission."
 - Modify: `src/provider/anthropic/mod.rs`
 - Modify: `src/provider/anthropic/types.rs`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 In `src/provider/anthropic/types.rs`, add to the `mod tests` block:
 
@@ -2042,12 +2042,12 @@ In `src/provider/anthropic/types.rs`, add to the `mod tests` block:
     }
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `cargo test --all-features --lib anthropic::types::tests::decodes_streaming_`
 Expected: FAIL — the stub decoder emits nothing and returns `Ok`, so every assertion fails.
 
-- [ ] **Step 3: Write the decoder**
+- [x] **Step 3: Write the decoder**
 
 In `src/provider/anthropic/mod.rs`, replace the stub `Decoder` added in Task 7 with:
 
@@ -2201,12 +2201,12 @@ impl StreamDecoder for Decoder {
 }
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `cargo test --all-features --lib anthropic::`
 Expected: PASS, including the pre-existing tests in that module.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/provider/anthropic
@@ -2226,7 +2226,7 @@ block is what the provider requires replayed."
 - Modify: `src/provider/openai_responses/mod.rs`
 - Modify: `src/provider/openai_responses/types.rs`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 In `src/provider/openai_responses/types.rs`, add to the `mod tests` block:
 
@@ -2329,12 +2329,12 @@ In `src/provider/openai_responses/types.rs`, add to the `mod tests` block:
     }
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `cargo test --all-features --lib openai_responses::types::tests::decodes_streaming_`
 Expected: FAIL — the stub emits nothing.
 
-- [ ] **Step 3: Write the decoder**
+- [x] **Step 3: Write the decoder**
 
 In `src/provider/openai_responses/mod.rs`, replace the stub `Decoder` added in Task 7 with:
 
@@ -2449,12 +2449,12 @@ impl StreamDecoder for Decoder {
 }
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `cargo test --all-features --lib openai_responses::`
 Expected: PASS, including the pre-existing tests in that module.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/provider/openai_responses
@@ -2473,7 +2473,7 @@ tool arguments this dialect produces."
 - Modify: `src/provider/gemini/mod.rs`
 - Modify: `src/provider/gemini/types.rs`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 In `src/provider/gemini/types.rs`, add to the `mod tests` block:
 
@@ -2585,12 +2585,12 @@ In `src/provider/gemini/types.rs`, add to the `mod tests` block:
     }
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `cargo test --all-features --lib gemini::types::tests::decodes_streaming_`
 Expected: FAIL — the stub emits nothing.
 
-- [ ] **Step 3: Write the decoder**
+- [x] **Step 3: Write the decoder**
 
 In `src/provider/gemini/mod.rs`, replace the stub `Decoder` added in Task 7 with:
 
@@ -2723,12 +2723,12 @@ impl StreamDecoder for Decoder {
 }
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `cargo test --all-features --lib gemini::`
 Expected: PASS, including the pre-existing tests in that module.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/provider/gemini
