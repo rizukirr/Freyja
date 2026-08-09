@@ -699,4 +699,103 @@ mod tests {
         // output_text deliberately excludes refusals.
         assert_eq!(response.output_text(), "");
     }
+
+    use crate::provider::sse::SseFrame;
+    use crate::provider::stream::{RawDelta, StreamDecoder};
+
+    fn decode_all(frames: &[&str]) -> Vec<RawDelta> {
+        let mut decoder = crate::provider::openai_chat::Decoder::default();
+        let mut out = Vec::new();
+        for data in frames {
+            let frame = SseFrame {
+                event: None,
+                data: (*data).to_string(),
+            };
+            decoder.decode(&frame, &mut out).expect("decodes");
+        }
+        out
+    }
+
+    #[test]
+    fn decodes_streaming_text() {
+        let deltas = decode_all(&[
+            r#"{"id":"chatcmpl-1","model":"gpt-4o","choices":[{"delta":{"content":"Hel"}}]}"#,
+            r#"{"id":"chatcmpl-1","model":"gpt-4o","choices":[{"delta":{"content":"lo"}}]}"#,
+            "[DONE]",
+        ]);
+
+        assert!(
+            deltas.iter().any(|d| *d == RawDelta::Text("Hel".into())),
+            "{deltas:?}"
+        );
+        assert!(
+            deltas.iter().any(|d| *d == RawDelta::Text("lo".into())),
+            "{deltas:?}"
+        );
+        assert!(
+            !deltas
+                .iter()
+                .any(|d| matches!(d, RawDelta::Text(t) if t == "[DONE]")),
+            "the sentinel must not become text: {deltas:?}"
+        );
+    }
+
+    #[test]
+    fn decodes_streaming_tool_call() {
+        let deltas = decode_all(&[
+            r#"{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_abc","function":{"name":"get_weather","arguments":""}}]}}]}"#,
+            r#"{"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"loc"}}]}}]}"#,
+            r#"{"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"ation\":\"NYC\"}"}}]}}]}"#,
+        ]);
+
+        assert_eq!(
+            deltas,
+            vec![
+                RawDelta::ToolStart {
+                    slot: 0,
+                    id: "call_abc".into(),
+                    name: "get_weather".into(),
+                },
+                RawDelta::ToolArgs {
+                    slot: 0,
+                    fragment: "{\"loc".into(),
+                },
+                RawDelta::ToolArgs {
+                    slot: 0,
+                    fragment: "ation\":\"NYC\"}".into(),
+                },
+            ],
+            "this dialect never ends a call; the assembler flushes at close"
+        );
+    }
+
+    #[test]
+    fn decodes_streaming_usage_and_finish_reason() {
+        let deltas = decode_all(&[
+            r#"{"id":"chatcmpl-1","model":"gpt-4o","choices":[{"delta":{},"finish_reason":"stop"}]}"#,
+            r#"{"id":"chatcmpl-1","model":"gpt-4o","choices":[],"usage":{"prompt_tokens":11,"completion_tokens":9,"total_tokens":20}}"#,
+        ]);
+
+        let usage = deltas
+            .iter()
+            .find_map(|d| match d {
+                RawDelta::Meta {
+                    usage: Some(usage), ..
+                } => Some(*usage),
+                _ => None,
+            })
+            .expect("usage arrives when stream_options.include_usage is set");
+        assert_eq!(usage.total_tokens, 20);
+
+        assert!(
+            deltas.iter().any(|d| matches!(
+                d,
+                RawDelta::Meta {
+                    status: Some(ResponseStatus::Completed),
+                    ..
+                }
+            )),
+            "{deltas:?}"
+        );
+    }
 }
