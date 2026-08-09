@@ -409,3 +409,100 @@ decoders.
 
 CR5 **satisfied**. CR6 **partial** — one divergence, of the same class as the
 other ten, in a case the fixtures do not construct.
+
+---
+
+# Final verdict — ready
+
+**Date:** 2026-08-09
+**Commit verified:** HEAD of `vibe/streaming-api`
+**Rounds:** five
+
+## Repo-level checks
+
+- `cargo test --all-features` → exit 0
+  ```
+  test result: ok. 92 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+  test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+  ```
+- `cargo clippy --all-targets --all-features -- -D warnings` → exit 0, no warnings
+- `cargo fmt --all --check` → exit 0, no output
+- `cargo +1.88 check --all-targets` → exit 0 (MSRV)
+- `cargo publish --dry-run` → exit 0
+- `git status --porcelain` → empty
+- **Surgical-diff pass:** `clean`, zero orphans, re-run over the full branch
+
+## Requirements
+
+All seventeen satisfied. CR1-CR4, CR7, CR8 were unanimous in round 1 and
+unaffected since. The nine mechanically-checkable requirements passed single-pass
+in round 1. CR5 became unanimous in round 4; CR6 in round 5.
+
+## What it took
+
+Eleven divergences between the streaming and non-streaming paths, all fixed:
+
+| # | Divergence | Round |
+|---|---|---|
+| 1 | Anthropic dropped unmodeled content blocks the parser preserved | 1 |
+| 2 | Gemini dropped unmodeled steps the parser preserved | 1 |
+| 3 | `into_response` hardcoded `provider_metadata: None` | 1 |
+| 4 | OpenAiResponses preserved only `reasoning`, not every unmodeled item | 2 |
+| 5 | Anthropic opaque blocks snapshotted before their input streamed in | 2 |
+| 6 | Gemini + OpenAiResponses never mapped `requires_action` | 3 |
+| 7 | Anthropic usage ignored both cache-token fields | 3 |
+| 8 | Neither OpenAI decoder decoded refusals | 3 |
+| 9 | Argumentless tool call streamed `""`, parsed `"{}"` | 4 |
+| 10 | Anthropic/Gemini tool-argument key ordering | 4 |
+| 11 | Adjacent text blocks merged into one content part | 5 |
+
+Rounds 1-3 patched individually-reported defects and did not converge: each round
+found more of the same class. Round 4 inverted the method — a
+`streamed_response_matches_generate` parity test per dialect, derived from that
+dialect's *parser* and committed **failing** — which enumerated seven at once.
+
+The root cause was that the decoders were written from recorded SSE fixtures and
+provider documentation rather than derived from the parsers they must agree with.
+Nothing in the original plan required a field-by-field comparison, so every
+divergence had to be found by review.
+
+## The durable guarantee
+
+Four parity tests, one per dialect, each asserting `id`, `model`, `status`,
+`usage`, `content` part-for-part, and `to_message()` equality against `parse()`
+of the equivalent non-streaming body. Between them the fixtures exercise:
+multi-delta text within a block, two adjacent text blocks, fragmented tool
+arguments in non-alphabetical key order, unmodeled blocks whose payload arrives
+via deltas, refusals, cache-inclusive usage, and a tool-calling terminal status.
+Plus `assembler_normalizes_an_argumentless_call`, `usage_defaults_missing_fields`,
+and `assembler_keeps_text_blocks_separate`.
+
+This class of defect is now caught by CI rather than by review.
+
+## Deliberate extensions beyond the approved spec
+
+- `StreamEvent::RefusalDelta` (Task 19) — without it a streaming caller could not
+  observe a refusal at all and `into_response` dropped a whole content part.
+- `RawDelta::TextEnd` (Task 21) — internal; carries no event.
+
+Both were added to close verified parity defects. `StreamEvent` is
+`#[non_exhaustive]`, so neither breaks a downstream matcher.
+
+## Known residual risk
+
+Named plainly rather than hidden:
+
+- **Unpinned by tests:** Anthropic/Gemini partial-usage defaulting;
+  `provider_metadata` population for the three non-Anthropic dialects; the
+  OpenAI dialects' `normalizes_tool_arguments = false`. Reverting any of these
+  would not fail CI.
+- **Theoretical divergences no real provider response produces:** two adjacent
+  refusal parts would merge for want of a `RefusalEnd`; a Gemini `model_output`
+  step carrying two text parts has no per-part boundary in `step.delta`;
+  `"usage": null` chunks yield `Some(Usage{0,0,0})` rather than `None`.
+- `provider_metadata` differs by shape between the two paths by design, and is
+  documented on `into_response`.
+
+## Overall verdict
+
+**ready.**
