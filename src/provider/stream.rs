@@ -253,12 +253,168 @@ impl Assembler {
     }
 }
 
+/// Where an [`EventStream`] gets its bytes.
+///
+/// The test variant exists because `reqwest::Response` cannot be constructed
+/// from recorded bytes, and streaming is far too stateful to leave untested.
+enum Body {
+    Live(reqwest::Response),
+    #[cfg(test)]
+    Recorded(std::collections::VecDeque<Vec<u8>>),
+}
+
 /// A live stream of [`StreamEvent`]s.
 ///
-/// Replaced with the real implementation in the following task; this shell
-/// exists so the crate compiles between commits.
+/// Drive it with [`EventStream::next`] until it returns `None`, then call
+/// [`EventStream::into_response`] if you need the whole response.
+///
+/// ```no_run
+/// # async fn run(client: freyja::Client, request: freyja::GenerateRequest)
+/// #     -> Result<(), freyja::ProviderError> {
+/// use freyja::StreamEvent;
+///
+/// let mut stream = client.stream(&request).await?;
+/// while let Some(event) = stream.next().await? {
+///     if let StreamEvent::TextDelta(text) = event {
+///         print!("{text}");
+///     }
+/// }
+/// # Ok(())
+/// # }
+/// ```
 pub struct EventStream {
-    pub(crate) _private: (),
+    body: Body,
+    buffer: crate::provider::sse::SseBuffer,
+    decoder: Box<dyn StreamDecoder>,
+    assembler: Assembler,
+    queued: std::collections::VecDeque<StreamEvent>,
+    closed: bool,
+}
+
+impl EventStream {
+    pub(crate) fn new(
+        provider: Arc<str>,
+        decoder: Box<dyn StreamDecoder>,
+        response: reqwest::Response,
+    ) -> Self {
+        Self {
+            body: Body::Live(response),
+            buffer: crate::provider::sse::SseBuffer::default(),
+            decoder,
+            assembler: Assembler::new(provider),
+            queued: std::collections::VecDeque::new(),
+            closed: false,
+        }
+    }
+
+    /// The next event, or `None` once the provider has closed the stream.
+    ///
+    /// Frames carrying nothing a caller can act on — keepalives, comments,
+    /// sentinels — are consumed without producing an event.
+    pub async fn next(&mut self) -> Result<Option<StreamEvent>, ProviderError> {
+        loop {
+            if let Some(event) = self.queued.pop_front() {
+                return Ok(Some(event));
+            }
+            if self.closed {
+                return Ok(None);
+            }
+            if !self.pump_frame()? && !self.pump_bytes().await? {
+                // The body ended: flush pending calls and emit Done.
+                self.closed = true;
+                let mut events = Vec::new();
+                self.assembler.close(&mut events);
+                self.queued.extend(events);
+            }
+        }
+    }
+
+    /// The whole response, identical to what [`crate::Client::generate`] would
+    /// have returned.
+    ///
+    /// Errors with [`ProviderError::Stream`] if [`EventStream::next`] has not
+    /// yet returned `None`. A response that looks complete but is not, replayed
+    /// to a provider, fails in ways that are hard to trace back to here.
+    pub fn into_response(self) -> Result<GenerateResponse, ProviderError> {
+        self.assembler.into_response()
+    }
+
+    /// Decodes one buffered frame, if a complete one is available.
+    fn pump_frame(&mut self) -> Result<bool, ProviderError> {
+        let Some(frame) = self.buffer.next_frame() else {
+            return Ok(false);
+        };
+        let mut deltas = Vec::new();
+        self.decoder.decode(&frame, &mut deltas)?;
+
+        let mut events = Vec::new();
+        for delta in deltas {
+            self.assembler.absorb(delta, &mut events);
+        }
+        self.queued.extend(events);
+        Ok(true)
+    }
+
+    /// Pulls more bytes. Returns `false` when the body is exhausted.
+    async fn pump_bytes(&mut self) -> Result<bool, ProviderError> {
+        match &mut self.body {
+            Body::Live(response) => {
+                let chunk = response
+                    .chunk()
+                    .await
+                    .map_err(|error| ProviderError::Http(error.to_string()))?;
+                match chunk {
+                    Some(bytes) => {
+                        self.buffer.push(&bytes);
+                        Ok(true)
+                    }
+                    None => Ok(false),
+                }
+            }
+            #[cfg(test)]
+            Body::Recorded(chunks) => match chunks.pop_front() {
+                Some(bytes) => {
+                    self.buffer.push(&bytes);
+                    Ok(true)
+                }
+                None => Ok(false),
+            },
+        }
+    }
+
+    #[cfg(test)]
+    fn for_test(
+        provider: Arc<str>,
+        decoder: Box<dyn StreamDecoder>,
+        chunks: Vec<Vec<u8>>,
+    ) -> Self {
+        Self {
+            body: Body::Recorded(chunks.into()),
+            buffer: crate::provider::sse::SseBuffer::default(),
+            decoder,
+            assembler: Assembler::new(provider),
+            queued: std::collections::VecDeque::new(),
+            closed: false,
+        }
+    }
+
+    /// Drives [`Self::next`] to completion without a runtime.
+    ///
+    /// The recorded body never yields `Pending`, so a no-op waker is enough and
+    /// the test suite needs no async runtime of its own.
+    #[cfg(test)]
+    fn next_blocking(&mut self) -> Result<Option<StreamEvent>, ProviderError> {
+        use std::future::Future;
+        use std::pin::pin;
+        use std::task::{Context, Poll, Waker};
+
+        let mut future = pin!(self.next());
+        let mut context = Context::from_waker(Waker::noop());
+        match future.as_mut().poll(&mut context) {
+            Poll::Ready(result) => result,
+            Poll::Pending => panic!("a recorded body never pends"),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -463,6 +619,59 @@ mod tests {
             "the call must be flushed before Done, and a stream with no \
              terminal frame reports Incomplete"
         );
+    }
+
+    /// A decoder over a trivial `data: <text>` protocol, standing in for a real
+    /// dialect so the stream machinery can be tested without a network.
+    #[derive(Default)]
+    struct TestDecoder;
+
+    impl StreamDecoder for TestDecoder {
+        fn decode(
+            &mut self,
+            frame: &SseFrame,
+            out: &mut Vec<RawDelta>,
+        ) -> Result<(), ProviderError> {
+            if frame.data == "[DONE]" {
+                out.push(RawDelta::Meta {
+                    id: Some("resp_1".into()),
+                    model: Some("test-model".into()),
+                    status: Some(ResponseStatus::Completed),
+                    usage: None,
+                });
+            } else {
+                out.push(RawDelta::Text(frame.data.clone()));
+            }
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn event_stream_drains_a_recorded_body() {
+        let mut stream = EventStream::for_test(
+            "acme".into(),
+            Box::new(TestDecoder),
+            vec![b"data: h".to_vec(), b"i\n\ndata: [DONE]\n\n".to_vec()],
+        );
+
+        assert_eq!(
+            stream.next_blocking().expect("event"),
+            Some(StreamEvent::TextDelta("hi".into()))
+        );
+        assert_eq!(
+            stream.next_blocking().expect("event"),
+            Some(StreamEvent::Done {
+                id: "resp_1".into(),
+                model: "test-model".into(),
+                status: ResponseStatus::Completed,
+                usage: None,
+            })
+        );
+        assert_eq!(stream.next_blocking().expect("end"), None);
+
+        let response = stream.into_response().expect("drained");
+        assert_eq!(response.output_text(), "hi");
+        assert_eq!(response.model, "test-model");
     }
 
     #[test]
