@@ -137,6 +137,16 @@ let config = ProviderType::Anthropic.config()
     .header("x-trace-id", trace_id);
 ```
 
-## Adding a preset
+## Do not send a preset PR
 
-If an endpoint is widely used, it belongs in `src/provider/presets.rs`. Adding one is a single match arm and nothing else, no new module, no change to the neutral model, no change to any dialect. That file is the intended place for contributions.
+Popularity is not the bar. `src/provider/presets.rs` deliberately holds only the three first-party vendors whose dialects Freyja implements and tests against, and its header comment says so. A preset is a standing promise that a base URL and a default model are still current, and third-party endpoints change both faster than this crate could verify. A stale preset fails at the vendor with a confusing 404; a missing one fails locally with a clear message, or does not fail at all because you supplied the current URL.
+
+That rule is enforced, not just stated. `presets_cover_only_first_party_vendors` asserts the list stays at three, so a PR adding a fourth fails CI by design.
+
+What is welcome instead: a correction to the [compatible-endpoint table](#known-compatible-endpoints) above, which costs a documentation edit rather than a promise, and a bug report for anything a dialect maps wrongly. An endpoint absent from `presets.rs` is no less supported for it, as the whole of this page is about.
+
+## Errors name your endpoint, not the vendor
+
+`ProviderError` carries the `name` from your `ProviderConfig` in every variant that names a provider, including `Stream { provider, message }`, which reports a stream that began and then failed. So a Claude-compatible gateway configured as `my-gateway` reports `my-gateway`, never `anthropic`, and you can tell which endpoint broke without reading the URL back.
+
+The enum is `#[non_exhaustive]` and has six variants today, so match with a `_` arm. See [Errors](../reference/errors.md).

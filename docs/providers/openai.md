@@ -14,7 +14,7 @@ Implemented against the Responses API.
 let client = Client::from_env(ProviderType::OpenAi).expect("OPENAI_API_KEY");
 ```
 
-This is the more complete of the two backends and the one exercised end to end.
+This is the most complete of the four dialect mappings. It is not the only one exercised end to end any more: Anthropic and Chat Completions both record live tool round trips too. See [Verification status](#verification-status).
 
 ## Capability support
 
@@ -29,12 +29,12 @@ This is the more complete of the two backends and the one exercised end to end.
 | `response_format` | yes | Text, JSON object, and strict JSON schema |
 | Tool declarations | yes | |
 | `tool_choice` | yes | All four variants |
-| Tool round trip | yes | Verified by tests |
+| Tool round trip | yes | Verified live |
 | `previous_response_id` | yes | Sent as `previous_response_id` |
 | `metadata` | yes | Sent as `metadata` |
 | Usage reporting | yes | |
 | Refusals | yes | Parsed as `OutputContent::Refusal` |
-| Streaming | yes | `stream: true`, decoded from the API's semantic SSE events |
+| Streaming | yes | `stream: true`, decoded from the API's semantic SSE events. **Never run live**, see below |
 
 Nothing in the neutral model currently returns `UnsupportedCapability` on OpenAI except misplaced content, covered below.
 
@@ -74,7 +74,11 @@ Unset fields are omitted from the body rather than sent as null, and empty `tool
 | `usage.input_tokens` and friends | `Usage` |
 | everything else | `provider_metadata` |
 
-Unknown output item types and unknown content block types are skipped rather than failing the parse.
+The two unknown cases are handled differently, and the difference matters.
+
+An output **item** of a type Freyja does not model becomes `OutputContent::Reasoning { data: item }`, holding the item verbatim. That is deliberate: it is how signed reasoning state survives into the next request through `GenerateResponse::to_message()`. The streaming decoder mirrors it, emitting such an item as `RawDelta::ReasoningBlob`.
+
+An unknown content **part** inside a message item is skipped. Only `output_text` and `refusal` are read there; anything else is dropped rather than failing the parse.
 
 Note that the wire field is `call_id`, and Freyja exposes it as `id` on `OutputContent::ToolCall`. Quote it back unchanged in `Message::tool_result`.
 
@@ -151,3 +155,25 @@ OpenAI returned HTTP 429: {"error":{"message":"Rate limit reached",...}}
 ```
 
 Freyja does not parse the error body into typed variants and does not retry. Both are Phase 1 work. See [Errors](../reference/errors.md).
+
+## Verification status
+
+Verified against the live endpoint: a full tool round trip completes, prompt to tool call to result to answer. That covers the flat `input` list, the `function_call` and `function_call_output` item shapes, `call_id` correlation across turns, and the usage field names.
+
+What it does not cover, and what is therefore still only as good as the offline tests:
+
+| | Status |
+|---|---|
+| Text generation and tool calling | verified live |
+| Streaming | **not** exercised live, on this or any dialect |
+| Images, both URL and data URI | not exercised |
+| `response_format`, `reasoning_effort`, `tool_choice` | not exercised |
+| `previous_response_id` and reasoning item replay | not exercised |
+
+Streaming is the gap worth naming. The semantic SSE event names and their payloads come from OpenAI's documentation and are tested against recorded fixtures, with `streamed_response_matches_generate` asserting that a drained stream matches what `generate` builds from the same turn. That is a parity test, not a live one. See [Streaming](../reference/streaming.md).
+
+To re-check after changes, point `examples/tool_loop.rs` at the endpoint and run it:
+
+```sh
+cargo run --example tool_loop
+```

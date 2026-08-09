@@ -9,7 +9,7 @@ Freyja reaches a provider in one of two ways. Both use the same code paths, and 
 
 ## Built-in providers
 
-Three, because these are the vendors Freyja implements a wire format for and tests against.
+Three presets, for the three first-party vendors whose endpoints Freyja is willing to promise stay current. That is not the same as the number of wire formats: Freyja implements four dialects, and `OpenAiChat` is implemented and tested but has no preset, because every endpoint speaking it is third party. See [the four wire dialects](#the-four-wire-dialects).
 
 | Provider | Key variable | Default model | Notes |
 |---|---|---|---|
@@ -52,6 +52,18 @@ You pick a dialect only when using a custom endpoint. With a built-in provider i
 | [`Gemini`](gemini.md) | Flat step list, no roles | Google only |
 
 If a vendor's docs show `messages` with `choices` in the response, it is `OpenAiChat`. That is the safe first guess for anything unfamiliar.
+
+### Streaming
+
+All four dialects stream, through the same `Client::stream` call and the same `StreamEvent` sequence. Three differences reach the caller:
+
+| Dialect | What differs |
+|---|---|
+| `Gemini` | Needs `?alt=sse` on the URL as well as `stream: true` in the body; `Client::stream` appends it |
+| `OpenAiChat` | Sends `stream_options: {"include_usage": true}`, without which the stream reports no tokens |
+| `OpenAiChat` | Has no end-of-call frame, so `StreamEvent::ToolCall` arrives only when the body closes |
+
+None of the four has been run against a live API. The frame shapes come from vendor documentation and are tested against recorded fixtures. Full detail in [Streaming](../reference/streaming.md).
 
 ## Choosing between them
 

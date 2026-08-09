@@ -49,7 +49,7 @@ The reason is maintenance honesty rather than effort. A preset is a standing pro
 | `metadata` | yes | Forwarded unchanged |
 | Usage reporting | yes | Field names normalized |
 | Refusals | yes | From the message's `refusal` field |
-| Streaming | yes | `stream: true`, plus `stream_options.include_usage` so token counts still arrive |
+| Streaming | yes | `stream: true`, plus `stream_options.include_usage` so token counts still arrive. **Never run live**, see below |
 
 ## System turns are not hoisted
 
@@ -184,4 +184,14 @@ usage: 378 tokens
 
 That covers the message array, the nested `function` tool schema, `tool_calls` on the assistant message, the `tool` role with `tool_call_id`, and the usage field names.
 
-What one endpoint cannot tell you is how the others behave. "Compatible" is a spectrum, and Groq, Together, OpenRouter, and Ollama are each unverified here. Images, `response_format`, and `reasoning_effort` are covered by offline tests only, on every endpoint.
+What it does not cover:
+
+| | Status |
+|---|---|
+| Text generation and tool calling | verified live, on DeepSeek only |
+| Streaming | **not** exercised live, on this or any dialect |
+| Images, `response_format`, `reasoning_effort` | not exercised, on any endpoint |
+
+What one endpoint cannot tell you is how the others behave. "Compatible" is a spectrum, and Groq, Together, OpenRouter, and Ollama are each unverified here.
+
+Streaming has never run against a live API on any dialect. The frame shapes, `stream_options.include_usage`, and the `[DONE]` sentinel come from the vendor documentation and are tested against recorded fixtures, with `streamed_response_matches_generate` asserting that a drained stream matches what `generate` builds from the same turn. That is an offline parity test. The risk is highest here, because "compatible" endpoints diverge most in their streaming frames.
