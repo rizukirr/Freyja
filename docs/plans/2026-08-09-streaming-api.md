@@ -2904,7 +2904,7 @@ git commit -m "docs: add a streaming example"
 **Files:**
 - Modify: `README.md:88`
 
-- [ ] **Step 1: Confirm every dialect is reachable**
+- [x] **Step 1: Confirm every dialect is reachable**
 
 Run: `grep -c "::Decoder" src/provider/mod.rs`
 Expected: `4` — one per dialect in `Client::stream`'s match. A lower number means a
@@ -2924,7 +2924,7 @@ Expected: four matches, one per dialect module. Two are unit structs
 thinking blocks, Gemini tracks the same for step indices). That asymmetry is
 correct, not a defect.
 
-- [ ] **Step 2: Update the roadmap**
+- [x] **Step 2: Update the roadmap**
 
 In `README.md`, replace line 88:
 
@@ -2938,12 +2938,12 @@ with:
 **Phase 1, production-grade provider layer.** Four dialects, the dialect/endpoint split, and streaming are done. Remaining: retries with backoff, typed API errors, capability introspection, and derive-based structured output.
 ```
 
-- [ ] **Step 3: Run formatting**
+- [x] **Step 3: Run formatting**
 
 Run: `cargo fmt --all`
 Expected: no output. Then run `cargo fmt --all --check` and expect no output and exit code 0.
 
-- [ ] **Step 4: Run the full suite**
+- [x] **Step 4: Run the full suite**
 
 Run: `cargo test --all-features`
 Expected: PASS, all tests.
@@ -2951,17 +2951,20 @@ Expected: PASS, all tests.
 Run: `cargo test --doc`
 Expected: PASS.
 
-- [ ] **Step 5: Run the linter**
+- [x] **Step 5: Run the linter**
 
 Run: `cargo clippy --all-targets --all-features -- -D warnings`
 Expected: no warnings.
 
-- [ ] **Step 6: Confirm the package still publishes**
+- [x] **Step 6: Confirm the package still publishes** — *note: this step must run
+  AFTER Step 7's commit. `cargo publish --dry-run` refuses a dirty working tree,
+  and Steps 2-3 leave the README edit and rustfmt changes uncommitted. Commit
+  first, then run this; do not reach for `--allow-dirty`.*
 
 Run: `cargo publish --dry-run`
 Expected: success. This is the check CI runs; it catches bad metadata and broken intra-doc links.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add README.md src
