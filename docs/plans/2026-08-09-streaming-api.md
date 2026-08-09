@@ -855,7 +855,7 @@ would have."
 **Files:**
 - Modify: `src/provider/stream.rs`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 In `src/provider/stream.rs`, add to the `mod tests` block:
 
@@ -1045,21 +1045,21 @@ In `src/provider/stream.rs`, add to the `mod tests` block:
     }
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `cargo test --all-features stream::tests::assembler_`
 Expected: `assembler_coalesces_text` PASSES; the four new tests FAIL. If they instead all pass, the implementation from Task 4 already covers them — verify by reading `absorb` and `close`, then proceed to Step 4.
 
-- [ ] **Step 3: Confirm no implementation change is needed**
+- [x] **Step 3: Confirm no implementation change is needed**
 
 The assembler written in Task 4 already implements every behavior these tests assert. This step exists to make that explicit rather than leaving a task with no implementation: read `Assembler::absorb`, `Assembler::finish_call`, and `Assembler::close` in `src/provider/stream.rs` and confirm each assertion maps to code that exists. Make no edits unless a test fails.
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `cargo test --all-features stream::tests::assembler_`
 Expected: PASS, 5 tests.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/provider/stream.rs
