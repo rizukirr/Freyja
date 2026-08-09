@@ -2748,7 +2748,7 @@ payload, so the SSE event line is redundant here."
 **Files:**
 - Modify: `src/lib.rs:33-58`, `src/lib.rs:64-68`
 
-- [ ] **Step 1: Re-export the streaming types**
+- [x] **Step 1: Re-export the streaming types**
 
 In `src/lib.rs`, replace lines 64-68:
 
@@ -2771,7 +2771,7 @@ pub use provider::{
 };
 ```
 
-- [ ] **Step 2: Document streaming in the crate docs**
+- [x] **Step 2: Document streaming in the crate docs**
 
 In `src/lib.rs`, insert this section immediately before the `#![deny(missing_docs)]` line, after the tool-calling section that ends at line 58:
 
@@ -2806,17 +2806,17 @@ In `src/lib.rs`, insert this section immediately before the `#![deny(missing_doc
 //! ```
 ```
 
-- [ ] **Step 3: Run the doc tests**
+- [x] **Step 3: Run the doc tests**
 
 Run: `cargo test --doc`
 Expected: PASS.
 
-- [ ] **Step 4: Check the docs build clean**
+- [x] **Step 4: Check the docs build clean**
 
 Run: `cargo doc --no-deps --all-features`
 Expected: success with no warnings. `#![deny(missing_docs)]` means any undocumented public item fails the build instead.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/lib.rs
