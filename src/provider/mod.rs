@@ -423,7 +423,7 @@ impl Client {
                         .streaming();
                     (
                         to_value(&body, &self.config)?,
-                        Box::new(openai_responses::Decoder::default()),
+                        Box::new(openai_responses::Decoder),
                     )
                 }
                 ProviderDialect::OpenAiChat => {
@@ -432,7 +432,7 @@ impl Client {
                         .streaming();
                     (
                         to_value(&body, &self.config)?,
-                        Box::new(openai_chat::Decoder::default()),
+                        Box::new(openai_chat::Decoder),
                     )
                 }
                 ProviderDialect::Gemini => {

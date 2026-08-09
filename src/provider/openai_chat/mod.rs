@@ -35,7 +35,6 @@ use crate::provider::{ResponseStatus, Usage};
 ///
 /// Stateless: `id` and `name` arrive in the first frame of a call and are
 /// forwarded as they come, so nothing needs remembering between frames.
-#[derive(Default)]
 pub(crate) struct Decoder;
 
 impl StreamDecoder for Decoder {

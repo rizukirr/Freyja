@@ -36,7 +36,6 @@ use serde_json::Value;
 ///
 /// Stateless: every frame carries its own `output_index`, so no correlation
 /// has to be remembered between frames.
-#[derive(Default)]
 pub(crate) struct Decoder;
 
 impl StreamDecoder for Decoder {

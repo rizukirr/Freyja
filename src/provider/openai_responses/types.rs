@@ -496,7 +496,7 @@ mod tests {
     use crate::provider::stream::{RawDelta, StreamDecoder};
 
     fn decode_all(frames: &[(&str, &str)]) -> Vec<RawDelta> {
-        let mut decoder = crate::provider::openai_responses::Decoder::default();
+        let mut decoder = crate::provider::openai_responses::Decoder;
         let mut out = Vec::new();
         for (event, data) in frames {
             let frame = SseFrame {
