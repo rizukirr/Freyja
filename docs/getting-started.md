@@ -88,7 +88,7 @@ let client = Client::custom(
     ProviderDialect::OpenAiChat,
     "DeepSeek",
     "https://api.deepseek.com/v1",
-    std::env::var("DEEPSEEK_API_KEY")?,
+    std::env::var("DEEPSEEK_API_KEY").unwrap(),
 );
 ```
 

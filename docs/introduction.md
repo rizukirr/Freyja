@@ -5,9 +5,11 @@ Freyja is a Rust library for talking to large language models, and for building 
 You write one request. Freyja translates it into whatever wire format the model you picked actually speaks, sends it, and translates the answer back into one response type. Changing model vendor is changing one line.
 
 ```rust
-let client = Client::from_env(ProviderType::OpenAi)?;
-// or ProviderType::Anthropic, or ProviderType::Gemini, or your own endpoint.
-// Nothing else in your program changes.
+let Some(client) = Client::from_env(ProviderType::OpenAi) else {
+    // or ProviderType::Anthropic, or ProviderType::Gemini, or your own endpoint.
+    // Nothing else in your program changes.
+    return Ok(());
+};
 ```
 
 ## Why that matters

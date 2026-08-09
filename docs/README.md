@@ -64,4 +64,4 @@ Samples that make a network call are written as if inside an `async fn` returnin
 
 ## Status
 
-Phase 0. The neutral core is stable, four dialects are implemented, tool calling works end to end against live APIs, and every dialect streams. There are no retries and no orchestration layer. [Features](features.md) has the honest boundary; the [roadmap](../README.md#roadmap-to-mvp) has what is planned.
+Phase 0. The neutral core is stable, four dialects are implemented, tool calling works end to end against live APIs, and every dialect streams. There are no retries and no orchestration layer. [Features](features.md) has the honest boundary; the [roadmap](../README.md#roadmap) has what is planned.

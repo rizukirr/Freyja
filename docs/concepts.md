@@ -13,7 +13,7 @@ GenerateRequest ─────────┼─→ Gemini             → flat
                         └─→ Chat Completions   → nested, dedicated tool role
 ```
 
-The same happens in reverse: four differently shaped responses become one `GenerateResponse`.
+The same happens in reverse: four differently shaped responses become one `GenerateResponse`. Streaming follows the same rule rather than escaping it: four differently shaped event formats become one `StreamEvent` sequence, and `EventStream::into_response` collapses that sequence into the same `GenerateResponse` a non-streaming call would have returned.
 
 This is worth more than it sounds. Those four formats disagree about almost everything. Where a tool call lives, whether its arguments are a string or an object, whether system instructions are a message or a separate field, what the correlation id is called, how usage is reported. Your code sees none of it.
 
@@ -100,7 +100,10 @@ That is the whole rule. You do not need to know what is inside.
 
 ```rust
 // 1. Pick an endpoint. A preset, or your own.
-let client = Client::from_env(ProviderType::Anthropic)?;
+//    `from_env` returns None when the key variable is unset.
+let Some(client) = Client::from_env(ProviderType::Anthropic) else {
+    return Ok(());
+};
 
 // 2. Describe what you want, in neutral terms.
 let request = GenerateRequest::new()
