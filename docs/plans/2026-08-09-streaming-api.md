@@ -2830,12 +2830,12 @@ git commit -m "docs: export the streaming types and document the loop"
 **Files:**
 - Create: `examples/streaming.rs`
 
-- [ ] **Step 1: Read an existing example for house style**
+- [x] **Step 1: Read an existing example for house style**
 
 Run: `cat examples/simple.rs`
 Expected: prints the file. Match its structure — `dotenvy` load, `Client::from_env`, `#[tokio::main]`.
 
-- [ ] **Step 2: Write the example**
+- [x] **Step 2: Write the example**
 
 Create `examples/streaming.rs`:
 
@@ -2880,17 +2880,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-- [ ] **Step 3: Build it**
+- [x] **Step 3: Build it**
 
 Run: `cargo build --all-targets`
 Expected: success.
 
-- [ ] **Step 4: Lint**
+- [x] **Step 4: Lint**
 
 Run: `cargo clippy --all-targets --all-features -- -D warnings`
 Expected: no warnings.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add examples/streaming.rs
@@ -2906,11 +2906,23 @@ git commit -m "docs: add a streaming example"
 
 - [ ] **Step 1: Confirm every dialect is reachable**
 
-Run: `grep -c "Decoder::default()" src/provider/mod.rs`
-Expected: `4` — one per dialect. A lower number means a dialect is still dispatching to nothing.
+Run: `grep -c "::Decoder" src/provider/mod.rs`
+Expected: `4` — one per dialect in `Client::stream`'s match. A lower number means a
+dialect is still dispatching to nothing.
 
-Run: `grep -rn "pub(crate) struct Decoder;" src/provider/*/mod.rs`
-Expected: four matches, one in each dialect module. Each must be preceded by a real `impl StreamDecoder` body, not the Task 7 stub returning `Ok(())` immediately. Read each one to confirm.
+Run: `cargo test --all-features --lib decodes_streaming_`
+Expected: `14 passed` — three for OpenAiChat, four for Anthropic, three for
+OpenAiResponses, four for Gemini. Every one of those tests asserts on an emitted
+`RawDelta` sequence, so a decoder still returning the Task 7 stub's bare `Ok(())`
+would fail rather than pass. Confirm the count is 14 and not 0; a filter that
+matches nothing also exits 0.
+
+Run: `grep -rn "pub(crate) struct Decoder" src/provider/*/mod.rs`
+Expected: four matches, one per dialect module. Two are unit structs
+(`Decoder;` — OpenAiChat and OpenAiResponses are stateless) and two carry state
+(`Decoder {` — Anthropic tracks which content-block indices are tool calls vs
+thinking blocks, Gemini tracks the same for step indices). That asymmetry is
+correct, not a defect.
 
 - [ ] **Step 2: Update the roadmap**
 
