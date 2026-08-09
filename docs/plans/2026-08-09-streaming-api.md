@@ -4083,7 +4083,7 @@ OpenAiChat is deliberately excluded: its parser builds a single `Text` from
 `message.content`, so it has no block boundaries to preserve. Confirm that by
 reading its parser before deciding to skip it.
 
-- [ ] **Step 1: Write the failing assembler test**
+- [x] **Step 1: Write the failing assembler test**
 
 In `src/provider/stream.rs`, add to `mod tests`:
 
@@ -4122,12 +4122,12 @@ In `src/provider/stream.rs`, add to `mod tests`:
     }
 ```
 
-- [ ] **Step 2: Run it, confirm it fails**
+- [x] **Step 2: Run it, confirm it fails**
 
 Run: `cargo test --all-features --lib assembler_keeps_text_blocks_separate`
 Expected: FAIL to compile — `TextEnd` is not a variant of `RawDelta`.
 
-- [ ] **Step 3: Add the boundary**
+- [x] **Step 3: Add the boundary**
 
 In `src/provider/stream.rs`, add to `RawDelta`:
 
@@ -4165,12 +4165,12 @@ and add:
             RawDelta::TextEnd => self.text_open = false,
 ```
 
-- [ ] **Step 4: Confirm the assembler test passes**
+- [x] **Step 4: Confirm the assembler test passes**
 
 Run: `cargo test --all-features --lib assembler_keeps_text_blocks_separate`
 Expected: PASS, 1 test.
 
-- [ ] **Step 5: Emit the boundary from each decoder that has blocks**
+- [x] **Step 5: Emit the boundary from each decoder that has blocks**
 
 `anthropic/mod.rs` — `content_block_start` currently has `Some("text") => {}`.
 Record the index in a `texts: HashSet<usize>` there, and at `content_block_stop`
@@ -4190,7 +4190,7 @@ use whichever the dialect actually sends.
 
 `openai_chat/mod.rs` — no change. Its parser produces one `Text` per response.
 
-- [ ] **Step 6: Extend the parity fixtures to two text blocks**
+- [x] **Step 6: Extend the parity fixtures to two text blocks**
 
 In `anthropic/types.rs`, `gemini/types.rs`, and `openai_responses/types.rs`, add a
 SECOND text block to both sides of `streamed_response_matches_generate`: two
@@ -4201,21 +4201,21 @@ assertion and every existing part of the fixture.
 Leave the OpenAiChat fixture alone and add a one-line comment there noting that
 this dialect has a single text part by construction.
 
-- [ ] **Step 7: Run everything**
+- [x] **Step 7: Run everything**
 
 Run: `cargo test --all-features --lib streamed_response_matches_generate` → 4 run, 4 passed.
 Run: `cargo test --all-features` → all pass.
 Run: `cargo clippy --all-targets --all-features -- -D warnings` → clean.
 Run: `cargo fmt --all` then `cargo fmt --all --check` → no output.
 
-- [ ] **Step 8: Prove the fixtures catch the bug**
+- [x] **Step 8: Prove the fixtures catch the bug**
 
 Temporarily comment out the `RawDelta::TextEnd` emission in `anthropic/mod.rs`,
 re-run the parity filter, and confirm the Anthropic test FAILS. Restore it and
 confirm the suite is green again. Report both observations. A fixture that passes
 either way proves nothing.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add src/provider
