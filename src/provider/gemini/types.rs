@@ -352,6 +352,111 @@ pub(crate) fn parse(
 mod tests {
     use super::*;
     use crate::provider::ProviderType;
+    use crate::provider::sse::SseFrame;
+    use crate::provider::stream::{RawDelta, StreamDecoder};
+
+    fn decode_all(frames: &[&str]) -> Vec<RawDelta> {
+        let mut decoder = crate::provider::gemini::Decoder::default();
+        let mut out = Vec::new();
+        for data in frames {
+            // The Interactions API repeats event_type inside the payload, so
+            // the decoder reads it there rather than from the SSE event line.
+            let frame = SseFrame {
+                event: None,
+                data: (*data).to_string(),
+            };
+            decoder.decode(&frame, &mut out).expect("decodes");
+        }
+        out
+    }
+
+    #[test]
+    fn decodes_streaming_text() {
+        let deltas = decode_all(&[
+            r#"{"index":0,"step":{"type":"model_output"},"event_type":"step.start"}"#,
+            r#"{"index":0,"delta":{"type":"text","text":"Hello"},"event_type":"step.delta"}"#,
+        ]);
+
+        assert!(
+            deltas.iter().any(|d| *d == RawDelta::Text("Hello".into())),
+            "{deltas:?}"
+        );
+    }
+
+    #[test]
+    fn decodes_streaming_tool_call() {
+        let deltas = decode_all(&[
+            r#"{"index":0,"step":{"type":"function_call","id":"un6k8t18","name":"get_weather","arguments":{}},"event_type":"step.start"}"#,
+            r#"{"index":0,"delta":{"type":"arguments_delta","arguments":"{\"location\": "},"event_type":"step.delta"}"#,
+            r#"{"index":0,"delta":{"type":"arguments_delta","arguments":"\"San Francisco, CA\"}"},"event_type":"step.delta"}"#,
+            r#"{"index":0,"event_type":"step.stop"}"#,
+        ]);
+
+        assert_eq!(
+            deltas,
+            vec![
+                RawDelta::ToolStart {
+                    slot: 0,
+                    id: "un6k8t18".into(),
+                    name: "get_weather".into(),
+                },
+                RawDelta::ToolArgs {
+                    slot: 0,
+                    fragment: "{\"location\": ".into(),
+                },
+                RawDelta::ToolArgs {
+                    slot: 0,
+                    fragment: "\"San Francisco, CA\"}".into(),
+                },
+                RawDelta::ToolEnd { slot: 0 },
+            ],
+            "arguments_delta fragments accumulate; the docs require it"
+        );
+    }
+
+    #[test]
+    fn decodes_streaming_thought_into_a_replayable_blob() {
+        let deltas = decode_all(&[
+            r#"{"index":0,"step":{"type":"thought"},"event_type":"step.start"}"#,
+            r#"{"index":0,"delta":{"type":"thought_summary","content":{"type":"text","text":"Working it out."}},"event_type":"step.delta"}"#,
+            r#"{"index":0,"delta":{"type":"thought_signature","signature":"sig-abc"},"event_type":"step.delta"}"#,
+            r#"{"index":0,"event_type":"step.stop"}"#,
+        ]);
+
+        assert_eq!(
+            deltas[0],
+            RawDelta::ReasoningText("Working it out.".into())
+        );
+        assert_eq!(
+            deltas[1],
+            RawDelta::ReasoningBlob(serde_json::json!({
+                "type": "thought",
+                "signature": "sig-abc",
+            })),
+            "the signature is the part the API requires resent verbatim"
+        );
+    }
+
+    #[test]
+    fn decodes_streaming_completion() {
+        let deltas = decode_all(&[
+            r#"{"interaction":{"id":"v1_abc123","model":"gemini-3.6-flash","status":"completed","usage":{"total_tokens":346,"total_input_tokens":11,"total_output_tokens":90}},"event_type":"interaction.completed"}"#,
+        ]);
+
+        assert_eq!(
+            deltas,
+            vec![RawDelta::Meta {
+                id: Some("v1_abc123".into()),
+                model: Some("gemini-3.6-flash".into()),
+                status: Some(ResponseStatus::Completed),
+                usage: Some(Usage {
+                    input_tokens: 11,
+                    output_tokens: 90,
+                    total_tokens: 346,
+                }),
+            }]
+        );
+    }
 
     /// The shipped endpoint for this dialect, so tests cover the real defaults.
     fn config() -> ProviderConfig {
