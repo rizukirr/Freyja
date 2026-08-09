@@ -49,17 +49,20 @@ a decision, not a translation.
 - Tool-call arguments arrive fully assembled. Callers never stitch JSON.
 - Reasoning models remain usable across turns: the opaque replayable blob is
   reachable from the stream.
+- A drained stream converts to the same `GenerateResponse` that `generate()`
+  would have returned, so a streaming multi-turn tool loop can reuse the
+  existing `GenerateResponse::to_message`.
 
 ## Non-goals
 
 - **No `futures_core::Stream` impl.** No combinators, no `impl Stream` interop,
   no `axum::Sse` handoff. An inherent `async fn next()` only. Revisit behind an
   optional cargo feature if callers ask.
-- **No `into_response()` reconstruction.** The stream does not rebuild the
-  `GenerateResponse` that `generate()` would have returned. (Tool arguments and
-  reasoning blobs *are* accumulated internally — that is how complete `ToolCall`
-  and `Reasoning` events are produced — but that state is not exposed as a
-  response object.)
+- **No opt-out of accumulation.** `EventStream` always buffers the completed
+  response so `into_response()` can be called. A caller who only prints tokens
+  still holds the full text in memory — the same footprint `generate()` has, but
+  no longer avoidable. A non-capturing variant is deliberately not offered; add
+  one only if the memory shows up as a real problem.
 - **No fragment-level tool events.** Partial arguments are not observable. A UI
   cannot render tool arguments as they type.
 - **No retries, backoff, or reconnection.** A dropped stream is an error, not
@@ -98,6 +101,13 @@ pub struct EventStream { /* opaque */ }
 impl EventStream {
     /// The next event, or `None` when the provider closes the stream.
     pub async fn next(&mut self) -> Result<Option<StreamEvent>, ProviderError>;
+
+    /// The whole response, identical to what `generate()` would have returned.
+    ///
+    /// Errors with `ProviderError::Stream` if the stream has not been drained
+    /// to `None`, because a truncated transcript replayed to a provider fails
+    /// in confusing ways far from its cause.
+    pub fn into_response(self) -> Result<GenerateResponse, ProviderError>;
 }
 
 #[non_exhaustive]
@@ -134,6 +144,10 @@ while let Some(event) = stream.next().await? {
         _ => {}
     }
 }
+
+// Continue the conversation, reusing the existing non-streaming machinery.
+let response = stream.into_response()?;
+messages.push(response.to_message());
 ```
 
 Rationale for each choice:
@@ -155,8 +169,16 @@ Rationale for each choice:
   text deltas *and* a signed blob completed separately. `ReasoningDelta(String)`
   serves display; `Reasoning { data }` carries the blob that
   `src/provider/model.rs:225-239` documents as mandatory to replay verbatim.
-  Without the second variant, streaming a reasoning model and then continuing
-  the conversation would be rejected by the provider.
+  Without the second variant, a caller who ignores `into_response()` and
+  assembles the transcript from events alone would have no way to replay it.
+- **`into_response()` closes the multi-turn loop.** Without it, a caller who
+  streams, receives a `ToolCall`, runs the tool, and wants to continue has to
+  hand-build the assistant turn from the events they observed — including
+  placing `Reasoning` blobs in the correct position relative to the tool calls,
+  which `src/provider/model.rs:225-239` warns is required and easy to get wrong.
+  The assembler already holds the id, model, status, usage, and completed tool
+  calls; capturing text and reasoning as well costs one `Vec<OutputContent>` and
+  makes the existing `GenerateResponse::to_message` work unchanged.
 
 ### Layer 1 — `src/provider/sse.rs`
 
@@ -232,16 +254,28 @@ Written once, tested once, shared by all four.
 ```rust
 struct Assembler {
     pending: HashMap<usize, PendingCall>,   // id, name, argument buffer
+    captured: Vec<OutputContent>,           // completed parts, in arrival order
     id: String,
     model: String,
     status: ResponseStatus,
     usage: Option<Usage>,
+    finished: bool,                         // set when the body closes
 }
 ```
 
 `ToolEnd` emits a complete `StreamEvent::ToolCall`. Dialects that never send an
 end frame — OpenAiChat closes the stream instead — are flushed when the body
 closes, before `Done`.
+
+`captured` records every completed part as it is emitted: text deltas append to
+a trailing `OutputContent::Text` (coalescing consecutive fragments into one
+part, matching what `generate()` produces), while `ToolCall` and `Reasoning`
+push new parts in arrival order — which is the ordering `to_message()` depends
+on. `into_response()` checks `finished` and, if set, assembles a
+`GenerateResponse` from `captured` plus the recorded id, model, status, and
+usage. If `finished` is false the caller broke out of the loop early, and
+returning a response that looks complete but is not would be the worse
+behaviour, so it errors instead.
 
 `EventStream` holds the response, an `SseBuffer`, an `Assembler`, a
 `Box<dyn StreamDecoder>`, and a queue of events already decoded but not yet
@@ -362,6 +396,11 @@ No network in any test. Fixtures are recorded SSE frames as string literals.
   with the right `id` and `name`; two interleaved calls do not cross-contaminate;
   an early close flushes pending calls and emits `Done` with
   `ResponseStatus::Incomplete`.
+- **`into_response()`** — a drained stream produces the same `GenerateResponse`
+  the equivalent non-streaming fixture parses into: same text (consecutive
+  deltas coalesced into one `OutputContent::Text`), same tool calls, same
+  reasoning blobs *in the same order*, same usage. Calling it before the stream
+  is drained errors rather than returning a truncated response.
 - **Regression** — `generate()`'s serialized body is byte-identical before and
   after the `stream: Option<bool>` field is added.
 - **`examples/streaming.rs`** alongside the three existing examples, and a
