@@ -451,56 +451,50 @@ impl EventStream {
             },
         }
     }
-}
 
-/// Drives a decoder over recorded frames without a runtime, returning every
-/// event and the assembled response.
-///
-/// The recorded body never yields `Pending`, so a no-op waker is enough and the
-/// test suite needs no async runtime of its own.
-#[cfg(test)]
-fn collect_for_test(
-    provider: Arc<str>,
-    decoder: Box<dyn StreamDecoder>,
-    chunks: Vec<Vec<u8>>,
-) -> Result<(Vec<StreamEvent>, GenerateResponse), ProviderError> {
-    use std::future::Future;
-    use std::pin::pin;
-    use std::task::{Context, Poll, Waker};
-
-    let normalize_arguments = decoder.normalizes_tool_arguments();
-    let mut stream = EventStream {
-        body: Body::Recorded(chunks.into()),
-        buffer: crate::provider::sse::SseBuffer::default(),
-        decoder,
-        assembler: Assembler::new(provider, normalize_arguments),
-        queued: std::collections::VecDeque::new(),
-        closed: false,
-    };
-
-    let mut context = Context::from_waker(Waker::noop());
-    let mut events = Vec::new();
-    loop {
-        let Poll::Ready(next) = pin!(stream.next()).poll(&mut context) else {
-            panic!("a recorded body never pends");
-        };
-        match next? {
-            Some(event) => events.push(event),
-            None => break,
+    #[cfg(test)]
+    fn for_test(provider: Arc<str>, decoder: Box<dyn StreamDecoder>, chunks: Vec<Vec<u8>>) -> Self {
+        let normalize_arguments = decoder.normalizes_tool_arguments();
+        Self {
+            body: Body::Recorded(chunks.into()),
+            buffer: crate::provider::sse::SseBuffer::default(),
+            decoder,
+            assembler: Assembler::new(provider, normalize_arguments),
+            queued: std::collections::VecDeque::new(),
+            closed: false,
         }
     }
-    Ok((events, stream.into_response()?))
+
+    /// Drives [`Self::next`] to completion without a runtime.
+    ///
+    /// The recorded body never yields `Pending`, so a no-op waker is enough and
+    /// the test suite needs no async runtime of its own.
+    #[cfg(test)]
+    fn next_blocking(&mut self) -> Result<Option<StreamEvent>, ProviderError> {
+        use std::future::Future;
+        use std::pin::pin;
+        use std::task::{Context, Poll, Waker};
+
+        let mut future = pin!(self.next());
+        let mut context = Context::from_waker(Waker::noop());
+        match future.as_mut().poll(&mut context) {
+            Poll::Ready(result) => result,
+            Poll::Pending => panic!("a recorded body never pends"),
+        }
+    }
 }
 
-/// The assembled response alone, so a dialect's tests can compare streaming
-/// against its own parser.
+/// Drives a decoder over recorded frames and returns the assembled response,
+/// so a dialect's tests can compare streaming against its own parser.
 #[cfg(test)]
 pub(crate) fn drain_for_test(
     provider: Arc<str>,
     decoder: Box<dyn StreamDecoder>,
     chunks: Vec<Vec<u8>>,
 ) -> Result<GenerateResponse, ProviderError> {
-    Ok(collect_for_test(provider, decoder, chunks)?.1)
+    let mut stream = EventStream::for_test(provider, decoder, chunks);
+    while stream.next_blocking()?.is_some() {}
+    stream.into_response()
 }
 
 #[cfg(test)]
@@ -794,25 +788,28 @@ mod tests {
 
     #[test]
     fn event_stream_drains_a_recorded_body() {
-        let (events, response) = collect_for_test(
+        let mut stream = EventStream::for_test(
             "acme".into(),
             Box::new(TestDecoder),
             vec![b"data: h".to_vec(), b"i\n\ndata: [DONE]\n\n".to_vec()],
-        )
-        .expect("drained");
+        );
 
         assert_eq!(
-            events,
-            vec![
-                StreamEvent::TextDelta("hi".into()),
-                StreamEvent::Done {
-                    id: "resp_1".into(),
-                    model: "test-model".into(),
-                    status: ResponseStatus::Completed,
-                    usage: None,
-                },
-            ]
+            stream.next_blocking().expect("event"),
+            Some(StreamEvent::TextDelta("hi".into()))
         );
+        assert_eq!(
+            stream.next_blocking().expect("event"),
+            Some(StreamEvent::Done {
+                id: "resp_1".into(),
+                model: "test-model".into(),
+                status: ResponseStatus::Completed,
+                usage: None,
+            })
+        );
+        assert_eq!(stream.next_blocking().expect("end"), None);
+
+        let response = stream.into_response().expect("drained");
         assert_eq!(response.output_text(), "hi");
         assert_eq!(response.model, "test-model");
     }
