@@ -3952,7 +3952,7 @@ carrying only two of three fields still parses to `Some(Usage{..0})`. Both
 decoders use `as_u64()?` inside `and_then(|usage| Some(..))`, so one missing
 subfield collapses the whole thing to `None`.
 
-- [ ] **Step 1: Teach the decoder trait which dialects normalise**
+- [x] **Step 1: Teach the decoder trait which dialects normalise**
 
 In `src/provider/stream.rs`, add to `StreamDecoder`:
 
@@ -3972,7 +3972,7 @@ In `src/provider/stream.rs`, add to `StreamDecoder`:
 Override it to return `true` in `anthropic::Decoder` and `gemini::Decoder` only,
 each with a one-line comment pointing at the parser line it mirrors.
 
-- [ ] **Step 2: Apply it in the assembler**
+- [x] **Step 2: Apply it in the assembler**
 
 Give `Assembler` a `normalize_arguments: bool` field, set from the decoder when
 the stream is built (`EventStream::new`, `for_test`, and `drain_for_test` all
@@ -3991,7 +3991,7 @@ existing empty-to-`{}` normalisation:
         }
 ```
 
-- [ ] **Step 3: Mirror each parser's usage defaults**
+- [x] **Step 3: Mirror each parser's usage defaults**
 
 In `openai_chat/mod.rs` and `gemini/mod.rs`, replace the `?` on each usage
 subfield with `.unwrap_or(0)`, so a `usage` object that is present but partial
@@ -4000,7 +4000,7 @@ yields `Some(Usage{..})` exactly as the parser does. Check
 and align whichever differ — read each parser's usage struct rather than
 assuming.
 
-- [ ] **Step 4: Make the fixtures catch Gap A**
+- [x] **Step 4: Make the fixtures catch Gap A**
 
 In `anthropic/types.rs` and `gemini/types.rs`, change the tool-call fixture in
 `streamed_response_matches_generate` so the streamed argument fragments spell a
@@ -4011,7 +4011,7 @@ fail on key order; after it, both sides read `{"location":"NYC","unit":"c"}`.
 Leave the two OpenAI fixtures' argument order alone, and add a brief comment in
 each noting that those dialects deliberately preserve the raw string.
 
-- [ ] **Step 5: Add a regression test for Gap B**
+- [x] **Step 5: Add a regression test for Gap B**
 
 In `openai_chat/types.rs`, add:
 
@@ -4036,7 +4036,7 @@ In `openai_chat/types.rs`, add:
     }
 ```
 
-- [ ] **Step 6: Run everything**
+- [x] **Step 6: Run everything**
 
 Run: `cargo test --all-features --lib streamed_response_matches_generate` → 4 run, 4 passed.
 Run: `cargo test --all-features --lib usage_defaults_missing_fields` → 1 run, 1 passed.
@@ -4044,7 +4044,7 @@ Run: `cargo test --all-features` → all pass.
 Run: `cargo clippy --all-targets --all-features -- -D warnings` → clean.
 Run: `cargo fmt --all` then `cargo fmt --all --check` → no output.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add src/provider
