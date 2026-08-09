@@ -56,6 +56,10 @@ impl StreamDecoder for Decoder {
                     out.push(RawDelta::Text(text.to_string()));
                 }
             }
+            // convert_item maps every `output_text` part of a message item to
+            // its own OutputContent::Text, and this frame is what ends one such
+            // part, so it is the block boundary for this dialect.
+            "response.output_text.done" => out.push(RawDelta::TextEnd),
             "response.refusal.delta" => {
                 if let Some(text) = value["delta"].as_str() {
                     out.push(RawDelta::Refusal(text.to_string()));

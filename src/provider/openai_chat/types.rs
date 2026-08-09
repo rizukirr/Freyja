@@ -719,6 +719,10 @@ mod tests {
         // A tool-calling turn: text in two deltas, a refusal, and a call whose
         // arguments arrive fragmented.
         //
+        // No second text block here: this dialect's parser builds a single
+        // OutputContent::Text from `message.content`, so it has no block
+        // boundaries to preserve.
+        //
         // Unlike Anthropic and Gemini, this dialect's parser hands back the
         // model's raw `arguments` string untouched, so the streamed order is
         // deliberately left as the model emitted it and is not re-sorted.

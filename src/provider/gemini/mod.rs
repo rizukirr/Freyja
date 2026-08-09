@@ -39,6 +39,10 @@ use std::collections::HashMap;
 /// started there.
 enum Step {
     Tool,
+    /// A `model_output` step. convert_step emits one `OutputContent::Text` per
+    /// text part of one such step, so its stop closes the text block; without
+    /// that, two adjacent model_output steps would coalesce into one part.
+    ModelOutput,
     /// The step as it arrived, plus the signature accumulated from its deltas.
     /// Kept whole because the non-streaming parser stores the whole step and
     /// the API requires model-generated steps replayed exactly as received.
@@ -115,7 +119,9 @@ impl StreamDecoder for Decoder {
                     }
                     // Model output is modeled: it arrives through text deltas
                     // and must not be kept as an opaque blob.
-                    Some("model_output") => {}
+                    Some("model_output") => {
+                        self.steps.insert(slot, Step::ModelOutput);
+                    }
                     _ => {
                         self.steps.insert(slot, Step::Opaque(step.clone()));
                     }
@@ -163,6 +169,7 @@ impl StreamDecoder for Decoder {
             }
             "step.stop" => match self.steps.remove(&slot) {
                 Some(Step::Tool) => out.push(RawDelta::ToolEnd { slot }),
+                Some(Step::ModelOutput) => out.push(RawDelta::TextEnd),
                 Some(Step::Thought {
                     mut step,
                     signature,

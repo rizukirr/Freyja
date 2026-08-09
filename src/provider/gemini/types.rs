@@ -668,17 +668,23 @@ mod tests {
             r#"{"index":0,"delta":{"type":"text","text":"Hel"},"event_type":"step.delta"}"#,
             r#"{"index":0,"delta":{"type":"text","text":"lo"},"event_type":"step.delta"}"#,
             r#"{"index":0,"event_type":"step.stop"}"#,
-            r#"{"index":1,"step":{"type":"thought"},"event_type":"step.start"}"#,
-            r#"{"index":1,"delta":{"type":"thought_summary","content":{"type":"text","text":"Working it out."}},"event_type":"step.delta"}"#,
-            r#"{"index":1,"delta":{"type":"thought_signature","signature":"sig-abc"},"event_type":"step.delta"}"#,
+            // A second, adjacent model_output step. The parser makes one
+            // OutputContent::Text per text part of a step, so the step boundary
+            // has to survive the stream rather than merging into the one before.
+            r#"{"index":1,"step":{"type":"model_output"},"event_type":"step.start"}"#,
+            r#"{"index":1,"delta":{"type":"text","text":"Bye"},"event_type":"step.delta"}"#,
             r#"{"index":1,"event_type":"step.stop"}"#,
-            r#"{"index":2,"step":{"type":"function_call","id":"call_1","name":"get_weather","arguments":{}},"event_type":"step.start"}"#,
-            r#"{"index":2,"delta":{"type":"arguments_delta","arguments":"{\"unit\":\"c\","},"event_type":"step.delta"}"#,
-            r#"{"index":2,"delta":{"type":"arguments_delta","arguments":"\"location\":\"NYC\"}"},"event_type":"step.delta"}"#,
+            r#"{"index":2,"step":{"type":"thought"},"event_type":"step.start"}"#,
+            r#"{"index":2,"delta":{"type":"thought_summary","content":{"type":"text","text":"Working it out."}},"event_type":"step.delta"}"#,
+            r#"{"index":2,"delta":{"type":"thought_signature","signature":"sig-abc"},"event_type":"step.delta"}"#,
             r#"{"index":2,"event_type":"step.stop"}"#,
-            r#"{"index":3,"step":{"type":"code_execution","language":"python"},"event_type":"step.start"}"#,
-            r#"{"index":3,"delta":{"type":"code","code":"print(1)"},"event_type":"step.delta"}"#,
+            r#"{"index":3,"step":{"type":"function_call","id":"call_1","name":"get_weather","arguments":{}},"event_type":"step.start"}"#,
+            r#"{"index":3,"delta":{"type":"arguments_delta","arguments":"{\"unit\":\"c\","},"event_type":"step.delta"}"#,
+            r#"{"index":3,"delta":{"type":"arguments_delta","arguments":"\"location\":\"NYC\"}"},"event_type":"step.delta"}"#,
             r#"{"index":3,"event_type":"step.stop"}"#,
+            r#"{"index":4,"step":{"type":"code_execution","language":"python"},"event_type":"step.start"}"#,
+            r#"{"index":4,"delta":{"type":"code","code":"print(1)"},"event_type":"step.delta"}"#,
+            r#"{"index":4,"event_type":"step.stop"}"#,
             r#"{"interaction":{"id":"v1_abc123","model":"gemini-3.6-flash","status":"requires_action","usage":{"total_input_tokens":11,"total_output_tokens":90,"total_tokens":101}},"event_type":"interaction.completed"}"#,
         ];
 
@@ -693,7 +699,7 @@ mod tests {
         .expect("drained");
 
         let parsed = parse(
-            r#"{"id":"v1_abc123","model":"gemini-3.6-flash","status":"requires_action","steps":[{"type":"model_output","content":[{"type":"text","text":"Hello"}]},{"type":"thought","signature":"sig-abc"},{"type":"function_call","id":"call_1","name":"get_weather","arguments":{"unit":"c","location":"NYC"}},{"type":"code_execution","language":"python","code":"print(1)"}],"usage":{"total_input_tokens":11,"total_output_tokens":90,"total_tokens":101}}"#,
+            r#"{"id":"v1_abc123","model":"gemini-3.6-flash","status":"requires_action","steps":[{"type":"model_output","content":[{"type":"text","text":"Hello"}]},{"type":"model_output","content":[{"type":"text","text":"Bye"}]},{"type":"thought","signature":"sig-abc"},{"type":"function_call","id":"call_1","name":"get_weather","arguments":{"unit":"c","location":"NYC"}},{"type":"code_execution","language":"python","code":"print(1)"}],"usage":{"total_input_tokens":11,"total_output_tokens":90,"total_tokens":101}}"#,
             &config(),
         )
         .expect("parsed");
@@ -709,8 +715,9 @@ mod tests {
         assert_eq!(
             streamed.content, parsed.content,
             "content must match part for part, including that two text deltas \
-             coalesce into one OutputContent::Text and that an unmodeled step \
-             replays with the payload that streamed into it"
+             coalesce into one OutputContent::Text while a second model_output \
+             step starts a part of its own, and that an unmodeled step replays \
+             with the payload that streamed into it"
         );
         assert_eq!(
             streamed.to_message(),

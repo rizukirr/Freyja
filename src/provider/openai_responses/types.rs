@@ -541,13 +541,28 @@ mod tests {
                 "response.output_text.delta",
                 r#"{"item_id":"msg_1","output_index":1,"delta":"lo"}"#,
             ),
+            // convert_item makes one OutputContent::Text per output_text part,
+            // so this frame ends the first part and the next delta opens a
+            // second one rather than merging into it.
+            (
+                "response.output_text.done",
+                r#"{"item_id":"msg_1","output_index":1,"content_index":0,"text":"Hello"}"#,
+            ),
+            (
+                "response.output_text.delta",
+                r#"{"item_id":"msg_1","output_index":1,"content_index":1,"delta":"Bye"}"#,
+            ),
+            (
+                "response.output_text.done",
+                r#"{"item_id":"msg_1","output_index":1,"content_index":1,"text":"Bye"}"#,
+            ),
             (
                 "response.refusal.delta",
                 r#"{"item_id":"msg_1","output_index":1,"delta":"I cannot help"}"#,
             ),
             (
                 "response.output_item.done",
-                r#"{"output_index":1,"item":{"type":"message","id":"msg_1","role":"assistant","content":[{"type":"output_text","text":"Hello"},{"type":"refusal","refusal":"I cannot help"}]}}"#,
+                r#"{"output_index":1,"item":{"type":"message","id":"msg_1","role":"assistant","content":[{"type":"output_text","text":"Hello"},{"type":"output_text","text":"Bye"},{"type":"refusal","refusal":"I cannot help"}]}}"#,
             ),
             (
                 "response.output_item.added",
@@ -582,7 +597,7 @@ mod tests {
         .expect("drained");
 
         let parsed = parse(
-            r#"{"id":"resp_1","model":"gpt-5","status":"requires_action","output":[{"type":"reasoning","id":"rs_1","summary":[{"type":"summary_text","text":"Thinking."}]},{"type":"message","id":"msg_1","role":"assistant","content":[{"type":"output_text","text":"Hello"},{"type":"refusal","refusal":"I cannot help"}]},{"type":"function_call","id":"fc_1","call_id":"call_1","name":"get_weather","arguments":"{\"location\":\"NYC\"}"}],"usage":{"input_tokens":11,"output_tokens":9,"total_tokens":20}}"#,
+            r#"{"id":"resp_1","model":"gpt-5","status":"requires_action","output":[{"type":"reasoning","id":"rs_1","summary":[{"type":"summary_text","text":"Thinking."}]},{"type":"message","id":"msg_1","role":"assistant","content":[{"type":"output_text","text":"Hello"},{"type":"output_text","text":"Bye"},{"type":"refusal","refusal":"I cannot help"}]},{"type":"function_call","id":"fc_1","call_id":"call_1","name":"get_weather","arguments":"{\"location\":\"NYC\"}"}],"usage":{"input_tokens":11,"output_tokens":9,"total_tokens":20}}"#,
             &config(),
         )
         .expect("parsed");
@@ -598,8 +613,9 @@ mod tests {
         assert_eq!(
             streamed.content, parsed.content,
             "content must match part for part: two text deltas coalesce into one \
-             OutputContent::Text, the refusal becomes OutputContent::Refusal as \
-             the parser produces it, and the unmodeled reasoning item survives"
+             OutputContent::Text while a second output_text part becomes a part \
+             of its own, the refusal becomes OutputContent::Refusal as the \
+             parser produces it, and the unmodeled reasoning item survives"
         );
         assert_eq!(
             streamed.to_message(),

@@ -62,6 +62,9 @@ pub enum StreamEvent {
 pub(crate) enum RawDelta {
     /// Generated text.
     Text(String),
+    /// The end of one text block. Text continues to coalesce within a block;
+    /// this starts a new `OutputContent::Text`, matching one part per block.
+    TextEnd,
     /// The model declined to answer.
     Refusal(String),
     /// A tool call has begun.
@@ -138,6 +141,8 @@ struct Assembler {
     /// Mirrors [`StreamDecoder::normalizes_tool_arguments`] for the dialect
     /// this stream belongs to.
     normalize_arguments: bool,
+    /// Whether the trailing captured part is a text block still being filled.
+    text_open: bool,
 }
 
 impl Assembler {
@@ -155,6 +160,7 @@ impl Assembler {
             usage: None,
             provider_metadata: None,
             finished: false,
+            text_open: false,
         }
     }
 
@@ -163,13 +169,18 @@ impl Assembler {
         match delta {
             RawDelta::Text(text) => {
                 // Consecutive deltas coalesce into one content part, so
-                // `captured` matches the shape `generate()` produces.
+                // `captured` matches the shape `generate()` produces — but only
+                // within a block, since the parsers emit one part per block.
                 match self.captured.last_mut() {
-                    Some(OutputContent::Text(existing)) => existing.push_str(&text),
+                    Some(OutputContent::Text(existing)) if self.text_open => {
+                        existing.push_str(&text)
+                    }
                     _ => self.captured.push(OutputContent::Text(text.clone())),
                 }
+                self.text_open = true;
                 out.push(StreamEvent::TextDelta(text));
             }
+            RawDelta::TextEnd => self.text_open = false,
             RawDelta::Refusal(text) => {
                 // Refusals never coalesce into a neighbouring Text part: the
                 // parser keeps them as their own OutputContent::Refusal.
@@ -536,6 +547,39 @@ mod tests {
         assert_eq!(assembler.captured, vec![OutputContent::Text("ab".into())]);
         assert_eq!(assembler.id, "resp_1");
         assert_eq!(assembler.model, "test-model");
+    }
+
+    #[test]
+    fn assembler_keeps_text_blocks_separate() {
+        let mut assembler = Assembler::new("acme".into(), false);
+        let mut out = Vec::new();
+
+        // One block arriving in two deltas, then a second block.
+        assembler.absorb(RawDelta::Text("A".into()), &mut out);
+        assembler.absorb(RawDelta::Text("a".into()), &mut out);
+        assembler.absorb(RawDelta::TextEnd, &mut out);
+        assembler.absorb(RawDelta::Text("B".into()), &mut out);
+        assembler.absorb(RawDelta::TextEnd, &mut out);
+
+        assert_eq!(
+            assembler.captured,
+            vec![
+                OutputContent::Text("Aa".into()),
+                OutputContent::Text("B".into()),
+            ],
+            "deltas within a block coalesce, but a block boundary starts a new \
+             part, because that is one OutputContent::Text per block as the \
+             parsers produce"
+        );
+        assert_eq!(
+            out,
+            vec![
+                StreamEvent::TextDelta("A".into()),
+                StreamEvent::TextDelta("a".into()),
+                StreamEvent::TextDelta("B".into()),
+            ],
+            "the boundary is internal bookkeeping and produces no event"
+        );
     }
 
     #[test]

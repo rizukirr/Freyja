@@ -31,7 +31,7 @@ use crate::provider::sse::SseFrame;
 use crate::provider::stream::{RawDelta, StreamDecoder};
 use crate::provider::{ResponseStatus, Usage};
 use serde_json::Value;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// A thinking block being reassembled, so the replayable blob can be rebuilt
 /// in the same shape the non-streaming parser produces.
@@ -48,6 +48,10 @@ struct PendingThinking {
 #[derive(Default)]
 pub(crate) struct Decoder {
     tools: HashMap<usize, ()>,
+    /// Indices of text blocks, so `content_block_stop` can close the block.
+    /// convert_block emits one `OutputContent::Text` per text block, and
+    /// without the boundary two adjacent blocks would coalesce into one part.
+    texts: HashSet<usize>,
     thinking: HashMap<usize, PendingThinking>,
     /// Blocks whose type this decoder does not model, kept whole so
     /// `content_block_stop` can emit them exactly as the parser would, together
@@ -111,9 +115,12 @@ impl StreamDecoder for Decoder {
                     Some("thinking") => {
                         self.thinking.insert(index, PendingThinking::default());
                     }
-                    // Text is modeled: it arrives through text_delta and needs
-                    // no state, so it must not be kept as an opaque blob.
-                    Some("text") => {}
+                    // Text is modeled: it arrives through text_delta, so it must
+                    // not be kept as an opaque blob. Only the index is needed,
+                    // to close the block at content_block_stop.
+                    Some("text") => {
+                        self.texts.insert(index);
+                    }
                     _ => {
                         self.opaque.insert(index, (block.clone(), String::new()));
                     }
@@ -176,6 +183,8 @@ impl StreamDecoder for Decoder {
                         object.insert("input".into(), input);
                     }
                     out.push(RawDelta::ReasoningBlob(block));
+                } else if self.texts.remove(&index) {
+                    out.push(RawDelta::TextEnd);
                 }
             }
             "message_delta" => {

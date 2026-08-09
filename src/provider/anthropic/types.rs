@@ -656,17 +656,23 @@ mod tests {
                 b"event: content_block_delta\ndata: {\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"Hel\"}}\n\n".to_vec(),
                 b"event: content_block_delta\ndata: {\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"lo\"}}\n\n".to_vec(),
                 b"event: content_block_stop\ndata: {\"index\":0}\n\n".to_vec(),
-                b"event: content_block_start\ndata: {\"index\":1,\"content_block\":{\"type\":\"thinking\",\"thinking\":\"\",\"signature\":\"\"}}\n\n".to_vec(),
-                b"event: content_block_delta\ndata: {\"index\":1,\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\"Considering.\"}}\n\n".to_vec(),
-                b"event: content_block_delta\ndata: {\"index\":1,\"delta\":{\"type\":\"signature_delta\",\"signature\":\"sig-1\"}}\n\n".to_vec(),
+                // A second, adjacent text block. The parser makes one
+                // OutputContent::Text per block, so the boundary has to survive
+                // the stream rather than merging into the block before it.
+                b"event: content_block_start\ndata: {\"index\":1,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n".to_vec(),
+                b"event: content_block_delta\ndata: {\"index\":1,\"delta\":{\"type\":\"text_delta\",\"text\":\"Bye\"}}\n\n".to_vec(),
                 b"event: content_block_stop\ndata: {\"index\":1}\n\n".to_vec(),
-                b"event: content_block_start\ndata: {\"index\":2,\"content_block\":{\"type\":\"tool_use\",\"id\":\"toolu_1\",\"name\":\"get_weather\",\"input\":{}}}\n\n".to_vec(),
-                b"event: content_block_delta\ndata: {\"index\":2,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"unit\\\":\\\"c\\\",\"}}\n\n".to_vec(),
-                b"event: content_block_delta\ndata: {\"index\":2,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"\\\"location\\\":\\\"NYC\\\"}\"}}\n\n".to_vec(),
+                b"event: content_block_start\ndata: {\"index\":2,\"content_block\":{\"type\":\"thinking\",\"thinking\":\"\",\"signature\":\"\"}}\n\n".to_vec(),
+                b"event: content_block_delta\ndata: {\"index\":2,\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\"Considering.\"}}\n\n".to_vec(),
+                b"event: content_block_delta\ndata: {\"index\":2,\"delta\":{\"type\":\"signature_delta\",\"signature\":\"sig-1\"}}\n\n".to_vec(),
                 b"event: content_block_stop\ndata: {\"index\":2}\n\n".to_vec(),
-                b"event: content_block_start\ndata: {\"index\":3,\"content_block\":{\"type\":\"server_tool_use\",\"id\":\"srvtoolu_1\",\"name\":\"web_search\",\"input\":{}}}\n\n".to_vec(),
-                b"event: content_block_delta\ndata: {\"index\":3,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"query\\\":\\\"rust\\\"}\"}}\n\n".to_vec(),
+                b"event: content_block_start\ndata: {\"index\":3,\"content_block\":{\"type\":\"tool_use\",\"id\":\"toolu_1\",\"name\":\"get_weather\",\"input\":{}}}\n\n".to_vec(),
+                b"event: content_block_delta\ndata: {\"index\":3,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"unit\\\":\\\"c\\\",\"}}\n\n".to_vec(),
+                b"event: content_block_delta\ndata: {\"index\":3,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"\\\"location\\\":\\\"NYC\\\"}\"}}\n\n".to_vec(),
                 b"event: content_block_stop\ndata: {\"index\":3}\n\n".to_vec(),
+                b"event: content_block_start\ndata: {\"index\":4,\"content_block\":{\"type\":\"server_tool_use\",\"id\":\"srvtoolu_1\",\"name\":\"web_search\",\"input\":{}}}\n\n".to_vec(),
+                b"event: content_block_delta\ndata: {\"index\":4,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"query\\\":\\\"rust\\\"}\"}}\n\n".to_vec(),
+                b"event: content_block_stop\ndata: {\"index\":4}\n\n".to_vec(),
                 b"event: message_delta\ndata: {\"delta\":{\"stop_reason\":\"tool_use\"},\"usage\":{\"output_tokens\":9}}\n\n".to_vec(),
             ],
         )
@@ -675,7 +681,7 @@ mod tests {
         let config =
             ProviderConfig::new(ProviderDialect::Anthropic, "anthropic", "https://x.test/v1");
         let parsed = parse(
-            r#"{"id":"msg_1","model":"claude-sonnet-4","stop_reason":"tool_use","content":[{"type":"text","text":"Hello"},{"type":"thinking","thinking":"Considering.","signature":"sig-1"},{"type":"tool_use","id":"toolu_1","name":"get_weather","input":{"unit":"c","location":"NYC"}},{"type":"server_tool_use","id":"srvtoolu_1","name":"web_search","input":{"query":"rust"}}],"usage":{"input_tokens":11,"cache_creation_input_tokens":100,"cache_read_input_tokens":1000,"output_tokens":9}}"#,
+            r#"{"id":"msg_1","model":"claude-sonnet-4","stop_reason":"tool_use","content":[{"type":"text","text":"Hello"},{"type":"text","text":"Bye"},{"type":"thinking","thinking":"Considering.","signature":"sig-1"},{"type":"tool_use","id":"toolu_1","name":"get_weather","input":{"unit":"c","location":"NYC"}},{"type":"server_tool_use","id":"srvtoolu_1","name":"web_search","input":{"query":"rust"}}],"usage":{"input_tokens":11,"cache_creation_input_tokens":100,"cache_read_input_tokens":1000,"output_tokens":9}}"#,
             &config,
         )
         .expect("parsed");
@@ -691,18 +697,19 @@ mod tests {
         assert_eq!(
             streamed.content, parsed.content,
             "content must match part for part, including that two text deltas \
-             coalesce into the single OutputContent::Text the parser produces"
+             coalesce into the single OutputContent::Text the parser produces \
+             for their block, while the next block starts a part of its own"
         );
-        assert_eq!(streamed.output_text(), "Hello");
+        assert_eq!(streamed.output_text(), "HelloBye");
         assert!(
             streamed.provider_metadata.is_some(),
             "metadata must be populated, not silently dropped as it was before"
         );
         assert_eq!(
             streamed.content.len(),
-            4,
-            "text, thinking, tool call, and the unmodeled server_tool_use block \
-             must all survive the stream"
+            5,
+            "both text blocks, thinking, the tool call, and the unmodeled \
+             server_tool_use block must all survive the stream"
         );
         assert!(streamed.has_tool_calls());
         assert_eq!(
@@ -849,6 +856,7 @@ mod tests {
             deltas,
             vec![
                 RawDelta::Text("Let me check.".into()),
+                RawDelta::TextEnd,
                 RawDelta::ToolStart {
                     slot: 1,
                     id: "toolu_01".into(),
@@ -865,7 +873,8 @@ mod tests {
                 RawDelta::ToolEnd { slot: 1 },
             ],
             "the index counts content blocks, so prose ahead of the call \
-             pushes it to 1; stopping a text block must emit no ToolEnd"
+             pushes it to 1; stopping a text block closes that block and must \
+             emit no ToolEnd"
         );
     }
 
