@@ -412,7 +412,7 @@ cannot corrupt a frame, which is the failure mode the tests pin down."
 - Create: `src/provider/stream.rs`
 - Modify: `src/provider/mod.rs:17-21`
 
-- [ ] **Step 1: Declare and re-export the module**
+- [x] **Step 1: Declare and re-export the module**
 
 In `src/provider/mod.rs`, replace lines 17-21:
 
@@ -440,7 +440,7 @@ pub use stream::{EventStream, StreamEvent};
 
 Note: `EventStream` does not exist until Task 5. Between this step and Task 5 the crate does not compile; Task 3 Step 5 adds a placeholder so each task still ends green.
 
-- [ ] **Step 2: Write the failing test**
+- [x] **Step 2: Write the failing test**
 
 Create `src/provider/stream.rs` containing only this:
 
@@ -467,12 +467,12 @@ mod tests {
 }
 ```
 
-- [ ] **Step 3: Run the test to verify it fails**
+- [x] **Step 3: Run the test to verify it fails**
 
 Run: `cargo test --all-features stream::tests::event_is_non_exhaustive_and_comparable`
 Expected: FAIL to compile, with errors naming `StreamEvent` as not found in this scope.
 
-- [ ] **Step 4: Write the types**
+- [x] **Step 4: Write the types**
 
 In `src/provider/stream.rs`, insert this directly under the `//!` doc comment and above the test module:
 
@@ -571,7 +571,7 @@ pub(crate) trait StreamDecoder: Send {
 }
 ```
 
-- [ ] **Step 5: Add a placeholder so the crate compiles**
+- [x] **Step 5: Add a placeholder so the crate compiles**
 
 `src/provider/mod.rs` now re-exports `EventStream`, which Task 5 defines. Add this to `src/provider/stream.rs`, directly after the `StreamDecoder` trait, so this task ends with a compiling crate:
 
@@ -585,17 +585,17 @@ pub struct EventStream {
 }
 ```
 
-- [ ] **Step 6: Run the test to verify it passes**
+- [x] **Step 6: Run the test to verify it passes**
 
 Run: `cargo test --all-features stream::tests::event_is_non_exhaustive_and_comparable`
 Expected: PASS.
 
-- [ ] **Step 7: Confirm the whole crate builds**
+- [x] **Step 7: Confirm the whole crate builds**
 
 Run: `cargo build --all-targets`
 Expected: success, no errors.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add src/provider/stream.rs src/provider/mod.rs
