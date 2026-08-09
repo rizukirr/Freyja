@@ -121,10 +121,11 @@ The model does not run anything. It asks; you decide. Turning that into a loop i
 
 ## Run the examples
 
-The repository ships three runnable programs:
+The repository ships four runnable programs:
 
 ```bash
 cargo run --example simple           # one question, one answer
+cargo run --example streaming        # the same answer, printed as it arrives
 cargo run --example tool_loop        # a bounded agent loop
 cargo run --example custom_endpoint  # an endpoint with no preset
 ```

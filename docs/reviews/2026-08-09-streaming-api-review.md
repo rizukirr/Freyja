@@ -262,3 +262,70 @@ each wire format rather than observed traffic) is **unchanged**. The transport
 tests prove the client speaks correct HTTP to a socket; they do not prove the
 frame shapes match what the providers actually send. A live smoke run remains the
 highest-value next step.
+
+---
+
+# Addendum: the documentation gap
+
+Found only because the user asked "have you updated the documentation?" — after
+this review had already reported 0 blocks.
+
+**The answer was no.** The repository carries a 24-file user documentation tree
+and this branch had touched none of it. Eight statements across seven files
+actively told readers streaming did not exist:
+
+```
+docs/README.md:66              "There is no streaming, no retries..."
+docs/introduction.md:32        "Streaming, retries... do not exist yet"
+docs/features.md:59            "| **Streaming** | Not implemented"
+docs/reference/client.md:126   "Streaming is not implemented yet"
+docs/providers/openai.md:37    "| Streaming | no |"
+docs/providers/openai-chat.md:52   same
+docs/providers/anthropic.md:38     same
+docs/providers/gemini.md:38        same
+```
+
+Three pages were also structurally out of date: `reference/errors.md` listed five
+`ProviderError` variants where there are now six plus `#[non_exhaustive]`;
+`reference/client.md` documented every method except `stream`; and
+`internals/adding-a-dialect.md` described a dialect's `mod.rs` as "the Provider
+impl, about 25 lines", which would have led a contributor to ship a dialect that
+compiles and silently cannot stream — reproducing the exact stub state Task 7
+created and the defect class that took five verification rounds to clear.
+
+## Why every gate missed it
+
+The spec never mentioned `docs/`. So the plan had no task for it, `verify-gate`
+had no requirement to check, and this review's Pass 1 measured coverage *against
+the spec*. A blind spot in the spec propagated silently through every downstream
+gate that was supposed to catch it. The lesson is not "add a docs checklist" — it
+is that spec-derived verification cannot see what the spec omits, and something
+in the pipeline has to ask what the spec forgot.
+
+## Resolved — Task 25 (`8b59c31`) plus a follow-up
+
+All eight false statements corrected, `docs/reference/streaming.md` written and
+linked from the index, and `adding-a-dialect.md` extended with the decoder and
+parity-test steps a new dialect now needs.
+
+Four further inaccuracies surfaced during the work that the task list had missed:
+
+- `getting-started.md` said the repo ships "three runnable programs"; there are
+  four. Fixed in a follow-up commit.
+- `client.md` and `features.md` both described the default HTTP client as a
+  "120 second per request timeout". It is a `read_timeout` — an inactivity
+  bound — which is exactly the distinction a streaming caller needs. Both
+  corrected, and the `with_http_client` sample now shows `.read_timeout()`.
+- `features.md` said the error type has "Five variants".
+- Neither the capability tables nor the new page implied live-API coverage that
+  does not exist. `features.md` and `streaming.md` both now state plainly that
+  streaming has never been exercised against a live API on any provider, and that
+  every dialect's frames come from vendor documentation and recorded fixtures.
+
+That last point matters: it makes this review's self-critique risk 1 visible to
+users rather than only to us.
+
+## State
+
+- User docs: no remaining false statement about streaming
+- 92 lib + 4 transport + 10 doctests passing; no code touched by Task 25

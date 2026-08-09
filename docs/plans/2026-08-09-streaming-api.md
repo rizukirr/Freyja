@@ -4636,7 +4636,7 @@ this because the spec never mentioned `docs/`.
 **Files — add:**
 - `docs/reference/streaming.md`
 
-- [ ] **Step 1: Read the conventions before writing anything**
+- [x] **Step 1: Read the conventions before writing anything**
 
 Read `docs/README.md`, `docs/reference/responses.md`, and
 `docs/reference/errors.md` in full. Match their voice, table style, heading
@@ -4649,7 +4649,7 @@ Note the stated convention: samples assume
 samples are written as if inside an `async fn` returning
 `Result<(), freyja::ProviderError>`.
 
-- [ ] **Step 2: Write `docs/reference/streaming.md`**
+- [x] **Step 2: Write `docs/reference/streaming.md`**
 
 Cover, in this order:
 
@@ -4674,13 +4674,13 @@ Cover, in this order:
    supplying their own client via `with_http_client` should set `read_timeout`
    rather than `timeout`, or a long stream is cut short.
 
-- [ ] **Step 3: Correct the eight false statements**
+- [x] **Step 3: Correct the eight false statements**
 
 Work through the file list above. Do not simply delete the rows — a reader
 scanning the capability tables should find a positive statement where the
 negative one was.
 
-- [ ] **Step 4: Update `adding-a-dialect.md`**
+- [x] **Step 4: Update `adding-a-dialect.md`**
 
 This is the highest-value correction. A contributor following the current page
 ships a dialect that compiles and silently cannot stream — the exact stub state
@@ -4691,7 +4691,7 @@ adding a `streamed_response_matches_generate` parity test. Say plainly that ever
 streaming defect found in review came from a decoder disagreeing with its parser,
 and that the parity test is what catches it.
 
-- [ ] **Step 5: Verify**
+- [x] **Step 5: Verify**
 
 Run: `grep -rn "no streaming\|Streaming | no\|Streaming is not implemented" docs`
 Expected: matches only inside `docs/specs/`, `docs/plans/`, `docs/verifications/`,
@@ -4700,7 +4700,7 @@ or `docs/reviews/`, which are historical records and must NOT be edited.
 Run: `grep -c "streaming.md" docs/README.md` → at least 1.
 Run: `cargo test --all-features` → unchanged counts (no code touched).
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add docs
