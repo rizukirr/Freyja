@@ -3414,7 +3414,7 @@ with empty input, where the parser would have the finished object.
 **Gap C — `provider_metadata` is Anthropic-only.** The other three dialects still
 pass `None`, so the CR6 claim holds for one dialect out of four.
 
-- [ ] **Step 1: Write the failing OpenAiResponses test**
+- [x] **Step 1: Write the failing OpenAiResponses test**
 
 In `src/provider/openai_responses/types.rs`, add to `mod tests`:
 
@@ -3440,12 +3440,12 @@ In `src/provider/openai_responses/types.rs`, add to `mod tests`:
     }
 ```
 
-- [ ] **Step 2: Run it, confirm it fails**
+- [x] **Step 2: Run it, confirm it fails**
 
 Run: `cargo test --all-features --lib preserves_unrecognised_items_when_streaming`
 Expected: FAIL with `left: []`.
 
-- [ ] **Step 3: Mirror the parser in the Responses decoder**
+- [x] **Step 3: Mirror the parser in the Responses decoder**
 
 In `src/provider/openai_responses/mod.rs`, replace the `response.output_item.done`
 arm's body with a check that mirrors `convert_item`'s modeled set:
@@ -3462,13 +3462,13 @@ arm's body with a check that mirrors `convert_item`'s modeled set:
             }
 ```
 
-- [ ] **Step 4: Confirm it passes**
+- [x] **Step 4: Confirm it passes**
 
 Run: `cargo test --all-features --lib preserves_unrecognised`
 Expected: PASS, 3 tests (anthropic, gemini, openai_responses). Confirm the count
 is 3, not 0 and not 2.
 
-- [ ] **Step 5: Write the failing test for the early-snapshot gap**
+- [x] **Step 5: Write the failing test for the early-snapshot gap**
 
 In `src/provider/anthropic/types.rs`, add to `mod tests`:
 
@@ -3506,13 +3506,13 @@ In `src/provider/anthropic/types.rs`, add to `mod tests`:
     }
 ```
 
-- [ ] **Step 6: Run it, confirm it fails**
+- [x] **Step 6: Run it, confirm it fails**
 
 Run: `cargo test --all-features --lib opaque_blocks_capture_their_streamed_input`
 Expected: FAIL — the emitted blob carries `"input": {}` because it was snapshotted
 at start.
 
-- [ ] **Step 7: Accumulate deltas into opaque blocks**
+- [x] **Step 7: Accumulate deltas into opaque blocks**
 
 In `src/provider/anthropic/mod.rs`, change the `opaque` map to hold the block plus
 an argument buffer. Replace the field declaration with:
@@ -3566,12 +3566,12 @@ In `content_block_stop`'s opaque branch, merge the buffer back in:
                 }
 ```
 
-- [ ] **Step 8: Confirm it passes**
+- [x] **Step 8: Confirm it passes**
 
 Run: `cargo test --all-features --lib opaque_blocks_capture_their_streamed_input`
 Expected: PASS, 1 test.
 
-- [ ] **Step 9: Populate provider_metadata in the other three dialects**
+- [x] **Step 9: Populate provider_metadata in the other three dialects**
 
 `src/provider/openai_responses/mod.rs`, in the `response.completed`/`.incomplete`/
 `.failed` arm's `RawDelta::Meta`:
@@ -3596,7 +3596,7 @@ Expected: PASS, 1 test.
 Chat emits `Meta` on many chunks and the assembler takes the last non-`None`, so
 this lands the final chunk's object — the one carrying usage and finish reason.
 
-- [ ] **Step 10: Extend the parity test to cover a tool call and a reasoning blob**
+- [x] **Step 10: Extend the parity test to cover a tool call and a reasoning blob**
 
 In `src/provider/anthropic/types.rs`, replace the fixtures inside
 `streamed_response_matches_generate` so both sides carry text, a thinking block,
@@ -3645,7 +3645,7 @@ verbatim difference. Note the tool-call `arguments` string is produced by
 streaming side; if they differ only by whitespace, that is a real finding worth
 reporting, not something to paper over.
 
-- [ ] **Step 11: Run everything**
+- [x] **Step 11: Run everything**
 
 Run: `cargo test --all-features --lib streamed_response_matches_generate`
 Expected: PASS, 1 test.
@@ -3659,7 +3659,7 @@ Expected: no warnings.
 Run: `cargo fmt --all` then `cargo fmt --all --check`
 Expected: no output.
 
-- [ ] **Step 12: Update the into_response doc to match reality**
+- [x] **Step 12: Update the into_response doc to match reality**
 
 In `src/provider/stream.rs`, the doc comment currently hedges with "where the
 dialect supplies one". All four now supply one, so replace that clause:
@@ -3672,7 +3672,7 @@ dialect supplies one". All four now supply one, so replace that clause:
     /// usage — does match, and `to_message()` produces the same assistant turn.
 ```
 
-- [ ] **Step 13: Commit**
+- [x] **Step 13: Commit**
 
 ```bash
 git add src/provider
