@@ -43,10 +43,28 @@ async fn main() {
 }
 ```
 
+Or take the same answer as it arrives. Tool-call arguments are assembled for you, so nothing hands you half a JSON object:
+
+```rust
+use freyja::StreamEvent;
+
+let mut stream = client.stream(&request).await?;
+while let Some(event) = stream.next().await? {
+    match event {
+        StreamEvent::TextDelta(text) => print!("{text}"),
+        StreamEvent::ToolCall { name, arguments, .. } => println!("\n{name}({arguments})"),
+        _ => {}
+    }
+}
+```
+
+A drained stream converts back with `stream.into_response()?`, so a streaming tool loop reuses the same `to_message()` the non-streaming one does. See [Streaming](docs/reference/streaming.md).
+
 Add tools and a loop and you have an agent. That is [Building an agent](docs/building-an-agent.md), and it is about fifteen lines.
 
 ```bash
 cargo run --example simple           # one question, one answer
+cargo run --example streaming        # the same answer, printed as it arrives
 cargo run --example tool_loop        # a bounded agent loop
 cargo run --example custom_endpoint  # an endpoint with no preset
 ```
@@ -74,10 +92,11 @@ Phase 0 is complete: the neutral core is stable, four wire dialects are implemen
 | Built-in providers | OpenAI, Gemini, Anthropic, all verified against live APIs |
 | Other endpoints | DeepSeek, Groq, OpenRouter, Ollama and friends via `Client::custom` |
 | Tool calling | Full round trip, verified live on four endpoints |
+| Streaming | All four dialects, tested offline only — not yet run against a live API |
 | Dependencies | Three: `reqwest`, `serde`, `serde_json` |
-| Not implemented | Streaming, retries, automatic tool dispatch, orchestration |
+| Not implemented | Retries, automatic tool dispatch, orchestration |
 
-`cargo test`: 54 unit tests and 7 doctests. `cargo clippy --all-targets -- -D warnings` clean. [Features](docs/features.md) has the honest boundary, including which capabilities each provider refuses.
+`cargo test`: 92 unit tests, 4 integration tests, and 10 doctests. `cargo clippy --all-targets -- -D warnings` clean. [Features](docs/features.md) has the honest boundary, including which capabilities each provider refuses.
 
 ## Roadmap
 
