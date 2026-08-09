@@ -641,7 +641,14 @@ mod tests {
                 b"event: content_block_delta\ndata: {\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"Hel\"}}\n\n".to_vec(),
                 b"event: content_block_delta\ndata: {\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"lo\"}}\n\n".to_vec(),
                 b"event: content_block_stop\ndata: {\"index\":0}\n\n".to_vec(),
-                b"event: message_delta\ndata: {\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":9}}\n\n".to_vec(),
+                b"event: content_block_start\ndata: {\"index\":1,\"content_block\":{\"type\":\"thinking\",\"thinking\":\"\",\"signature\":\"\"}}\n\n".to_vec(),
+                b"event: content_block_delta\ndata: {\"index\":1,\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\"Considering.\"}}\n\n".to_vec(),
+                b"event: content_block_delta\ndata: {\"index\":1,\"delta\":{\"type\":\"signature_delta\",\"signature\":\"sig-1\"}}\n\n".to_vec(),
+                b"event: content_block_stop\ndata: {\"index\":1}\n\n".to_vec(),
+                b"event: content_block_start\ndata: {\"index\":2,\"content_block\":{\"type\":\"tool_use\",\"id\":\"toolu_1\",\"name\":\"get_weather\",\"input\":{}}}\n\n".to_vec(),
+                b"event: content_block_delta\ndata: {\"index\":2,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"city\\\":\\\"NYC\\\"}\"}}\n\n".to_vec(),
+                b"event: content_block_stop\ndata: {\"index\":2}\n\n".to_vec(),
+                b"event: message_delta\ndata: {\"delta\":{\"stop_reason\":\"tool_use\"},\"usage\":{\"output_tokens\":9}}\n\n".to_vec(),
             ],
         )
         .expect("drained");
@@ -649,7 +656,7 @@ mod tests {
         let config =
             ProviderConfig::new(ProviderDialect::Anthropic, "anthropic", "https://x.test/v1");
         let parsed = parse(
-            r#"{"id":"msg_1","model":"claude-sonnet-4","stop_reason":"end_turn","content":[{"type":"text","text":"Hello"}],"usage":{"input_tokens":11,"output_tokens":9}}"#,
+            r#"{"id":"msg_1","model":"claude-sonnet-4","stop_reason":"tool_use","content":[{"type":"text","text":"Hello"},{"type":"thinking","thinking":"Considering.","signature":"sig-1"},{"type":"tool_use","id":"toolu_1","name":"get_weather","input":{"city":"NYC"}}],"usage":{"input_tokens":11,"output_tokens":9}}"#,
             &config,
         )
         .expect("parsed");
@@ -667,6 +674,18 @@ mod tests {
         assert!(
             streamed.provider_metadata.is_some(),
             "metadata must be populated, not silently dropped as it was before"
+        );
+        assert_eq!(
+            streamed.content.len(),
+            3,
+            "text, reasoning blob, and tool call must all survive the stream"
+        );
+        assert!(streamed.has_tool_calls());
+        assert_eq!(
+            streamed.to_message(),
+            parsed.to_message(),
+            "the assistant turn replayed into the next request must be identical, \
+             which is the whole point of into_response"
         );
     }
 
@@ -879,6 +898,38 @@ mod tests {
             "the non-streaming parser preserves any unmodeled block verbatim; \
              streaming must not silently drop one, or a replayed transcript \
              is incomplete and the provider rejects the next turn"
+        );
+    }
+
+    #[test]
+    fn opaque_blocks_capture_their_streamed_input() {
+        let deltas = decode_all(&[
+            (
+                "content_block_start",
+                r#"{"index":0,"content_block":{"type":"server_tool_use","id":"srvtoolu_1","name":"web_search","input":{}}}"#,
+            ),
+            (
+                "content_block_delta",
+                r#"{"index":0,"delta":{"type":"input_json_delta","partial_json":"{\"query\":"}}"#,
+            ),
+            (
+                "content_block_delta",
+                r#"{"index":0,"delta":{"type":"input_json_delta","partial_json":"\"rust\"}"}}"#,
+            ),
+            ("content_block_stop", r#"{"index":0}"#),
+        ]);
+
+        assert_eq!(
+            deltas,
+            vec![RawDelta::ReasoningBlob(serde_json::json!({
+                "type": "server_tool_use",
+                "id": "srvtoolu_1",
+                "name": "web_search",
+                "input": {"query": "rust"},
+            }))],
+            "an unmodeled block whose input arrives as deltas must replay with \
+             that input filled in; the start frame's empty object is not what \
+             the non-streaming parser would have stored"
         );
     }
 

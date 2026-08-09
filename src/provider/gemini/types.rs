@@ -468,7 +468,18 @@ mod tests {
                     output_tokens: 90,
                     total_tokens: 346,
                 }),
-                provider_metadata: None,
+                // The terminal frame's own object, carried whole so a caller
+                // can read fields Freyja does not model.
+                provider_metadata: Some(serde_json::json!({
+                    "id": "v1_abc123",
+                    "model": "gemini-3.6-flash",
+                    "status": "completed",
+                    "usage": {
+                        "total_tokens": 346,
+                        "total_input_tokens": 11,
+                        "total_output_tokens": 90,
+                    },
+                })),
             }]
         );
     }

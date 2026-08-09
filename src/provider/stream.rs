@@ -342,11 +342,11 @@ impl EventStream {
     /// yet returned `None`. A response that looks complete but is not, replayed
     /// to a provider, fails in ways that are hard to trace back to here.
     ///
-    /// `provider_metadata` carries the provider's own terminal-frame object
-    /// where the dialect supplies one. It is not byte-identical to the
-    /// non-streaming path's value: `generate()` collects the fields Freyja does
-    /// not model, while a stream carries the object whole. Every field a tool
-    /// loop depends on — id, model, status, content, usage — does match.
+    /// `provider_metadata` carries the provider's own terminal object. It is not
+    /// byte-identical to the non-streaming path's value: `generate()` collects
+    /// the fields Freyja does not model, while a stream carries the object
+    /// whole. Every field a tool loop depends on — id, model, status, content,
+    /// usage — does match, and `to_message()` produces the same assistant turn.
     pub fn into_response(self) -> Result<GenerateResponse, ProviderError> {
         self.assembler.into_response()
     }

@@ -50,8 +50,9 @@ pub(crate) struct Decoder {
     tools: HashMap<usize, ()>,
     thinking: HashMap<usize, PendingThinking>,
     /// Blocks whose type this decoder does not model, kept whole so
-    /// `content_block_stop` can emit them exactly as the parser would.
-    opaque: HashMap<usize, Value>,
+    /// `content_block_stop` can emit them exactly as the parser would, together
+    /// with any `input_json_delta` text that arrives after the start frame.
+    opaque: HashMap<usize, (Value, String)>,
     input_tokens: u64,
 }
 
@@ -108,7 +109,7 @@ impl StreamDecoder for Decoder {
                     // no state, so it must not be kept as an opaque blob.
                     Some("text") => {}
                     _ => {
-                        self.opaque.insert(index, block.clone());
+                        self.opaque.insert(index, (block.clone(), String::new()));
                     }
                 }
             }
@@ -122,10 +123,14 @@ impl StreamDecoder for Decoder {
                     }
                     Some("input_json_delta") => {
                         if let Some(fragment) = delta["partial_json"].as_str() {
-                            out.push(RawDelta::ToolArgs {
-                                slot: index,
-                                fragment: fragment.to_string(),
-                            });
+                            if let Some((_, buffer)) = self.opaque.get_mut(&index) {
+                                buffer.push_str(fragment);
+                            } else {
+                                out.push(RawDelta::ToolArgs {
+                                    slot: index,
+                                    fragment: fragment.to_string(),
+                                });
+                            }
                         }
                     }
                     Some("thinking_delta") => {
@@ -155,7 +160,15 @@ impl StreamDecoder for Decoder {
                         "thinking": pending.thinking,
                         "signature": pending.signature,
                     })));
-                } else if let Some(block) = self.opaque.remove(&index) {
+                } else if let Some((mut block, buffer)) = self.opaque.remove(&index) {
+                    // Replace the start frame's empty placeholder with what
+                    // actually streamed, so the blob matches the parser's.
+                    if !buffer.is_empty()
+                        && let Ok(input) = serde_json::from_str::<Value>(&buffer)
+                        && let Some(object) = block.as_object_mut()
+                    {
+                        object.insert("input".into(), input);
+                    }
                     out.push(RawDelta::ReasoningBlob(block));
                 }
             }

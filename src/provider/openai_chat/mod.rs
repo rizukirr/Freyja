@@ -107,7 +107,7 @@ impl StreamDecoder for Decoder {
                 model,
                 status,
                 usage,
-                provider_metadata: None,
+                provider_metadata: Some(value.clone()),
             });
         }
         Ok(())

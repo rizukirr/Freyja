@@ -168,7 +168,7 @@ impl StreamDecoder for Decoder {
                         None => ResponseStatus::Completed,
                     }),
                     usage,
-                    provider_metadata: None,
+                    provider_metadata: Some(interaction.clone()),
                 });
             }
             _ => {}

@@ -75,10 +75,11 @@ impl StreamDecoder for Decoder {
             }
             "response.output_item.done" => {
                 let item = &value["item"];
-                // Reasoning items must be replayed exactly as received, which
-                // is what the non-streaming parser stores for them too.
-                if item["type"] == "reasoning" {
-                    out.push(RawDelta::ReasoningBlob(item.clone()));
+                // convert_item models exactly `message` and `function_call`;
+                // everything else it preserves whole, so streaming must too.
+                match item["type"].as_str() {
+                    Some("message") | Some("function_call") => {}
+                    _ => out.push(RawDelta::ReasoningBlob(item.clone())),
                 }
             }
             "response.function_call_arguments.delta" => {
@@ -118,7 +119,7 @@ impl StreamDecoder for Decoder {
                         None => ResponseStatus::Completed,
                     }),
                     usage,
-                    provider_metadata: None,
+                    provider_metadata: Some(response.clone()),
                 });
             }
             "error" => {

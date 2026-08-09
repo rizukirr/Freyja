@@ -585,8 +585,39 @@ mod tests {
                     output_tokens: 9,
                     total_tokens: 20,
                 }),
-                provider_metadata: None,
+                // The terminal frame's own object, carried whole so a caller
+                // can read fields Freyja does not model.
+                provider_metadata: Some(serde_json::json!({
+                    "id": "resp_1",
+                    "model": "gpt-5",
+                    "status": "completed",
+                    "usage": {
+                        "input_tokens": 11,
+                        "output_tokens": 9,
+                        "total_tokens": 20,
+                    },
+                })),
             }]
+        );
+    }
+
+    #[test]
+    fn preserves_unrecognised_items_when_streaming() {
+        let deltas = decode_all(&[(
+            "response.output_item.done",
+            r#"{"output_index":0,"item":{"type":"web_search_call","id":"ws_1","status":"completed"}}"#,
+        )]);
+
+        assert_eq!(
+            deltas,
+            vec![RawDelta::ReasoningBlob(serde_json::json!({
+                "type": "web_search_call",
+                "id": "ws_1",
+                "status": "completed",
+            }))],
+            "convert_item catch-alls every item that is not message or \
+             function_call; streaming must preserve the same set or a replayed \
+             transcript loses items the provider expects back"
         );
     }
 }
