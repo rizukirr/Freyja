@@ -219,9 +219,16 @@ impl Assembler {
 
     /// Emits a completed tool call, if `slot` has one pending.
     fn finish_call(&mut self, slot: usize, out: &mut Vec<StreamEvent>) {
-        let Some(call) = self.pending.remove(&slot) else {
+        let Some(mut call) = self.pending.remove(&slot) else {
             return;
         };
+        // A call taking no arguments streams as an empty buffer, but every
+        // dialect's parser normalizes that to an empty object. Match it here,
+        // once, rather than in four decoders: `get_current_time()` must read
+        // the same whether it arrived streamed or whole.
+        if call.arguments.is_empty() {
+            call.arguments.push_str("{}");
+        }
         self.captured.push(OutputContent::ToolCall {
             id: call.id.clone(),
             name: call.name.clone(),
@@ -544,6 +551,34 @@ mod tests {
                 name: "get_weather".into(),
                 arguments: "{\"location\":\"NYC\"}".into(),
             }]
+        );
+    }
+
+    #[test]
+    fn assembler_normalizes_an_argumentless_call() {
+        let mut assembler = Assembler::new("acme".into());
+        let mut out = Vec::new();
+
+        assembler.absorb(
+            RawDelta::ToolStart {
+                slot: 0,
+                id: "call_1".into(),
+                name: "get_current_time".into(),
+            },
+            &mut out,
+        );
+        assembler.absorb(RawDelta::ToolEnd { slot: 0 }, &mut out);
+
+        assert_eq!(
+            out,
+            vec![StreamEvent::ToolCall {
+                id: "call_1".into(),
+                name: "get_current_time".into(),
+                arguments: "{}".into(),
+            }],
+            "every dialect's parser turns absent arguments into an empty \
+             object, so a streamed call with no fragments must too, or the \
+             same tool reads differently depending on how it arrived"
         );
     }
 
