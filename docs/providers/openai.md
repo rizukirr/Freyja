@@ -34,7 +34,7 @@ This is the more complete of the two backends and the one exercised end to end.
 | `metadata` | yes | Sent as `metadata` |
 | Usage reporting | yes | |
 | Refusals | yes | Parsed as `OutputContent::Refusal` |
-| Streaming | no | Not implemented in Freyja |
+| Streaming | yes | `stream: true`, decoded from the API's semantic SSE events |
 
 Nothing in the neutral model currently returns `UnsupportedCapability` on OpenAI except misplaced content, covered below.
 

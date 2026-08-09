@@ -49,7 +49,7 @@ The reason is maintenance honesty rather than effort. A preset is a standing pro
 | `metadata` | yes | Forwarded unchanged |
 | Usage reporting | yes | Field names normalized |
 | Refusals | yes | From the message's `refusal` field |
-| Streaming | no | Not implemented in Freyja |
+| Streaming | yes | `stream: true`, plus `stream_options.include_usage` so token counts still arrive |
 
 ## System turns are not hoisted
 
@@ -150,6 +150,16 @@ Only the first choice is read. The neutral request has no way to ask for more th
 `function_call` is the pre-2023 spelling and is still emitted by some compatible endpoints, so both map to `RequiresAction`.
 
 `content_filter` stays as `Other` rather than becoming `Failed`, because the request succeeded and the endpoint chose to withhold part of the answer.
+
+## Streaming asks for usage explicitly
+
+A streaming request on this dialect gets no token counts unless it asks, so Freyja sends `stream_options: {"include_usage": true}` alongside `stream: true`. Without it the terminal frame carries no usage at all and `StreamEvent::Done` would arrive with `usage: None` on the most widely spoken dialect.
+
+```json
+{"model": "...", "messages": [...], "stream": true, "stream_options": {"include_usage": true}}
+```
+
+This dialect also has no end frame beyond `[DONE]`, so a tool call is complete only once the body closes. Freyja flushes pending calls at that point, which is why `StreamEvent::ToolCall` can arrive later here than on the other dialects. See [Streaming](../reference/streaming.md).
 
 ## Rejected before the network
 

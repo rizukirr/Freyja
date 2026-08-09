@@ -24,7 +24,7 @@ A derived `Debug` would print the key verbatim, so one `tracing::debug!(?client)
 pub fn new(config: impl Into<ProviderConfig>, api_key: impl Into<String>) -> Self
 ```
 
-Builds a client with a pooled `reqwest::Client` and a 120 second per request timeout.
+Builds a client with a pooled `reqwest::Client` and a 120 second read timeout. That bounds the gap between bytes rather than the total duration of a request, so a long generation is not cut short and a stalled connection still fails.
 
 ```rust
 let client = Client::new(ProviderType::OpenAi, "sk-...");
@@ -105,12 +105,14 @@ Use this when you need control over the transport: a different timeout, a proxy,
 use std::time::Duration;
 
 let http = reqwest::Client::builder()
-    .timeout(Duration::from_secs(30))
+    .read_timeout(Duration::from_secs(30))
     .connect_timeout(Duration::from_secs(5))
     .build()?;
 
 let client = Client::with_http_client(ProviderType::OpenAi, api_key, http);
 ```
+
+The client you supply is used as it is, so its timeouts are yours to get right. Set `read_timeout` rather than `timeout` if you stream: `timeout` caps the whole response body, which on a stream is a cap on how long the model is allowed to talk, and a healthy long generation is killed part-way. See [Streaming](streaming.md#timeouts).
 
 ## Methods
 
@@ -123,7 +125,31 @@ pub async fn generate(&self, request: &GenerateRequest)
 
 Sends a request and returns the normalized response. The request is borrowed, so you can reuse and extend it across turns, which is what the tool loop does.
 
-The whole response is buffered before returning. Streaming is not implemented yet.
+The whole response is buffered before returning. Use `stream` when you want the answer as it arrives.
+
+### `stream`
+
+```rust
+pub async fn stream(&self, request: &GenerateRequest)
+    -> Result<EventStream, ProviderError>
+```
+
+Opens a streaming generation. Returns once the provider has accepted the request, so a non-success status arrives here as `ProviderError::Api` rather than mid-stream.
+
+```rust
+use freyja::StreamEvent;
+
+let mut stream = client.stream(&request).await?;
+while let Some(event) = stream.next().await? {
+    if let StreamEvent::TextDelta(text) = event {
+        print!("{text}");
+    }
+}
+
+let response = stream.into_response()?;
+```
+
+A drained stream converts back into the same `GenerateResponse` that `generate` would have returned, so a tool loop needs no second code path. Every dialect supports it. See [Streaming](streaming.md).
 
 ### `config`
 
@@ -218,5 +244,7 @@ pub trait Provider: Send + Sync {
 ```
 
 There is no transport method. `Client` owns convert, POST, check status, parse for every dialect, so it also owns the one `reqwest::Client` that every request in a process shares. The trait has an associated type, so it is not object safe. Dispatch happens through a `ProviderDialect` match inside `Client::generate`, not through a trait object.
+
+Streaming is not part of the trait. Each dialect also owns a decoder that turns its own SSE frames into neutral events, selected by the same match inside `Client::stream`.
 
 Implementing it is covered in [Adding a provider](../internals/adding-a-dialect.md).

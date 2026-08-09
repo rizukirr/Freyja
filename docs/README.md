@@ -38,6 +38,7 @@ Look these up rather than reading them through. Generated rustdoc is on [docs.rs
 | [Messages](reference/messages.md) | `Message`, `Role`, `InputContent` |
 | [Tools](reference/tools.md) | `ToolDefinition`, `ToolChoice`, the round trip in full |
 | [Responses](reference/responses.md) | `GenerateResponse`, `OutputContent`, `ResponseStatus`, `Usage` |
+| [Streaming](reference/streaming.md) | `Client::stream`, `EventStream`, `StreamEvent`, `into_response` |
 | [Errors](reference/errors.md) | `ProviderError` and how to handle each variant |
 
 Wire formats, for debugging an `Api` error against the native JSON: [OpenAI](reference/wire/openai.md), [Chat Completions](reference/wire/openai-chat.md), [Gemini](reference/wire/gemini.md), [Anthropic](reference/wire/anthropic.md).
@@ -63,4 +64,4 @@ Samples that make a network call are written as if inside an `async fn` returnin
 
 ## Status
 
-Phase 0. The neutral core is stable, four dialects are implemented, and tool calling works end to end against live APIs. There is no streaming, no retries, and no orchestration layer. [Features](features.md) has the honest boundary; the [roadmap](../README.md#roadmap-to-mvp) has what is planned.
+Phase 0. The neutral core is stable, four dialects are implemented, tool calling works end to end against live APIs, and every dialect streams. There are no retries and no orchestration layer. [Features](features.md) has the honest boundary; the [roadmap](../README.md#roadmap-to-mvp) has what is planned.

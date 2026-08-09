@@ -35,9 +35,11 @@ Name it after the format, not the vendor, because a dialect usually outlives its
 
 ```
 src/provider/<dialect>/
-├── mod.rs      the Provider impl, about 25 lines
+├── mod.rs      the Provider impl, about 25 lines, plus the stream decoder
 └── types.rs    wire structs and conversions
 ```
+
+Two conversions, then, not one. `types.rs` maps the neutral model onto the vendor's request and response bodies, and `mod.rs` also decodes that vendor's SSE frames. A dialect without the decoder compiles and streams nothing, so treat both as part of the job.
 
 Use `openai_responses/` as the template for a format that flattens tool calls into a sibling list, and `anthropic/` for one that nests them inside messages. Which shape you are facing is the first thing to work out, and it decides most of the file.
 
@@ -129,7 +131,28 @@ impl Provider for MyProvider {
 }
 ```
 
-### 6. Wire it into the enums
+### 6. Decode the stream
+
+Streaming is not part of the `Provider` trait. Add a `streaming()` method on the request type that sets whatever the vendor wants, and a `Decoder` in `mod.rs` implementing `StreamDecoder`:
+
+```rust
+pub(crate) trait StreamDecoder: Send {
+    fn decode(&mut self, frame: &SseFrame, out: &mut Vec<RawDelta>) -> Result<(), ProviderError>;
+
+    fn normalizes_tool_arguments(&self) -> bool { false }
+}
+```
+
+You translate frames into `RawDelta`s. Assembling them into events, buffering partial tool arguments, and building the final `GenerateResponse` are shared and already done, so a decoder is a `match` on the vendor's event names and nothing else. Keep it stateless if the frames allow it, as `openai_chat` does, and hold state only for what the vendor spreads across frames, as `gemini` does for its steps.
+
+Four things decide whether the decoder is correct, and all four are places to copy the parser rather than think afresh:
+
+- **Status mapping, arm for arm with `parse`.** Same strings, same neutral variants, same fallback to `ResponseStatus::Other`. Do not share a mapping with another dialect; the strings differ per vendor, and the copies are meant to be read side by side with their own parser.
+- **Usage, computed the same way.** If the parser defaults missing fields to zero, default to zero. If it computes a total the vendor does not report, compute it here too.
+- **Unmodeled blocks preserved as replayable blobs.** The parser's catch-all maps unknown content onto `OutputContent::Reasoning`; the decoder does the same with `RawDelta::ReasoningBlob`. A vendor whose block streams its payload in deltas needs those merged back into the blob before it is emitted, or you replay a truncated one.
+- **Tool arguments normalized identically.** `normalizes_tool_arguments` says whether the parser re-serializes arguments from parsed JSON, which sorts keys and strips whitespace, or hands back the model's own string. Anthropic and Gemini do the first, the OpenAI dialects the second. Get this wrong and a drained stream stops matching `generate` on a byte level while looking right.
+
+### 7. Wire it into the enums
 
 In `src/provider/mod.rs`, add the variant and its three properties:
 
@@ -142,9 +165,9 @@ pub enum ProviderDialect {
 }
 ```
 
-Then `path()`, `default_auth()`, and `required_headers()` each gain an arm, and `Client::generate` gains one dispatch arm. That is all. A preset is only warranted if the dialect belongs to a vendor Freyja can test against, which so far means it usually is not.
+Then `path()`, `default_auth()`, `required_headers()`, and `stream_query()` each gain an arm, and `Client::generate` and `Client::stream` gain one dispatch arm each. `stream_query()` returns `None` for a dialect selected by the body alone, and `Some("alt=sse")` for one like Gemini that also needs it on the URL. That is all. A preset is only warranted if the dialect belongs to a vendor Freyja can test against, which so far means it usually is not.
 
-### 7. Test it
+### 8. Test it
 
 Conversion tests need a config. Build one the way a caller would, unless the dialect has a preset:
 
@@ -163,18 +186,27 @@ fn maps_a_full_tool_round_trip() {
 
 Cover, at minimum: a plain request, a full tool round trip, capabilities the format refuses, and a response normalizing back into the neutral model.
 
-### 8. Verify it live
+### 9. Prove the decoder agrees with the parser
 
-**Offline tests prove Freyja sends the JSON it meant to send, not that the vendor accepts it.** The Gemini dialect shipped with passing tests and three real bugs, including an input format that broke every multi-turn conversation. Point `examples/tool_loop.rs` at the new endpoint and run `cargo run --example tool_loop` before calling it done.
+Add `streamed_response_matches_generate` to the dialect's tests, in the shape the other four use. Feed recorded frames through `stream::drain_for_test`, then assert the drained `GenerateResponse` equals what `parse` produces from the non-streaming body describing the same turn: id, model, status, content part for part, and usage.
 
-### 9. Document it
+**Every streaming defect found in review came from a decoder disagreeing with its parser, not from framing or transport.** A sorted-key difference in tool arguments, a status string mapped one way in `parse` and another in `decode`, a block the parser preserves and the decoder drops. None of those fail a decoder-only test, because a decoder-only test asserts what the decoder does rather than what the parser does. The parity test is the one that catches them, and it is why the parser is the specification: when the two disagree, the decoder is wrong.
 
-Two pages, matching the existing ones: a mapping page with the capability table and the field mapping, and a wire format page documenting the native JSON so users do not have to read vendor docs. Add both to the index in `docs/README.md`.
+Make the fixture carry the awkward cases on purpose. Two adjacent text blocks, so block boundaries have to survive. Arguments split mid-token across frames, in non-alphabetical key order. A block type the dialect does not model. A terminal status that is not `completed`.
+
+### 10. Verify it live
+
+**Offline tests prove Freyja sends the JSON it meant to send, not that the vendor accepts it.** The Gemini dialect shipped with passing tests and three real bugs, including an input format that broke every multi-turn conversation. Point `examples/tool_loop.rs` at the new endpoint and run `cargo run --example tool_loop` before calling it done. Run `cargo run --example streaming` against it too: recorded frames prove the decoder handles the frames you recorded, not that the vendor sends those frames.
+
+### 11. Document it
+
+Two pages, matching the existing ones: a mapping page with the capability table and the field mapping, and a wire format page documenting the native JSON so users do not have to read vendor docs. Add both to the index in `docs/README.md`. The capability table has a `Streaming` row; say how this dialect selects it and anything a caller has to know, the way [Gemini](../providers/gemini.md) and [OpenAI Chat Completions](../providers/openai-chat.md) do.
 
 ## Before you commit
 
 - `cargo test`, `cargo clippy --all-targets -- -D warnings`, `cargo fmt --check`
 - Every public item documented, `#![deny(missing_docs)]` will tell you
+- A `streamed_response_matches_generate` test present and passing for the dialect
 - No `unwrap` on anything derived from a network response
 - Live verification actually run, or the limitation stated plainly in the docs
 

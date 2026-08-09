@@ -29,7 +29,7 @@ Being clear about this saves you evaluating it for a job it does not do.
 - **Not an SDK wrapper.** It does not depend on any vendor's crate. The wire formats are implemented directly, which is why adding a vendor does not mean waiting for someone to publish a binding.
 - **Not a framework.** There is no runtime to adopt, no macro DSL, no trait you must implement to get started. It is a client library with an opinionated request type.
 - **Not magic.** It never silently changes your request. When you ask for something a vendor cannot express, you get an error before the network call, not a plausible answer that quietly ignored you.
-- **Not finished.** Streaming, retries, and automatic tool dispatch do not exist yet. See [Features](features.md) for the honest boundary.
+- **Not finished.** Streaming works on every dialect, but retries and automatic tool dispatch do not exist yet. See [Features](features.md) for the honest boundary.
 
 ## The three ideas
 
