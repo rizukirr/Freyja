@@ -4601,3 +4601,113 @@ Run: `cargo fmt --all --check` → no output.
 git add src/provider/stream.rs
 git commit -m "refactor: collapse a redundant streaming test helper"
 ```
+
+---
+
+### Task 25: Update the user documentation → verify: `grep -rn "no streaming\|Streaming | no\|Streaming is not implemented\|Streaming.*Not implemented" docs/*.md docs/*/*.md` returns nothing outside specs/plans/verifications/reviews, and `docs/reference/streaming.md` exists and is linked from `docs/README.md`
+
+The feature shipped without a single user-facing doc being touched. Eight
+statements across seven files still tell readers streaming does not exist, and
+three pages are structurally out of date. None of the pipeline's gates caught
+this because the spec never mentioned `docs/`.
+
+**Files — correct what is now false:**
+- `docs/README.md` — the Status paragraph says "There is no streaming"; also add
+  the new page to the Reference table
+- `docs/introduction.md:32` — "Streaming, retries, and automatic tool dispatch do
+  not exist yet"
+- `docs/features.md` — move **Streaming** out of "What does not exist yet" and
+  into "What works", in the shape those tables already use
+- `docs/reference/client.md` — `:126` claims the whole response is buffered and
+  streaming is not implemented; also document `Client::stream` alongside the
+  other methods, matching the page's existing per-method format
+- `docs/reference/errors.md` — the enum listing shows five variants; add `Stream`
+  and note the type is `#[non_exhaustive]`, then add a `### Stream` section in
+  the same shape as the existing per-variant sections
+- `docs/providers/openai.md`, `openai-chat.md`, `anthropic.md`, `gemini.md` —
+  each capability table has a `| Streaming | no | Not implemented in Freyja |`
+  row. Correct each, and for Gemini note it selects SSE with `?alt=sse`, for
+  OpenAI Chat that Freyja sets `stream_options.include_usage` so token counts
+  still arrive
+- `docs/internals/adding-a-dialect.md` — states `mod.rs` is "the Provider impl,
+  about 25 lines". A dialect now also needs a `StreamDecoder` impl and a parity
+  test; add those as numbered steps in the page's existing style
+
+**Files — add:**
+- `docs/reference/streaming.md`
+
+- [ ] **Step 1: Read the conventions before writing anything**
+
+Read `docs/README.md`, `docs/reference/responses.md`, and
+`docs/reference/errors.md` in full. Match their voice, table style, heading
+depth, and cross-link format. The docs are written in a specific register —
+direct, second person, no marketing. A page that reads as bolted on is a failure
+even if every fact in it is right.
+
+Note the stated convention: samples assume
+`use freyja::{Client, GenerateRequest, Message, ProviderType, Role};` and network
+samples are written as if inside an `async fn` returning
+`Result<(), freyja::ProviderError>`.
+
+- [ ] **Step 2: Write `docs/reference/streaming.md`**
+
+Cover, in this order:
+
+1. What `Client::stream` returns and how to drive it — the `while let Some(event)
+   = stream.next().await?` loop, noting the `?` sits inside the `while let`
+   because `next` returns `Result<Option<_>>`.
+2. `StreamEvent`'s six variants, each with what it means and when it fires. State
+   that the enum is `#[non_exhaustive]`, so a match needs a `_ => {}` arm.
+3. That fragments are never exposed: tool-call arguments and reasoning blobs are
+   assembled internally and surface only once complete, so no caller stitches
+   partial JSON. This is the crate's main departure from other streaming APIs and
+   deserves a short paragraph.
+4. `into_response()` — what it guarantees (id, model, status, content in order,
+   usage, and `to_message()` all match `generate()`), what it does not
+   (`provider_metadata` differs by shape, because `generate()` collects the fields
+   Freyja does not model while a stream carries the provider object whole), and
+   that it errors if called before the stream is drained.
+5. The streaming tool loop: drain, `into_response()`, `to_message()`, push tool
+   results, call again. Mirror the structure of the existing tool-loop sample in
+   `docs/reference/tools.md` so a reader recognises it.
+6. Timeouts: the default client bounds inactivity, not total duration. A caller
+   supplying their own client via `with_http_client` should set `read_timeout`
+   rather than `timeout`, or a long stream is cut short.
+
+- [ ] **Step 3: Correct the eight false statements**
+
+Work through the file list above. Do not simply delete the rows — a reader
+scanning the capability tables should find a positive statement where the
+negative one was.
+
+- [ ] **Step 4: Update `adding-a-dialect.md`**
+
+This is the highest-value correction. A contributor following the current page
+ships a dialect that compiles and silently cannot stream — the exact stub state
+Task 7 created. Add steps covering: implementing `StreamDecoder` for the dialect,
+mirroring the parser's status map and usage computation arm for arm, preserving
+unmodeled blocks as replayable blobs the way the parser's catch-all does, and
+adding a `streamed_response_matches_generate` parity test. Say plainly that every
+streaming defect found in review came from a decoder disagreeing with its parser,
+and that the parity test is what catches it.
+
+- [ ] **Step 5: Verify**
+
+Run: `grep -rn "no streaming\|Streaming | no\|Streaming is not implemented" docs`
+Expected: matches only inside `docs/specs/`, `docs/plans/`, `docs/verifications/`,
+or `docs/reviews/`, which are historical records and must NOT be edited.
+
+Run: `grep -c "streaming.md" docs/README.md` → at least 1.
+Run: `cargo test --all-features` → unchanged counts (no code touched).
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add docs
+git commit -m "docs: document streaming across the user documentation
+
+The feature shipped without a single user-facing page being touched.
+Eight statements across seven files said streaming did not exist, and
+adding-a-dialect.md described a dialect as needing only a Provider impl,
+which would lead a contributor to ship one that silently cannot stream."
+```
