@@ -7,32 +7,45 @@
 ├── examples/               # runnable, compiled by cargo test
 │   ├── tool_loop.rs        # the one tool agent loop
 │   ├── simple.rs           # one question, one answer
+│   ├── streaming.rs        # the same question, streamed
 │   └── custom_endpoint.rs  # an endpoint with no preset
+├── tests/
+│   └── streaming_transport.rs  # Client::stream against a local TcpListener
 └── src/
     ├── lib.rs              # crate docs, public re-exports, #![deny(missing_docs)]
     └── provider/
         ├── mod.rs          # ProviderDialect, ProviderConfig, Auth, Provider, Client
         ├── model.rs        # the neutral request, response, and error types
         ├── presets.rs      # ProviderType, the endpoints Freyja ships
-        ├── openai_responses/   # dialect: /v1/responses
-        │   ├── mod.rs      # the Provider impl, about 25 lines
+        ├── sse.rs          # SSE framing, dialect-agnostic
+        ├── stream.rs       # StreamEvent, EventStream, RawDelta, StreamDecoder, Assembler
+        ├── openai_responses/   # dialect: /responses
+        │   ├── mod.rs      # the Provider impl and the stream decoder
         │   └── types.rs    # wire types and conversions
         ├── openai_chat/    # dialect: /chat/completions, the compatible one
         │   ├── mod.rs
         │   └── types.rs
-        ├── gemini/         # dialect: /v1beta/interactions
+        ├── gemini/         # dialect: /interactions
         │   ├── mod.rs
         │   └── types.rs
-        └── anthropic/      # dialect: /v1/messages
+        └── anthropic/      # dialect: /messages
             ├── mod.rs
             └── types.rs
 ```
+
+The dialect paths are what `ProviderDialect::path()` appends to an endpoint's `base_url`. Version prefixes like Gemini's `v1beta` or OpenAI's `v1` belong to the preset's base URL, not to the dialect.
+
+`sse.rs` buffers response bytes as `Vec<u8>` rather than `String`, because a chunk boundary can land in the middle of a multi-byte codepoint. UTF-8 is only interpreted once a whole frame is in hand.
+
+`stream.rs` holds the public `StreamEvent` and `EventStream`, the private `RawDelta`, the `pub(crate)` `StreamDecoder` trait, and the shared `Assembler`.
+
+Each dialect's `mod.rs` is no longer a thin wiring file: it carries that dialect's decoder too, which puts it between roughly 130 lines (`openai_chat`) and 240 (`anthropic`).
 
 There is no `main.rs`. Freyja is a library, so the runnable code lives in `examples/`, which keeps the binary out of downstream builds and keeps `tokio` and `dotenvy` in `[dev-dependencies]` where a consumer does not inherit them.
 
 Dialect modules are `pub(crate)`. Their wire types never escape the crate, so `types::Request` and everything like it are invisible to callers. The only thing consumers see is the neutral model.
 
-Modules are named after the wire format, not the vendor, because a dialect usually outlives its author. `openai_responses` is OpenAI's own format; the format most vendors actually copy is Chat Completions, which would be a separate module serving many of them.
+Modules are named after the wire format, not the vendor, because a dialect usually outlives its author. `openai_responses` is OpenAI's own format; the format most vendors actually copy is Chat Completions, which is why `openai_chat` is a separate module serving many of them.
 
 ## The three design rules
 
@@ -58,20 +71,25 @@ This was learned the hard way. An earlier version had `new()` default `tool_choi
 
 ## Conversion
 
-Each provider owns two conversions:
+Each provider owns three conversions:
 
 ```rust
 fn build(&GenerateRequest, &ProviderConfig) -> Result<Request, ProviderError>  // out, can fail
 impl From<Response> for GenerateResponse                                       // in, cannot fail
+impl StreamDecoder for Decoder                                                 // in, streamed
 ```
 
-The asymmetry is deliberate. Going out, a request may ask for something untranslatable, so the conversion is fallible. Coming back, the body already parsed, so anything unrecognized is preserved rather than rejected. Unknown fields go into `provider_metadata`, and unknown output or content types are skipped.
+`build` and `parse` are the `Provider` trait. The decoder is not: streaming reaches the request type through a separate `streaming()` method, which sets whatever field the vendor uses to select SSE, and reaches the response through a `StreamDecoder` impl in the dialect's `mod.rs`.
+
+The asymmetry is deliberate. Going out, a request may ask for something untranslatable, so the conversion is fallible. Coming back, the body already parsed, so anything unrecognized is preserved rather than rejected. Unknown fields go into `provider_metadata`, and an output item of a type Freyja does not model becomes `OutputContent::Reasoning { data: item }`, carrying the item verbatim so it can be replayed. Only unknown content *parts* inside a message are skipped, because a message part Freyja cannot read has no replay requirement attached to it.
 
 Validation lives in the outbound conversion, before any network call. Content in the wrong place, images on the wrong role, or a capability the backend lacks all fail locally.
 
 ## Transport
 
-Transport is shared. `Client::run` does the same four steps for every dialect: convert, POST, check status, parse.
+Transport is shared, and there are two paths through it.
+
+`Client::run` is the non-streaming one. It does the same four steps for every dialect: convert, POST, check status, parse.
 
 It did not start that way. Each provider used to own its own forty line copy, and this page said the duplication was intentional because a shared helper would need parameterizing over auth style, headers, and error attribution, then added "revisit it at four". Splitting endpoint from dialect is what made it worth doing, because those three parameters became fields on `ProviderConfig` rather than arguments to invent. The dialects now implement only `build` and `parse`, and the `Provider` trait has no transport method at all.
 
@@ -87,6 +105,10 @@ pub trait Provider: Send + Sync {
 }
 ```
 
+`Client::stream` is the second shared path, and it is shared the same way: build the body, call `.streaming()` on it, POST to `ProviderConfig::stream_url()`, check the status, then hand the still-open response and a boxed decoder to `EventStream`. `stream_url()` appends `ProviderDialect::stream_query()`, which is `?alt=sse` for Gemini and nothing for the other three, since they select SSE from the body alone. Checking the status before returning means a rejected request surfaces as `ProviderError::Api` from `stream()` itself rather than on the first `next()`.
+
+Bytes come from `reqwest::Response::chunk()`, the inherent method. reqwest's `stream` feature is not enabled and no `futures` dependency was added for it.
+
 The `reqwest::Client` is owned by `Client` rather than by any dialect, so every request in a process shares one connection pool.
 
 ## Dispatch
@@ -94,6 +116,29 @@ The `reqwest::Client` is owned by `Client` rather than by any dialect, so every 
 `Client::generate` matches on `ProviderConfig::dialect` and calls the right implementation.
 
 The trait has an associated type, so it is not object safe, which rules out `Box<dyn Provider>`. The match is fine at this scale: it is static dispatch, and adding a dialect means adding one arm. Adding a *vendor* usually means adding no arm at all, only a preset.
+
+## Streaming
+
+Streaming is three layers, and each one knows less than the one below it.
+
+```
+response bytes
+  -> sse::SseBuffer            frames, no idea which vendor sent them
+  -> <dialect>::Decoder        RawDeltas, the only vendor-aware layer
+  -> stream::Assembler         StreamEvents and the final GenerateResponse
+```
+
+**Framing.** `SseBuffer::push` takes raw chunks and `next_frame` yields an `SseFrame` — an optional `event:` name and the joined `data:` payload — once a blank line has arrived. It is dialect-agnostic, so all four dialects share it, and it holds bytes rather than a `String` because a chunk boundary can split a multi-byte codepoint.
+
+**Decoding.** `StreamDecoder::decode` translates one frame into `RawDelta`s: text, a text-block boundary, a tool call starting, argument fragments, a reasoning blob, response metadata. `RawDelta` is private and deliberately loose — its `slot` field is Anthropic's content-block index, OpenAI Chat's tool-call index, Responses' output index, Gemini's step index. Those numbers do not mean the same thing across dialects, and nothing downstream needs them to. They only have to be consistent within one stream.
+
+**Assembling.** `Assembler` turns `RawDelta`s into neutral `StreamEvent`s and, in the same pass, builds the `OutputContent` parts that `EventStream::into_response` returns. It owns the only mutable state streaming needs: partial tool arguments buffered until the call ends, and whether the trailing text part is still open.
+
+The split is where it is because everything above the decoder is a parity risk. A tool call with no arguments has to become `{}`, not an empty string. Text deltas have to coalesce within a block but start a new part at a block boundary. A call the vendor never explicitly ends — OpenAI Chat sends no end frame — has to be flushed when the body closes, or it disappears. Each of those is a rule about matching what `generate()` produces, and each is written once in the assembler rather than four times in decoders. A defect in any of them is fixed in one place.
+
+The one thing that could not be hoisted is tool-argument normalization. Anthropic and Gemini parse arguments and re-serialize them, which sorts keys and strips whitespace; the OpenAI dialects hand back the model's own string. The assembler cannot guess which, so `StreamDecoder::normalizes_tool_arguments` reports it per dialect and the assembler applies it.
+
+A stream that ends without a terminal frame reports `ResponseStatus::Incomplete`, which is the assembler's initial value rather than something it infers. `into_response` before the stream is drained is `ProviderError::Stream` rather than a plausible-looking partial response.
 
 ## Tool calling across four wire shapes
 
@@ -163,17 +208,26 @@ The alternative designs were a provider-side cache keyed by response id, rejecte
 
 ## Testing
 
-Tests live beside the code in `#[cfg(test)]` modules, and every one is offline. They test conversion, which is where the logic is, not transport.
+Most tests live beside the code in `#[cfg(test)]` modules, and every one is offline. They test conversion, which is where the logic is.
 
-Coverage is currently 16 unit tests and 4 doctests:
+Coverage is currently 93 library unit tests, 4 integration tests, and 10 doctests:
 
 - Neutral to wire mapping per provider
 - Wire to neutral normalization per provider
 - Capability rejection and malformed request rejection
 - Full tool round trips, response to assistant turn to tool result to next request
+- SSE framing, including a codepoint split across chunks and CRLF separators
+- Assembler behaviour: coalescing, block boundaries, concurrent calls, unended calls
+- Per dialect, a `streamed_response_matches_generate` parity test asserting that a drained stream equals what `parse` produces from the non-streaming body for the same turn
 
-There is no HTTP mocking, so the transport modules are not exercised by tests. A recording and replay layer plus a mock provider are Phase 5 work.
+There is still no HTTP mocking library, but transport is no longer untested. Two mechanisms cover it, deliberately at different levels.
+
+`tests/streaming_transport.rs` drives `Client::stream` against a real `std::net::TcpListener`, which checks what only a socket can: that Gemini gets `?alt=sse` on the URL and `generate` does not, and that a non-success status is raised before any event is yielded.
+
+Below that, `Body::Recorded` and `stream::drain_for_test` push recorded bytes through the real `SseBuffer`, the real decoder, and the real assembler with no HTTP at all. That is what makes the parity tests cheap enough to write one per dialect, and it exists because `reqwest::Response` cannot be constructed from recorded bytes.
+
+**Streaming works on all four dialects but has never been run against a live API.** Frame shapes come from vendor documentation and recorded fixtures, so the tests prove the decoders handle the frames we recorded, not that the vendors send those frames.
 
 ## Adding a provider
 
-The core is stable enough that a third backend is additive. See [Adding a provider](../internals/adding-a-dialect.md).
+Four dialects have landed without changing `model.rs`, so a fifth is additive. See [Adding a provider](../internals/adding-a-dialect.md).

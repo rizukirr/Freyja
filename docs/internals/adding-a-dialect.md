@@ -35,9 +35,11 @@ Name it after the format, not the vendor, because a dialect usually outlives its
 
 ```
 src/provider/<dialect>/
-├── mod.rs      the Provider impl, about 25 lines, plus the stream decoder
+├── mod.rs      the Provider impl, a couple of dozen lines, plus the stream decoder
 └── types.rs    wire structs and conversions
 ```
+
+The decoder dominates `mod.rs`: the existing ones run from about 130 lines for `openai_chat` to about 240 for `anthropic`, of which the `Provider` impl is roughly twenty.
 
 Two conversions, then, not one. `types.rs` maps the neutral model onto the vendor's request and response bodies, and `mod.rs` also decodes that vendor's SSE frames. A dialect without the decoder compiles and streams nothing, so treat both as part of the job.
 
@@ -76,7 +78,7 @@ impl Request {
 Two things come from `config` rather than from a constant:
 
 - `config.model_for(value)?` resolves the model, preferring the request's own choice and falling back to the endpoint default. It errors when neither is set, rather than inventing a name.
-- `config.name.clone()` is the `provider` field on every error you raise, so a failure reports the endpoint rather than the dialect.
+- `config.name.clone()` is the `provider` field on every error you raise, so a failure reports the endpoint rather than the dialect. This holds everywhere, not just here: the decoder has no `ProviderConfig`, so it is handed the same name as an argument. Never write a dialect literal.
 
 Refuse what the format cannot express, rather than dropping it:
 
@@ -137,15 +139,36 @@ Streaming is not part of the `Provider` trait. Add a `streaming()` method on the
 
 ```rust
 pub(crate) trait StreamDecoder: Send {
-    fn decode(&mut self, frame: &SseFrame, out: &mut Vec<RawDelta>) -> Result<(), ProviderError>;
+    fn decode(
+        &mut self,
+        frame: &SseFrame,
+        provider: &Arc<str>,
+        out: &mut Vec<RawDelta>,
+    ) -> Result<(), ProviderError>;
 
     fn normalizes_tool_arguments(&self) -> bool { false }
 }
 ```
 
+`provider` is the endpoint's configured name, passed in because a decoder has no `ProviderConfig` to read it from. Use it verbatim in any error you raise, never a dialect literal, so a Claude-compatible gateway reports itself and not "anthropic". That is the invariant documented on `ProviderError` in `src/provider/model.rs`, and it is the only reason the argument exists.
+
 You translate frames into `RawDelta`s. Assembling them into events, buffering partial tool arguments, and building the final `GenerateResponse` are shared and already done, so a decoder is a `match` on the vendor's event names and nothing else. Keep it stateless if the frames allow it, as `openai_chat` does, and hold state only for what the vendor spreads across frames, as `gemini` does for its steps.
 
-Four things decide whether the decoder is correct, and all four are places to copy the parser rather than think afresh:
+**If the vendor has a mid-stream error frame, decode it into `ProviderError::Stream`.** Check the vendor's event list for one; `openai_responses` and `anthropic` both have it, and both return:
+
+```rust
+"error" => {
+    return Err(ProviderError::Stream {
+        // The endpoint's own name, never the dialect.
+        provider: provider.clone(),
+        message: value["message"].as_str().unwrap_or("unknown streaming error").to_string(),
+    });
+}
+```
+
+Miss this and the frame falls through the catch-all arm, the body then closes, and the assembler emits a perfectly ordinary `Done`. The caller sees a short answer and no error at all. `ProviderError::Stream` exists for exactly this case and for a body that ends early — it is distinct from `Api`, which reports a non-success HTTP status before the stream begins, and from `InvalidResponse`, which reports a body that would not parse.
+
+Four more things decide whether the decoder is correct, and all four are places to copy the parser rather than think afresh:
 
 - **Status mapping, arm for arm with `parse`.** Same strings, same neutral variants, same fallback to `ResponseStatus::Other`. Do not share a mapping with another dialect; the strings differ per vendor, and the copies are meant to be read side by side with their own parser.
 - **Usage, computed the same way.** If the parser defaults missing fields to zero, default to zero. If it computes a total the vendor does not report, compute it here too.
@@ -159,6 +182,7 @@ In `src/provider/mod.rs`, add the variant and its three properties:
 ```rust
 pub enum ProviderDialect {
     OpenAiResponses,
+    OpenAiChat,
     Gemini,
     Anthropic,
     MyDialect,
@@ -207,6 +231,7 @@ Two pages, matching the existing ones: a mapping page with the capability table 
 - `cargo test`, `cargo clippy --all-targets -- -D warnings`, `cargo fmt --check`
 - Every public item documented, `#![deny(missing_docs)]` will tell you
 - A `streamed_response_matches_generate` test present and passing for the dialect
+- The vendor's mid-stream error frame decoded into `ProviderError::Stream`, carrying the `provider` argument, or a note saying the format has no such frame
 - No `unwrap` on anything derived from a network response
 - Live verification actually run, or the limitation stated plainly in the docs
 
