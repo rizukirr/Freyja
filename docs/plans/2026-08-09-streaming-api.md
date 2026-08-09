@@ -3924,3 +3924,136 @@ Adds StreamEvent::RefusalDelta -- a deliberate extension beyond the
 approved spec, since without it a streaming caller cannot observe a
 refusal and into_response drops a whole content part."
 ```
+
+---
+
+### Task 20: Match the parsers' remaining normalisations → verify: `cargo test --all-features --lib streamed_response_matches_generate` reports 4 run / 4 passed with fixtures using NON-alphabetical tool-argument keys, and `cargo test --all-features --lib usage_defaults_missing_fields` passes
+
+Two divergences remain, both of the same kind that has produced every previous
+round: a transformation a parser applies that the streaming path does not.
+
+**Gap A — tool-argument key order.** `serde_json` here uses `BTreeMap`
+(`preserve_order` is not enabled), so `Value::to_string()` emits **key-sorted,
+whitespace-stripped** JSON. Anthropic re-serializes (`anthropic/types.rs:382-385`,
+`input.to_string()`) and so does Gemini (`gemini/types.rs:328-331`,
+`.map(Value::to_string)`). The OpenAI dialects instead pass the raw string
+through (`openai_chat/types.rs:355-359`, and `openai_responses`). The streaming
+path always concatenates raw fragments, so for Anthropic and Gemini a model
+emitting `{"unit":"c","location":"NYC"}` yields `{"location":"NYC","unit":"c"}`
+from `generate()` and the raw order from a drained stream.
+
+Because the behaviour differs *per dialect*, this must NOT be fixed in the shared
+assembler — doing so would break parity for the two OpenAI dialects, which
+deliberately preserve the raw string.
+
+**Gap B — usage subfield defaults.** `openai_chat/types.rs:322-331` and the
+Gemini equivalent mark every usage subfield `#[serde(default)]`, so a body
+carrying only two of three fields still parses to `Some(Usage{..0})`. Both
+decoders use `as_u64()?` inside `and_then(|usage| Some(..))`, so one missing
+subfield collapses the whole thing to `None`.
+
+- [ ] **Step 1: Teach the decoder trait which dialects normalise**
+
+In `src/provider/stream.rs`, add to `StreamDecoder`:
+
+```rust
+    /// Whether this dialect's parser re-serializes tool arguments from parsed
+    /// JSON rather than passing the raw string through.
+    ///
+    /// Anthropic and Gemini call `Value::to_string` on the parsed object, which
+    /// sorts keys and strips whitespace; the OpenAI dialects hand back exactly
+    /// what the model emitted. The streaming path has to make the same choice
+    /// per dialect or a drained stream stops matching `generate()`.
+    fn normalizes_tool_arguments(&self) -> bool {
+        false
+    }
+```
+
+Override it to return `true` in `anthropic::Decoder` and `gemini::Decoder` only,
+each with a one-line comment pointing at the parser line it mirrors.
+
+- [ ] **Step 2: Apply it in the assembler**
+
+Give `Assembler` a `normalize_arguments: bool` field, set from the decoder when
+the stream is built (`EventStream::new`, `for_test`, and `drain_for_test` all
+construct one — thread it through all three). In `finish_call`, after the
+existing empty-to-`{}` normalisation:
+
+```rust
+        // Anthropic and Gemini parse tool input and re-serialize it, which
+        // sorts keys. Round-trip the streamed fragments the same way so the two
+        // paths agree; leave a body that is not valid JSON untouched rather
+        // than discarding what the model sent.
+        if self.normalize_arguments
+            && let Ok(value) = serde_json::from_str::<Value>(&call.arguments)
+        {
+            call.arguments = value.to_string();
+        }
+```
+
+- [ ] **Step 3: Mirror each parser's usage defaults**
+
+In `openai_chat/mod.rs` and `gemini/mod.rs`, replace the `?` on each usage
+subfield with `.unwrap_or(0)`, so a `usage` object that is present but partial
+yields `Some(Usage{..})` exactly as the parser does. Check
+`openai_responses/mod.rs` and `anthropic/mod.rs` against their own parsers too
+and align whichever differ — read each parser's usage struct rather than
+assuming.
+
+- [ ] **Step 4: Make the fixtures catch Gap A**
+
+In `anthropic/types.rs` and `gemini/types.rs`, change the tool-call fixture in
+`streamed_response_matches_generate` so the streamed argument fragments spell a
+**non-alphabetical** key order, e.g. `{"unit":"c","location":"NYC"}`, while the
+non-streaming body carries the same object. Before this task the assertion would
+fail on key order; after it, both sides read `{"location":"NYC","unit":"c"}`.
+
+Leave the two OpenAI fixtures' argument order alone, and add a brief comment in
+each noting that those dialects deliberately preserve the raw string.
+
+- [ ] **Step 5: Add a regression test for Gap B**
+
+In `openai_chat/types.rs`, add:
+
+```rust
+    #[test]
+    fn usage_defaults_missing_fields() {
+        let deltas = decode_all(&[
+            r#"{"id":"chatcmpl-1","model":"gpt-4o","choices":[],"usage":{"prompt_tokens":11,"completion_tokens":9}}"#,
+        ]);
+
+        let usage = deltas
+            .iter()
+            .find_map(|d| match d {
+                RawDelta::Meta { usage: Some(u), .. } => Some(*u),
+                _ => None,
+            })
+            .expect("a partial usage object still yields usage, as the parser's \
+                     #[serde(default)] fields do — not None");
+        assert_eq!(usage.input_tokens, 11);
+        assert_eq!(usage.output_tokens, 9);
+        assert_eq!(usage.total_tokens, 0);
+    }
+```
+
+- [ ] **Step 6: Run everything**
+
+Run: `cargo test --all-features --lib streamed_response_matches_generate` → 4 run, 4 passed.
+Run: `cargo test --all-features --lib usage_defaults_missing_fields` → 1 run, 1 passed.
+Run: `cargo test --all-features` → all pass.
+Run: `cargo clippy --all-targets --all-features -- -D warnings` → clean.
+Run: `cargo fmt --all` then `cargo fmt --all --check` → no output.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add src/provider
+git commit -m "fix: match the parsers' tool-argument and usage normalisation
+
+serde_json sorts keys, so Anthropic's and Gemini's parsers -- which
+re-serialize tool input via Value::to_string -- returned a different
+argument string than the streamed fragments. The OpenAI dialects
+deliberately pass the raw string through, so the choice is per dialect
+rather than shared. Separately, both those decoders collapsed usage to
+None when any subfield was absent, where the parsers default it to zero."
+```
