@@ -1320,13 +1320,25 @@ In `src/provider/stream.rs`, the test module needs `SseFrame` for `TestDecoder`.
 Run: `cargo test --all-features stream::tests::event_stream_drains_a_recorded_body`
 Expected: PASS.
 
-- [ ] **Step 6: Run the whole suite and the linter**
+- [ ] **Step 6: Run the unit test suite**
 
-Run: `cargo test --all-features`
-Expected: PASS, all tests.
+Run: `cargo test --all-features --lib`
+Expected: PASS, all tests (66 at this point in the plan).
 
-Run: `cargo clippy --all-targets --all-features -- -D warnings`
-Expected: no warnings.
+`--lib` is deliberate and the doctests are NOT run here. The doc example
+written on `EventStream` in Step 3 calls `client.stream(&request)` and imports
+`freyja::StreamEvent`; the first is added in Task 7 and the second in Task 12.
+A `no_run` doctest is still *compiled*, so a full `cargo test --all-features`
+cannot pass until Task 12. Task 12 Step 3 runs `cargo test --doc` once both
+exist, and Task 14 runs the full suite.
+
+Clippy is likewise deferred. `cargo clippy -- -D warnings` fails here with
+`dead_code` on `RawDelta`'s variants, `Assembler::new`, `Body::Live`, and
+`EventStream::new`, because the only non-test consumer of any of them is
+`Client::stream` (Task 7) and the only constructors of `RawDelta` variants are
+the four decoders (Tasks 8-11). Do NOT add `#[allow(dead_code)]` to silence
+this — the warnings are correct and disappear on their own once those tasks
+land. Task 13 Step 4 is the first point at which clippy can be clean.
 
 - [ ] **Step 7: Commit**
 
@@ -1369,7 +1381,7 @@ In `src/provider/mod.rs`, add to the `mod tests` block at the end of the file:
 
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run: `cargo test --all-features stream_url_appends_alt_sse_for_gemini`
+Run: `cargo test --all-features --lib stream_url_appends_alt_sse_for_gemini`
 Expected: FAIL to compile, with an error naming `stream_url` as not found for `ProviderConfig`.
 
 - [ ] **Step 3: Add the dialect's stream query and the config helper**
@@ -1403,7 +1415,7 @@ Then add this method to `impl ProviderConfig`, immediately after `url` (which en
 
 - [ ] **Step 4: Run the test to verify it passes**
 
-Run: `cargo test --all-features stream_url_appends_alt_sse_for_gemini`
+Run: `cargo test --all-features --lib stream_url_appends_alt_sse_for_gemini`
 Expected: PASS.
 
 - [ ] **Step 5: Factor the shared POST out of `run`**
@@ -1639,7 +1651,7 @@ Also make the two internal modules visible to the dialects: in `src/provider/mod
 Run: `cargo build --all-targets`
 Expected: success.
 
-Run: `cargo test --all-features`
+Run: `cargo test --all-features --lib`
 Expected: PASS, all tests. In particular the dialects' existing `build` tests must still pass, proving `stream: None` did not change `generate()`'s serialized body.
 
 - [ ] **Step 9: Commit**
@@ -1768,7 +1780,7 @@ In `src/provider/openai_chat/types.rs`, add to the `mod tests` block:
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `cargo test --all-features openai_chat::types::tests::decodes_streaming_`
+Run: `cargo test --all-features --lib openai_chat::types::tests::decodes_streaming_`
 Expected: FAIL — `decodes_streaming_text` and the others fail their assertions, because the stub decoder emits nothing.
 
 - [ ] **Step 3: Write the decoder**
@@ -1863,7 +1875,7 @@ impl StreamDecoder for Decoder {
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `cargo test --all-features openai_chat::`
+Run: `cargo test --all-features --lib openai_chat::`
 Expected: PASS, including the pre-existing tests in that module.
 
 - [ ] **Step 5: Commit**
@@ -2032,7 +2044,7 @@ In `src/provider/anthropic/types.rs`, add to the `mod tests` block:
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `cargo test --all-features anthropic::types::tests::decodes_streaming_`
+Run: `cargo test --all-features --lib anthropic::types::tests::decodes_streaming_`
 Expected: FAIL — the stub decoder emits nothing and returns `Ok`, so every assertion fails.
 
 - [ ] **Step 3: Write the decoder**
@@ -2191,7 +2203,7 @@ impl StreamDecoder for Decoder {
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `cargo test --all-features anthropic::`
+Run: `cargo test --all-features --lib anthropic::`
 Expected: PASS, including the pre-existing tests in that module.
 
 - [ ] **Step 5: Commit**
@@ -2319,7 +2331,7 @@ In `src/provider/openai_responses/types.rs`, add to the `mod tests` block:
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `cargo test --all-features openai_responses::types::tests::decodes_streaming_`
+Run: `cargo test --all-features --lib openai_responses::types::tests::decodes_streaming_`
 Expected: FAIL — the stub emits nothing.
 
 - [ ] **Step 3: Write the decoder**
@@ -2439,7 +2451,7 @@ impl StreamDecoder for Decoder {
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `cargo test --all-features openai_responses::`
+Run: `cargo test --all-features --lib openai_responses::`
 Expected: PASS, including the pre-existing tests in that module.
 
 - [ ] **Step 5: Commit**
@@ -2575,7 +2587,7 @@ In `src/provider/gemini/types.rs`, add to the `mod tests` block:
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `cargo test --all-features gemini::types::tests::decodes_streaming_`
+Run: `cargo test --all-features --lib gemini::types::tests::decodes_streaming_`
 Expected: FAIL — the stub emits nothing.
 
 - [ ] **Step 3: Write the decoder**
@@ -2713,7 +2725,7 @@ impl StreamDecoder for Decoder {
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `cargo test --all-features gemini::`
+Run: `cargo test --all-features --lib gemini::`
 Expected: PASS, including the pre-existing tests in that module.
 
 - [ ] **Step 5: Commit**
