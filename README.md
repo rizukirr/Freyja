@@ -13,7 +13,7 @@ A provider-neutral LLM client for Rust, and the foundation for building agents o
 You write one request. Freyja translates it into whatever wire format the model you picked actually speaks, sends it, and translates the answer back. Changing vendor is changing one line.
 
 ```rust
-let client = Client::from_env(ProviderType::OpenAi)?;
+let client = Client::from_env(ProviderType::OpenAi).expect("OPENAI_API_KEY");
 // or Anthropic, or Gemini, or any compatible endpoint. Nothing else changes.
 ```
 
