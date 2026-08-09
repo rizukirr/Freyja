@@ -3704,7 +3704,7 @@ let the failures enumerate the full list in one pass.
 **This task fixes nothing.** Its deliverable is the tests plus a complete,
 verbatim list of what they reveal. Resist every urge to correct a decoder.
 
-- [ ] **Step 1: Read each parser to derive the expected behaviour**
+- [x] **Step 1: Read each parser to derive the expected behaviour**
 
 For each dialect, read its `parse` and the helpers it calls, and write down:
 - the full status-string map (every arm, including `requires_action` and any
@@ -3717,7 +3717,7 @@ For each dialect, read its `parse` and the helpers it calls, and write down:
 The parser is the specification for the decoder. Do not infer expected behaviour
 from the decoder.
 
-- [ ] **Step 2: Add a parity test to each dialect**
+- [x] **Step 2: Add a parity test to each dialect**
 
 Name it `streamed_response_matches_generate` in all four modules, so one filter
 runs the set. Anthropic already has one — extend it rather than duplicating.
@@ -3749,7 +3749,7 @@ Assertions, in this order:
 
 Do not assert on `provider_metadata`; it is documented as differing by shape.
 
-- [ ] **Step 3: Run them and record every failure**
+- [x] **Step 3: Run them and record every failure**
 
 Run: `cargo test --all-features --lib streamed_response_matches_generate`
 Expected: 4 tests run. Some or all FAIL — that is the point of the task.
@@ -3757,7 +3757,7 @@ Expected: 4 tests run. Some or all FAIL — that is the point of the task.
 For each failure, capture the assertion message and the full `left:` / `right:`
 values verbatim. Do not truncate. Do not summarise.
 
-- [ ] **Step 4: Commit the tests, failing**
+- [x] **Step 4: Commit the tests, failing**
 
 The tests must not be left in a state that hides the problem, and they must not
 be `#[ignore]`d. If the repo cannot hold failing tests, mark each failing test
@@ -3791,7 +3791,7 @@ that means the parser and the spec disagree, which is a different problem.
 - Modify: `src/provider/openai_responses/mod.rs`
 - Modify: `src/lib.rs` (re-export only, see Step 1)
 
-- [ ] **Step 1: Add a refusal to the event model**
+- [x] **Step 1: Add a refusal to the event model**
 
 Neither `RawDelta` nor `StreamEvent` can currently express a refusal, so no
 decoder fix alone can close that gap. The parsers keep `OutputContent::Refusal`
@@ -3834,7 +3834,7 @@ neighbouring `Text` part — the parser emits refusals as their own part:
 
 `src/lib.rs` needs no change if `StreamEvent` is already re-exported; confirm it is.
 
-- [ ] **Step 2: Anthropic — sum the cache tokens**
+- [x] **Step 2: Anthropic — sum the cache tokens**
 
 `src/provider/anthropic/mod.rs` stores `self.input_tokens` from `message_start`.
 The parser sums `input_tokens + cache_creation_input_tokens + cache_read_input_tokens`.
@@ -3847,14 +3847,14 @@ Mirror it exactly:
                     + usage["cache_read_input_tokens"].as_u64().unwrap_or(0);
 ```
 
-- [ ] **Step 3: Gemini — complete the status map**
+- [x] **Step 3: Gemini — complete the status map**
 
 Read the parser's status match and reproduce every arm. It maps at least
 `requires_action` → `RequiresAction`, `budget_exceeded` → `Incomplete`, and
 `cancelled` → `Failed`, in addition to the three the decoder already has. Copy
 the parser's arms verbatim rather than paraphrasing them.
 
-- [ ] **Step 4: Gemini — accumulate deltas into opaque steps**
+- [x] **Step 4: Gemini — accumulate deltas into opaque steps**
 
 `Step::Opaque(Value)` is snapshotted at `step.start` and never updated. Give it a
 delta buffer the way Anthropic's opaque blocks now have one. The concrete case
@@ -3863,7 +3863,7 @@ the test exercises is a `code_execution` step whose `code` field arrives in a
 emitting it at `step.stop`, so the blob matches what the parser would have
 stored. Read the failing test's fixture for the exact delta shape.
 
-- [ ] **Step 5: OpenAiChat — decode refusals and complete the status map**
+- [x] **Step 5: OpenAiChat — decode refusals and complete the status map**
 
 Add a refusal read alongside the existing content read:
 
@@ -3881,7 +3881,7 @@ and add the parser's missing finish-reason arm:
             "function_call" => ResponseStatus::RequiresAction,
 ```
 
-- [ ] **Step 6: OpenAiResponses — decode refusals and map requires_action**
+- [x] **Step 6: OpenAiResponses — decode refusals and map requires_action**
 
 Add `"requires_action" => ResponseStatus::RequiresAction` to the status match.
 For refusals, read the failing test's fixture: it carries both a
@@ -3889,7 +3889,7 @@ For refusals, read the failing test's fixture: it carries both a
 `response.output_item.done`. Decode the delta form; make sure the `output_item.done`
 path does not double-count it.
 
-- [ ] **Step 7: Run the parity suite**
+- [x] **Step 7: Run the parity suite**
 
 Run: `cargo test --all-features --lib streamed_response_matches_generate`
 Expected: `running 4 tests` and `4 passed`. Confirm the count is 4, not 0.
@@ -3897,18 +3897,18 @@ Expected: `running 4 tests` and `4 passed`. Confirm the count is 4, not 0.
 If any test still fails, report the verbatim `left:`/`right:` and stop. Do not
 edit the fixture.
 
-- [ ] **Step 8: Run everything**
+- [x] **Step 8: Run everything**
 
 Run: `cargo test --all-features` → PASS, all tests.
 Run: `cargo clippy --all-targets --all-features -- -D warnings` → no warnings.
 Run: `cargo fmt --all` then `cargo fmt --all --check` → no output.
 
-- [ ] **Step 9: Correct the into_response doc**
+- [x] **Step 9: Correct the into_response doc**
 
 The doc comment claims usage matches. That is now true for Anthropic; confirm the
 wording is accurate for all four and adjust if not.
 
-- [ ] **Step 10: Commit**
+- [x] **Step 10: Commit**
 
 ```bash
 git add src/provider src/lib.rs
