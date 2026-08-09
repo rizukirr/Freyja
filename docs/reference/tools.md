@@ -84,8 +84,11 @@ pub enum OutputContent {
     Text(String),
     Refusal(String),
     ToolCall { id: String, name: String, arguments: String },
+    Reasoning { data: Value },
 }
 ```
+
+`Reasoning` is in the list because a reasoning model interleaves it with the calls, and it has to go back with them. `to_message()` handles that for you; see below.
 
 `arguments` is a raw JSON string, not a parsed value, because that is what the transcript has to replay verbatim. Parse it yourself:
 
@@ -208,4 +211,4 @@ Two things differ per provider in the tool arguments themselves. OpenAI sends `a
 - No per tool timeouts or approval hooks
 - No enforcement that a result's `call_id` matches a real call
 
-These are Phase 2 items on the [roadmap](../README.md#roadmap-to-mvp).
+These are Phase 2 items on the [roadmap](../../README.md#roadmap).

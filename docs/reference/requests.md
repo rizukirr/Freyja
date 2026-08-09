@@ -137,7 +137,7 @@ Covered in [Tool calling](../reference/tools.md).
 
 Continues a server side conversation instead of resending the transcript. Pass the `id` from an earlier `GenerateResponse`. Providers name this differently on the wire, `previous_response_id` for OpenAI and `previous_interaction_id` for Gemini, and Freyja maps it for you.
 
-Anthropic rejects this field with `UnsupportedCapability`, because it keeps no server side transcript at all. Every request carries the full history, so there is nothing to continue from. Code that relies on this field is not portable to Anthropic and has to keep the transcript itself.
+Anthropic and OpenAI Chat Completions both reject this field with `UnsupportedCapability { capability: "server-side conversation continuation" }`, because neither keeps a server side transcript. Every request carries the full history, so there is nothing to continue from. Code that relies on this field runs on OpenAI Responses and Gemini only, and has to keep the transcript itself everywhere else.
 
 ### `metadata`
 

@@ -129,15 +129,17 @@ Images are only accepted on `Role::User`. On any other role Freyja returns `Unsu
 
 ## Validation done before the network
 
-Every dialect rejects malformed transcripts during conversion, so you get an error locally instead of a rejection from the vendor:
+Conversion checks the transcript before the request leaves the process, so you get an error locally instead of a rejection from the vendor:
 
-| Problem | Error |
-|---|---|
-| Non text content in a system or developer turn | `UnsupportedCapability` |
-| An image outside a user turn | `UnsupportedCapability` |
-| Text on a `Role::Tool` turn | `InvalidRequest` |
+| Problem | Error | Where |
+|---|---|---|
+| Non text content in a system or developer turn | `UnsupportedCapability` | all except OpenAI Chat Completions |
+| An image outside a user turn | `UnsupportedCapability` | all |
+| Text on a `Role::Tool` turn | `InvalidRequest` | OpenAI Responses, Gemini |
 
-A tool turn may only carry `ToolResult` parts. If you want to add commentary alongside a tool result, put it in a separate user or assistant turn.
+The last row is not universal. Anthropic collapses a `Role::Tool` turn into a user turn, where the text becomes an ordinary text block, and OpenAI Chat Completions folds it into the tool message's own text. Neither one errors. Keep tool turns to `ToolResult` parts anyway, or the same transcript means different things on different backends. If you want commentary alongside a tool result, put it in a separate user or assistant turn.
+
+The first row is uneven for the same kind of reason: OpenAI Chat Completions keeps system turns as ordinary messages rather than hoisting them into a text-only field, so it has nothing to refuse. See [Errors](../reference/errors.md).
 
 ## Building a transcript
 

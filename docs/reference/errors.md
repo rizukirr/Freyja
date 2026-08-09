@@ -120,7 +120,9 @@ OpenAI stream failed: rate limit exceeded
 
 Only streaming produces it, and it surfaces from `EventStream::next` rather than from `Client::stream`, which returns before the first frame is read. Calling `EventStream::into_response` on a stream you have not drained raises it too, rather than handing back a response that looks complete and is not.
 
-It is distinct from `Api`, which reports a non-success HTTP status, and from `InvalidResponse`, which reports a body that could not be parsed at all. Whatever text arrived before the failure is already yours to keep; the response as a whole is not. Retrying means re-sending the request from the start.
+It is distinct from `Api`, which reports a non-success HTTP status, and from `InvalidResponse`, which reports a body that could not be parsed at all. Whatever text arrived before the failure is already yours to keep; the response as a whole is not. Retrying means re-sending the request from the start, and paying for the prompt and the discarded output again. See [Retries](#retries).
+
+Worth retrying, unlike most of the other variants: overload and rate limit conditions arrive this way once the connection is open. The `into_response` case above is the exception, being a bug in the calling code rather than a transient failure.
 
 A stream that simply stops, with no error frame, is not this variant. It ends normally, and the `Done` event carries `ResponseStatus::Incomplete` because no terminal frame set anything else. Check `status` on `Done`, or on the response from `into_response()`, before treating a short answer as a complete one. See [Streaming](../reference/streaming.md).
 
@@ -144,6 +146,7 @@ match client.generate(&request).await {
     // Transient, retry with backoff.
     Err(ProviderError::Http(_)) => retry_later(),
     Err(ProviderError::Api { status: 429 | 500..=599, .. }) => retry_later(),
+    Err(ProviderError::Stream { .. }) => retry_later(),
 
     // Permanent, fix the request.
     Err(error @ ProviderError::UnsupportedCapability { .. }) => {
@@ -161,7 +164,9 @@ match client.generate(&request).await {
 
 Freyja does not retry. A 429 or a 5xx surfaces to you exactly once. Automatic backoff honoring `Retry-After` is Phase 1 work.
 
-Until then, retry at the call site, and only on `Http` and on `Api` with a 429 or 5xx status. Retrying the other variants wastes the call, since the outcome cannot change.
+Until then, retry at the call site, on `Http`, on `Stream`, and on `Api` with a 429 or 5xx status. Retrying `UnsupportedCapability`, `InvalidRequest`, or `InvalidResponse` wastes the call, since the outcome cannot change.
+
+`Stream` belongs on that list, and is often the most worthwhile of the three. Providers report overload and rate limit conditions in a mid-stream error frame once the connection is open, so the same condition that would have been a retryable 429 before the first byte arrives as a `Stream` error after it. Retrying is not free, though: there is no resume, so a retry re-sends the request from the start and pays for the whole prompt again, plus the output tokens already generated and thrown away. Bound the attempts, and on a long generation consider surfacing the partial text instead.
 
 ## What is not an error
 

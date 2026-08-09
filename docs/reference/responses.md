@@ -76,7 +76,19 @@ pub fn has_tool_calls(&self) -> bool
 
 Whether the model asked for at least one call. This is the loop condition in an agent loop, and it is more reliable than checking `status`, since providers differ in whether they report `requires_action`.
 
-`Reasoning` is where anything Freyja does not model ends up, rather than being dropped. Gemini thought signatures and OpenAI reasoning items both land here. Ignore it unless you are assembling a transcript by hand, in which case preserve it exactly and in order. See [Tool calling](../reference/tools.md).
+### `Reasoning`, and what it is not
+
+`OutputContent::Reasoning` carries opaque provider reasoning state: Gemini thought signatures, Anthropic thinking blocks, and OpenAI reasoning items. It also catches any other top level output item, content block, or step that Freyja does not model, since those sit in the same position in the response and a dropped one breaks the next request. Ignore it unless you are assembling a transcript by hand, in which case preserve it exactly and in order. See [Tool calling](../reference/tools.md).
+
+Three different things happen to what Freyja does not model, and they are worth keeping apart:
+
+| Unmodeled thing | Where it goes |
+|---|---|
+| A reasoning item, or any other unknown output item, block, or step | `OutputContent::Reasoning`, verbatim |
+| A field on the response body | `provider_metadata`, verbatim |
+| A content part inside a message item | Dropped |
+
+The third is the lossy one. See [provider_metadata](#provider_metadata).
 
 ### `to_message`
 
@@ -175,7 +187,7 @@ if let Some(meta) = &response.provider_metadata {
 
 A streamed response fills this field differently: `generate` collects the leftovers, while a drained stream carries the provider's terminal object whole. Everything else on the response matches. See [Streaming](streaming.md#into_response).
 
-The same forward compatibility applies inside `content`. Unknown output item types and unknown content block types are skipped rather than failing deserialization, so a provider shipping a new block type does not break your build. The tradeoff is that new content silently disappears until Freyja models it. Check `provider_metadata` when output looks shorter than expected.
+Forward compatibility inside `content` works differently, and this is where the two mechanisms get confused. An unknown output item, content block, or step is not dropped and does not fail deserialization: it becomes `OutputContent::Reasoning` holding the raw JSON, so it survives into the next request. Only an unknown part *inside* a message item is skipped outright, and that is the one place new content silently disappears until Freyja models it. Check `content` for `Reasoning` parts when output looks shorter than expected.
 
 ## Handling a response
 
