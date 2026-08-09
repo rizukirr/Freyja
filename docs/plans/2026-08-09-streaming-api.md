@@ -2984,3 +2984,401 @@ Checked against the spec:
 - Predicted failure modes: Tasks 1, 2, 3, 6, 7 predict compilation failures with named missing symbols, which follow with certainty from the code not existing yet. Tasks 8-11 predict assertion failures rather than naming exact messages, because the stub returns `Ok(())` and the specific assertion that trips first is not worth guessing.
 - `cargo` commands were taken from `.github/workflows/*.yml` and match what CI runs.
 - Two MSRV-sensitive constructs appear in the planned code: let-chains (`if let ... && let ...`, Tasks 8 and 11) and `std::task::Waker::noop()` (Task 6). Both were compiled against `rustc 1.88.0` with `--edition 2024` before this plan was finalized and both succeed, so `cargo +1.88 check --all-targets` in CI will not trip on them.
+
+---
+
+# Follow-up: closing the two verification blockers
+
+> Added after the verification run at commit `1bde629` returned **not ready**.
+> See `docs/verifications/2026-08-09-streaming-api-verify.md` for the evidence.
+
+### Task 15: Preserve unrecognised reasoning blocks → verify: `cargo test --all-features --lib preserves_unrecognised` passes with 2 tests; the Anthropic test asserts a `redacted_thinking` block reaches `RawDelta::ReasoningBlob` with all its fields intact
+
+**Files:**
+- Modify: `src/provider/anthropic/mod.rs`
+- Modify: `src/provider/anthropic/types.rs`
+- Modify: `src/provider/gemini/mod.rs`
+- Modify: `src/provider/gemini/types.rs`
+
+The non-streaming parsers end with a catch-all — `anthropic/types.rs:387` and
+`gemini/types.rs:334` both read `_ => vec![OutputContent::Reasoning { data: block }]`
+— so any block type Freyja does not model survives verbatim. The streaming
+decoders instead match only the types they name and drop the rest, which loses
+`redacted_thinking` and anything Anthropic or Google adds later. The fix is to
+mirror the parsers: remember the whole block at start, emit it whole at stop.
+
+- [ ] **Step 1: Write the failing Anthropic test**
+
+In `src/provider/anthropic/types.rs`, add to `mod tests`:
+
+```rust
+    #[test]
+    fn preserves_unrecognised_blocks_when_streaming() {
+        let deltas = decode_all(&[
+            (
+                "content_block_start",
+                r#"{"index":0,"content_block":{"type":"redacted_thinking","data":"EncryptedPayload=="}}"#,
+            ),
+            ("content_block_stop", r#"{"index":0}"#),
+        ]);
+
+        assert_eq!(
+            deltas,
+            vec![RawDelta::ReasoningBlob(serde_json::json!({
+                "type": "redacted_thinking",
+                "data": "EncryptedPayload==",
+            }))],
+            "the non-streaming parser preserves any unmodeled block verbatim; \
+             streaming must not silently drop one, or a replayed transcript \
+             is incomplete and the provider rejects the next turn"
+        );
+    }
+```
+
+- [ ] **Step 2: Run it and confirm it fails**
+
+Run: `cargo test --all-features --lib preserves_unrecognised_blocks_when_streaming`
+Expected: FAIL. The assertion reports `left: []` because the decoder's
+`_ => {}` arm discards the block.
+
+- [ ] **Step 3: Make the Anthropic decoder preserve unknown blocks**
+
+In `src/provider/anthropic/mod.rs`, extend the decoder's state to remember whole
+blocks. Change the `Decoder` struct to add a field alongside `tools` and `thinking`:
+
+```rust
+    /// Blocks whose type this decoder does not model, kept whole so
+    /// `content_block_stop` can emit them exactly as the parser would.
+    opaque: HashMap<usize, Value>,
+```
+
+In `content_block_start`, replace the `_ => {}` arm with:
+
+```rust
+                    _ => {
+                        self.opaque.insert(index, block.clone());
+                    }
+```
+
+In `content_block_stop`, add a final branch after the `thinking` branch:
+
+```rust
+                } else if let Some(block) = self.opaque.remove(&index) {
+                    out.push(RawDelta::ReasoningBlob(block));
+                }
+```
+
+- [ ] **Step 4: Confirm the Anthropic test passes**
+
+Run: `cargo test --all-features --lib preserves_unrecognised_blocks_when_streaming`
+Expected: PASS, 1 test.
+
+- [ ] **Step 5: Write the failing Gemini test**
+
+In `src/provider/gemini/types.rs`, add to `mod tests`:
+
+```rust
+    #[test]
+    fn preserves_unrecognised_steps_when_streaming() {
+        let deltas = decode_all(&[
+            r#"{"index":0,"step":{"type":"safety_report","verdict":"ok"},"event_type":"step.start"}"#,
+            r#"{"index":0,"event_type":"step.stop"}"#,
+        ]);
+
+        assert_eq!(
+            deltas,
+            vec![RawDelta::ReasoningBlob(serde_json::json!({
+                "type": "safety_report",
+                "verdict": "ok",
+            }))],
+            "the non-streaming parser preserves any unmodeled step verbatim"
+        );
+    }
+```
+
+- [ ] **Step 6: Run it and confirm it fails**
+
+Run: `cargo test --all-features --lib preserves_unrecognised_steps_when_streaming`
+Expected: FAIL with `left: []`.
+
+- [ ] **Step 7: Make the Gemini decoder preserve unknown steps and whole thoughts**
+
+In `src/provider/gemini/mod.rs`, change the `Step` enum so a thought carries the
+original step object rather than only its signature:
+
+```rust
+enum Step {
+    Tool,
+    /// The step as it arrived, plus the signature accumulated from its deltas.
+    /// Kept whole because the non-streaming parser stores the whole step and
+    /// the API requires model-generated steps replayed exactly as received.
+    Thought { step: Value, signature: String },
+    /// A step type this decoder does not model, kept verbatim.
+    Opaque(Value),
+}
+```
+
+In `step.start`, the `Some("thought")` arm becomes:
+
+```rust
+                    Some("thought") => {
+                        self.steps.insert(
+                            slot,
+                            Step::Thought {
+                                step: step.clone(),
+                                signature: String::new(),
+                            },
+                        );
+                    }
+```
+
+and the `_ => {}` arm becomes:
+
+```rust
+                    _ => {
+                        self.steps.insert(slot, Step::Opaque(step.clone()));
+                    }
+```
+
+In the `thought_signature` delta arm, update the pattern to the new shape:
+
+```rust
+                        if let Some(value) = delta["signature"].as_str()
+                            && let Some(Step::Thought { signature, .. }) = self.steps.get_mut(&slot)
+                        {
+                            signature.push_str(value);
+                        }
+```
+
+In `step.stop`, replace the match with:
+
+```rust
+            "step.stop" => match self.steps.remove(&slot) {
+                Some(Step::Tool) => out.push(RawDelta::ToolEnd { slot }),
+                Some(Step::Thought { mut step, signature }) => {
+                    // Merge the streamed signature back into the step the API
+                    // sent, so the blob matches what the parser would store.
+                    if !signature.is_empty()
+                        && let Some(object) = step.as_object_mut()
+                    {
+                        object.insert("signature".into(), Value::String(signature));
+                    }
+                    out.push(RawDelta::ReasoningBlob(step));
+                }
+                Some(Step::Opaque(step)) => out.push(RawDelta::ReasoningBlob(step)),
+                None => {}
+            },
+```
+
+- [ ] **Step 8: Update the existing Gemini thought test for the new blob shape**
+
+The blob is now the whole step with the signature merged in, not a synthesised
+`{type,signature}` pair. In `src/provider/gemini/types.rs`, the expected value in
+`decodes_streaming_thought_into_a_replayable_blob` becomes:
+
+```rust
+            RawDelta::ReasoningBlob(serde_json::json!({
+                "type": "thought",
+                "signature": "sig-abc",
+            })),
+```
+
+which is unchanged *only if* the fixture's `step.start` carried no other fields.
+Read the fixture; if `step` has more fields, include them. Do not weaken the
+assertion to make it pass — the point is that the whole step survives.
+
+- [ ] **Step 9: Confirm both new tests and the whole suite pass**
+
+Run: `cargo test --all-features --lib preserves_unrecognised`
+Expected: PASS, 2 tests. Confirm the count is 2 and not 0.
+
+Run: `cargo test --all-features`
+Expected: PASS, all tests.
+
+- [ ] **Step 10: Commit**
+
+```bash
+git add src/provider/anthropic src/provider/gemini
+git commit -m "fix: preserve unrecognised reasoning blocks when streaming
+
+The non-streaming parsers keep any block they do not model as a verbatim
+replayable blob. The streaming decoders matched only the types they named
+and dropped the rest, so an Anthropic redacted_thinking block survived
+generate() and vanished through stream() -- producing an incomplete
+transcript that the provider rejects on the next turn."
+```
+
+---
+
+### Task 16: Capture provider metadata and prove response parity → verify: `cargo test --all-features --lib streamed_response_matches_generate` passes with 1 test, asserting a drained stream and the non-streaming parser produce equal id, model, status, content, and usage
+
+**Files:**
+- Modify: `src/provider/stream.rs`
+- Modify: `src/provider/anthropic/mod.rs`
+- Modify: `src/provider/anthropic/types.rs`
+
+`into_response` sets `provider_metadata: None` where every parser sets
+`Some(Value::Object(extra))`, and no test compares the two paths. Note the limit
+up front: a parser's `extra` is a `#[serde(flatten)]` map of fields Freyja does
+*not* model, whereas a stream's terminal frame carries the provider object whole.
+The two are not byte-identical and this task does not pretend otherwise. What it
+delivers is (a) metadata that is actually populated rather than always `None`,
+and (b) a test proving the fields a tool loop depends on — id, model, status,
+content in order, usage — are equal across both paths.
+
+- [ ] **Step 1: Add the field to the internal delta and the assembler**
+
+In `src/provider/stream.rs`, add to `RawDelta::Meta`'s field list:
+
+```rust
+        provider_metadata: Option<Value>,
+```
+
+Add to `Assembler`:
+
+```rust
+    provider_metadata: Option<Value>,
+```
+
+initialised to `None` in `Assembler::new`. In `absorb`'s `RawDelta::Meta` arm,
+add alongside the other field updates:
+
+```rust
+                if provider_metadata.is_some() {
+                    self.provider_metadata = provider_metadata;
+                }
+```
+
+and in `into_response` replace `provider_metadata: None` with:
+
+```rust
+            provider_metadata: self.provider_metadata,
+```
+
+Every existing `RawDelta::Meta { .. }` construction across the four decoders and
+the test modules must gain `provider_metadata: None`; the compiler will list them.
+
+- [ ] **Step 2: Populate it in the Anthropic decoder**
+
+In `src/provider/anthropic/mod.rs`, the `message_start` arm carries the provider's
+own message object. Change its `RawDelta::Meta` to pass it through:
+
+```rust
+                    provider_metadata: Some(message.clone()),
+```
+
+Leave the other three decoders passing `None` for now; Anthropic is the one this
+task's parity test exercises, and a partial rollout is visible rather than a
+silent claim of completeness.
+
+- [ ] **Step 3: Expose a drain helper for cross-module tests**
+
+In `src/provider/stream.rs`, add next to the other `#[cfg(test)]` helpers:
+
+```rust
+    /// Drives a decoder over recorded frames and returns the assembled response,
+    /// so a dialect's tests can compare streaming against its own parser.
+    #[cfg(test)]
+    pub(crate) fn drain_for_test(
+        provider: Arc<str>,
+        decoder: Box<dyn StreamDecoder>,
+        chunks: Vec<Vec<u8>>,
+    ) -> Result<GenerateResponse, ProviderError> {
+        let mut stream = EventStream::for_test(provider, decoder, chunks);
+        while stream.next_blocking()?.is_some() {}
+        stream.into_response()
+    }
+```
+
+Note it must sit outside the `impl EventStream` block or be an associated
+function on it — either is fine, but it must be reachable as
+`crate::provider::stream::drain_for_test` or `EventStream::drain_for_test`.
+
+- [ ] **Step 4: Write the failing parity test**
+
+In `src/provider/anthropic/types.rs`, add to `mod tests`:
+
+```rust
+    #[test]
+    fn streamed_response_matches_generate() {
+        // The same logical answer, expressed both ways.
+        let streamed = crate::provider::stream::drain_for_test(
+            "anthropic".into(),
+            Box::new(crate::provider::anthropic::Decoder::default()),
+            vec![
+                b"event: message_start\ndata: {\"message\":{\"id\":\"msg_1\",\"model\":\"claude-sonnet-4\",\"usage\":{\"input_tokens\":11,\"output_tokens\":0}}}\n\n".to_vec(),
+                b"event: content_block_start\ndata: {\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n".to_vec(),
+                b"event: content_block_delta\ndata: {\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"Hel\"}}\n\n".to_vec(),
+                b"event: content_block_delta\ndata: {\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"lo\"}}\n\n".to_vec(),
+                b"event: content_block_stop\ndata: {\"index\":0}\n\n".to_vec(),
+                b"event: message_delta\ndata: {\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":9}}\n\n".to_vec(),
+            ],
+        )
+        .expect("drained");
+
+        let config = ProviderConfig::new(ProviderDialect::Anthropic, "anthropic", "https://x.test/v1");
+        let parsed = parse(
+            r#"{"id":"msg_1","model":"claude-sonnet-4","stop_reason":"end_turn","content":[{"type":"text","text":"Hello"}],"usage":{"input_tokens":11,"output_tokens":9}}"#,
+            &config,
+        )
+        .expect("parsed");
+
+        assert_eq!(streamed.id, parsed.id);
+        assert_eq!(streamed.model, parsed.model);
+        assert_eq!(streamed.status, parsed.status);
+        assert_eq!(streamed.usage, parsed.usage);
+        assert_eq!(
+            streamed.content, parsed.content,
+            "content must match part for part, including that two text deltas \
+             coalesce into the single OutputContent::Text the parser produces"
+        );
+        assert_eq!(streamed.output_text(), "Hello");
+        assert!(
+            streamed.provider_metadata.is_some(),
+            "metadata must be populated, not silently dropped as it was before"
+        );
+    }
+```
+
+- [ ] **Step 5: Run it and confirm it fails, then passes**
+
+Run: `cargo test --all-features --lib streamed_response_matches_generate`
+Expected before Steps 1-3 are complete: FAIL to compile. After: PASS, 1 test.
+If the content assertion fails, do NOT weaken it — a mismatch means the
+coalescing or ordering is genuinely wrong and is the bug this task exists to find.
+
+- [ ] **Step 6: Run the whole suite and the linter**
+
+Run: `cargo test --all-features`
+Expected: PASS, all tests.
+
+Run: `cargo clippy --all-targets --all-features -- -D warnings`
+Expected: no warnings.
+
+Run: `cargo fmt --all` then `cargo fmt --all --check`
+Expected: the check produces no output.
+
+- [ ] **Step 7: Document the remaining limit**
+
+On `EventStream::into_response` in `src/provider/stream.rs`, add to the doc comment:
+
+```rust
+    /// `provider_metadata` carries the provider's own terminal-frame object
+    /// where the dialect supplies one. It is not byte-identical to the
+    /// non-streaming path's value: `generate()` collects the fields Freyja does
+    /// not model, while a stream carries the object whole. Every field a tool
+    /// loop depends on — id, model, status, content, usage — does match.
+```
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add src/provider/stream.rs src/provider/anthropic
+git commit -m "fix: populate provider_metadata and test streaming parity
+
+into_response hardcoded provider_metadata to None while every parser set
+Some(extra), so the spec's claim that a drained stream returns the same
+GenerateResponse was false. Adds the field to the assembler, populates it
+from Anthropic's message_start, and adds the parity test the plan's
+Testing section promised but never delivered."
+```
