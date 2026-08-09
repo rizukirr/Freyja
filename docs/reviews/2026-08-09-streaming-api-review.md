@@ -181,3 +181,84 @@ Per-file line counts:
 - [ ] User reviewed findings.
 - [ ] User reviewed diff.
 - [ ] User approves proceeding to finish-branch.
+
+---
+
+# Resolution
+
+The user asked for all four warns and all three nits to be addressed.
+
+## Closed
+
+**W1 — spec drift.** `docs/specs/...-design.md` now lists all six `StreamEvent`
+variants including `RefusalDelta`, with a paragraph recording why it was added
+after approval and noting the internal `RawDelta::TextEnd`. Commit `bc48505`.
+
+**W2 and W4 — untested transport.** New `tests/streaming_transport.rs` drives
+`Client::stream` against a real `std::net::TcpListener` on a background thread.
+No new dependency; `Cargo.toml` untouched. Four tests now cover: the happy path
+including assertions that the request body carries `"stream":true` and
+`"include_usage":true` and the `Authorization` header; a 429 surfacing as
+`ProviderError::Api` from `stream()` itself rather than mid-iteration; Gemini's
+`?alt=sse` URL and `Api-Revision` header; and `generate()` *not* requesting SSE.
+`Body::Live` — the arm that calls `reqwest::Response::chunk()` — now executes
+under `cargo test`. Commits `05cbdb8`, `9fbe6c0`.
+
+Each was proven load-bearing by reverting the code it guards and observing the
+specific test fail.
+
+**W3 — plan growth.** The plan header now records that it was approved with 14
+tasks, grew to 21, and was repaired three times mid-run, citing each commit.
+
+**N1 — apparent duplication.** All four decoders now carry a comment naming the
+parser function they mirror — `parse_status` (Anthropic, OpenAiResponses),
+`parse_finish_reason` (OpenAiChat), and for Gemini a note that its parser maps
+status inline in `impl From<Response>` with no named function — and stating why
+the mapping is deliberately not shared.
+
+**N3 — `stream_query` visibility.** Documented rather than changed: it is public
+for the same reason as `path`, `default_auth`, and `required_headers`. Flagged to
+the user, who did not ask for it to be narrowed.
+
+## Not closed — N2 withdrawn
+
+The review claimed collapsing the three test helpers would save ~10 lines. It
+does not. `drain_for_test`'s signature is pinned by four call sites in the
+dialect `types.rs` files, so it cannot itself be the collecting helper; the
+collapse came out at **net +3 lines** and silently dropped the explicit
+`assert_eq!(..., None)` terminal assertion, meaning a non-terminating stream
+would hang rather than fail. Commit `030bd89` was reverted.
+
+**The nit was wrong.** Recorded rather than quietly dropped.
+
+## Incident: concurrent-edit regression, caught and fixed
+
+Tasks 22 and 23 were dispatched concurrently. Task 23's Step 6 required
+temporarily editing `src/provider/mod.rs` to prove a test was load-bearing — the
+same file Task 22 was editing. This violated the files-disjoint rule enforced for
+every other parallel dispatch in this run, and it was an orchestration error.
+
+Task 22's commit `bc48505` captured the transient edit. The result: `Client::run`
+— the **non-streaming** path — posted to `stream_url()`, so every `generate()`
+call on Gemini would have requested SSE and then tried to parse the event stream
+as JSON.
+
+The entire suite passed either way. It was caught only because the Task 23 agent
+noticed its own transient edit had been committed by another process and said so.
+
+Fixed in `9fbe6c0`, together with `generate_does_not_request_sse`, which fails if
+the URL is swapped back. The underlying reason it could happen silently — that
+`generate()`'s HTTP path had no test either — is now closed.
+
+## Post-resolution state
+
+- 92 lib tests, 4 transport tests, 10 doctests — all passing
+- `cargo clippy --all-targets --all-features -- -D warnings` — clean
+- `cargo fmt --all --check` — clean
+- `Cargo.toml` — still unchanged
+
+Remaining from the original self-critique: risk 1 (fixtures encode a reading of
+each wire format rather than observed traffic) is **unchanged**. The transport
+tests prove the client speaks correct HTTP to a socket; they do not prove the
+frame shapes match what the providers actually send. A live smoke run remains the
+highest-value next step.

@@ -4254,7 +4254,7 @@ Closes W1, W3, N1, N3.
   `src/provider/openai_chat/mod.rs`, `src/provider/openai_responses/mod.rs`
 - Modify: `src/provider/mod.rs`
 
-- [ ] **Step 1: W1 — bring the spec's event model up to date**
+- [x] **Step 1: W1 — bring the spec's event model up to date**
 
 In `docs/specs/2026-08-09-streaming-api-design.md`, the `## Approach` section's
 `StreamEvent` block lists five variants. Add `RefusalDelta` in the position it
@@ -4283,7 +4283,7 @@ a block boundary — and carries no public event.
 Do NOT change the spec's `status: approved` frontmatter; the design was approved
 and this records what implementation revealed.
 
-- [ ] **Step 2: W3 — make the plan honest about its own growth**
+- [x] **Step 2: W3 — make the plan honest about its own growth**
 
 In `docs/plans/2026-08-09-streaming-api.md`, immediately after the
 "Vacuous-pass guard" blockquote in the header, add:
@@ -4299,7 +4299,7 @@ In `docs/plans/2026-08-09-streaming-api.md`, immediately after the
 > sections as part of the plan, not as an appendix.
 ```
 
-- [ ] **Step 3: N1 — make the per-dialect mapping duplication explicitly deliberate**
+- [x] **Step 3: N1 — make the per-dialect mapping duplication explicitly deliberate**
 
 Each decoder hand-writes its own status match and `Usage` construction. That
 looks like duplication but each mirrors a *different* parser, and five rounds of
@@ -4317,7 +4317,7 @@ and file it mirrors, in this shape:
 Use the actual function name each dialect's parser uses — read it first rather
 than assuming they are all called `parse_status`.
 
-- [ ] **Step 4: N3 — record why `stream_query` is public**
+- [x] **Step 4: N3 — record why `stream_query` is public**
 
 In `src/provider/mod.rs`, extend the doc comment on
 `ProviderDialect::stream_query` with a sentence explaining the choice:
@@ -4328,14 +4328,14 @@ In `src/provider/mod.rs`, extend the doc comment on
     /// building a request by hand needs it.
 ```
 
-- [ ] **Step 5: Verify**
+- [x] **Step 5: Verify**
 
 Run: `cargo test --doc` → PASS.
 Run: `cargo test --all-features` → PASS, all tests.
 Run: `cargo fmt --all --check` → no output.
 Run: `cargo clippy --all-targets --all-features -- -D warnings` → clean.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add docs src
@@ -4367,7 +4367,7 @@ response; `tokio` is already a dev-dependency with `macros` and `rt-multi-thread
 so `#[tokio::test]` is available. Bind to `127.0.0.1:0` and read back the assigned
 port so the tests cannot collide.
 
-- [ ] **Step 1: Write the harness and the happy-path test**
+- [x] **Step 1: Write the harness and the happy-path test**
 
 Create `tests/streaming_transport.rs`. The server helper should accept exactly
 one connection, read the request head (so the client is not left blocked on a
@@ -4462,13 +4462,13 @@ async fn streams_text_from_a_live_server() {
 }
 ```
 
-- [ ] **Step 2: Run it**
+- [x] **Step 2: Run it**
 
 Run: `cargo test --all-features --test streaming_transport`
 Expected: PASS, 1 test. If the client hangs, the server helper is not reading the
 request body before writing — fix the helper, not the client.
 
-- [ ] **Step 3: Add the non-2xx test**
+- [x] **Step 3: Add the non-2xx test**
 
 An error status must surface from `stream()` itself, not mid-iteration:
 
@@ -4502,7 +4502,7 @@ async fn surfaces_an_error_status_before_streaming() {
 }
 ```
 
-- [ ] **Step 4: Add the Gemini URL test**
+- [x] **Step 4: Add the Gemini URL test**
 
 Gemini selects SSE by query parameter as well as by body field; nothing currently
 proves the client actually sends it.
@@ -4536,7 +4536,7 @@ async fn gemini_requests_sse_by_query_parameter() {
 }
 ```
 
-- [ ] **Step 5: Run the suite**
+- [x] **Step 5: Run the suite**
 
 Run: `cargo test --all-features --test streaming_transport`
 Expected: `running 3 tests` and `3 passed`. Confirm the count is 3, not 0.
@@ -4545,14 +4545,14 @@ Run: `cargo test --all-features` → PASS, all tests.
 Run: `cargo clippy --all-targets --all-features -- -D warnings` → clean.
 Run: `cargo fmt --all` then `cargo fmt --all --check` → no output.
 
-- [ ] **Step 6: Prove the tests are load-bearing**
+- [x] **Step 6: Prove the tests are load-bearing**
 
 Temporarily change `Client::stream` to POST to `self.config.url()` instead of
 `self.config.stream_url()`, re-run, and confirm `gemini_requests_sse_by_query_parameter`
 FAILS. Restore it and confirm green. Report both observations verbatim. A test
 that passes either way proves nothing.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add tests/streaming_transport.rs
@@ -4576,7 +4576,7 @@ Closes N2.
 **Files:**
 - Modify: `src/provider/stream.rs`
 
-- [ ] **Step 1: Read the three helpers and their callers**
+- [x] **Step 1: Read the three helpers and their callers**
 
 Run: `grep -rn "next_blocking\|for_test\|drain_for_test" src/`
 
@@ -4586,7 +4586,7 @@ event-by-event test drive it directly, or keep `next_blocking` and drop the
 separate `drain_for_test` wrapper. Pick the one that removes more lines without
 making a call site harder to read.
 
-- [ ] **Step 2: Make the change and confirm nothing else moved**
+- [x] **Step 2: Make the change and confirm nothing else moved**
 
 Run: `cargo test --all-features`
 Expected: PASS, same test count as before the change. A changed count means a
@@ -4595,7 +4595,7 @@ test was lost — restore it.
 Run: `cargo clippy --all-targets --all-features -- -D warnings` → clean.
 Run: `cargo fmt --all --check` → no output.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add src/provider/stream.rs
