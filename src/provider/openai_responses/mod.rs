@@ -106,6 +106,10 @@ impl StreamDecoder for Decoder {
             }
             "response.completed" | "response.incomplete" | "response.failed" => {
                 let response = &value["response"];
+                // This dialect's UsageWire has no `#[serde(default)]` fields
+                // (types.rs:264-269), so a partial usage object fails the
+                // parser outright; yielding no usage is the closest the
+                // streaming path can come, and the `?` below does that.
                 let usage = response.get("usage").and_then(|usage| {
                     Some(Usage {
                         input_tokens: usage["input_tokens"].as_u64()?,

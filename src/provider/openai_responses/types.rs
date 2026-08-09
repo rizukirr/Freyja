@@ -508,6 +508,10 @@ mod tests {
     fn streamed_response_matches_generate() {
         // A tool-calling turn: a reasoning item, text in two deltas, a refusal,
         // a call with fragmented arguments, and a terminal `requires_action`.
+        //
+        // Unlike Anthropic and Gemini, this dialect's parser hands back the
+        // model's raw `arguments` string untouched, so the streamed order is
+        // deliberately left as the model emitted it and is not re-sorted.
         let frames = [
             (
                 "response.created",

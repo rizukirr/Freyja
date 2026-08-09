@@ -718,6 +718,10 @@ mod tests {
     fn streamed_response_matches_generate() {
         // A tool-calling turn: text in two deltas, a refusal, and a call whose
         // arguments arrive fragmented.
+        //
+        // Unlike Anthropic and Gemini, this dialect's parser hands back the
+        // model's raw `arguments` string untouched, so the streamed order is
+        // deliberately left as the model emitted it and is not re-sorted.
         let frames = [
             r#"{"id":"chatcmpl-1","model":"gpt-4o","choices":[{"index":0,"delta":{"role":"assistant","content":"Hel"}}]}"#,
             r#"{"id":"chatcmpl-1","model":"gpt-4o","choices":[{"index":0,"delta":{"content":"lo"}}]}"#,
@@ -860,5 +864,29 @@ mod tests {
             )),
             "{deltas:?}"
         );
+    }
+
+    /// The parser's `UsageWire` marks every subfield `#[serde(default)]`, so a
+    /// partial usage object still yields a `Usage`. The decoder must default
+    /// the same way rather than collapsing the whole thing to `None`.
+    #[test]
+    fn usage_defaults_missing_fields() {
+        let deltas = decode_all(&[
+            r#"{"id":"chatcmpl-1","model":"gpt-4o","choices":[],"usage":{"prompt_tokens":11,"completion_tokens":9}}"#,
+        ]);
+
+        let usage = deltas
+            .iter()
+            .find_map(|d| match d {
+                RawDelta::Meta { usage: Some(u), .. } => Some(*u),
+                _ => None,
+            })
+            .expect(
+                "a partial usage object still yields usage, as the parser's \
+                 #[serde(default)] fields do — not None",
+            );
+        assert_eq!(usage.input_tokens, 11);
+        assert_eq!(usage.output_tokens, 9);
+        assert_eq!(usage.total_tokens, 0);
     }
 }

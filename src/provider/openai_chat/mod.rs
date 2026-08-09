@@ -53,12 +53,13 @@ impl StreamDecoder for Decoder {
 
         let id = value["id"].as_str().map(str::to_string);
         let model = value["model"].as_str().map(str::to_string);
-        let usage = value.get("usage").and_then(|usage| {
-            Some(Usage {
-                input_tokens: usage["prompt_tokens"].as_u64()?,
-                output_tokens: usage["completion_tokens"].as_u64()?,
-                total_tokens: usage["total_tokens"].as_u64()?,
-            })
+        // Every UsageWire field is `#[serde(default)]` (types.rs:322-331), so
+        // the parser turns a partial usage object into zeros rather than into
+        // no usage at all. Default the same way instead of collapsing to None.
+        let usage = value.get("usage").map(|usage| Usage {
+            input_tokens: usage["prompt_tokens"].as_u64().unwrap_or(0),
+            output_tokens: usage["completion_tokens"].as_u64().unwrap_or(0),
+            total_tokens: usage["total_tokens"].as_u64().unwrap_or(0),
         });
 
         let choice = &value["choices"][0];

@@ -181,12 +181,13 @@ impl StreamDecoder for Decoder {
             },
             "interaction.completed" | "interaction.failed" | "interaction.incomplete" => {
                 let interaction = &value["interaction"];
-                let usage = interaction.get("usage").and_then(|usage| {
-                    Some(Usage {
-                        input_tokens: usage["total_input_tokens"].as_u64()?,
-                        output_tokens: usage["total_output_tokens"].as_u64()?,
-                        total_tokens: usage["total_tokens"].as_u64()?,
-                    })
+                // Every UsageWire field is `#[serde(default)]` (types.rs:260-267),
+                // so the parser reports zeros for a partial usage object rather
+                // than dropping it. Default the same way here.
+                let usage = interaction.get("usage").map(|usage| Usage {
+                    input_tokens: usage["total_input_tokens"].as_u64().unwrap_or(0),
+                    output_tokens: usage["total_output_tokens"].as_u64().unwrap_or(0),
+                    total_tokens: usage["total_tokens"].as_u64().unwrap_or(0),
                 });
                 out.push(RawDelta::Meta {
                     id: interaction["id"].as_str().map(str::to_string),
@@ -207,5 +208,11 @@ impl StreamDecoder for Decoder {
             _ => {}
         }
         Ok(())
+    }
+
+    /// convert_step maps the parsed `arguments` object through `Value::to_string`
+    /// (types.rs:328-331), which sorts its keys.
+    fn normalizes_tool_arguments(&self) -> bool {
+        true
     }
 }

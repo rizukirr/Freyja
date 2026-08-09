@@ -659,6 +659,10 @@ mod tests {
         // A tool-calling turn: text in two deltas, a thought with a signature,
         // a function call with fragmented arguments, an unmodeled step whose
         // payload arrives as a delta, and a terminal `requires_action`.
+        //
+        // The call's arguments stream in non-alphabetical key order:
+        // convert_step maps them through `Value::to_string`, which sorts the
+        // keys, so the streaming path has to sort too.
         let frames = [
             r#"{"index":0,"step":{"type":"model_output"},"event_type":"step.start"}"#,
             r#"{"index":0,"delta":{"type":"text","text":"Hel"},"event_type":"step.delta"}"#,
@@ -669,8 +673,8 @@ mod tests {
             r#"{"index":1,"delta":{"type":"thought_signature","signature":"sig-abc"},"event_type":"step.delta"}"#,
             r#"{"index":1,"event_type":"step.stop"}"#,
             r#"{"index":2,"step":{"type":"function_call","id":"call_1","name":"get_weather","arguments":{}},"event_type":"step.start"}"#,
-            r#"{"index":2,"delta":{"type":"arguments_delta","arguments":"{\"location\":"},"event_type":"step.delta"}"#,
-            r#"{"index":2,"delta":{"type":"arguments_delta","arguments":"\"NYC\"}"},"event_type":"step.delta"}"#,
+            r#"{"index":2,"delta":{"type":"arguments_delta","arguments":"{\"unit\":\"c\","},"event_type":"step.delta"}"#,
+            r#"{"index":2,"delta":{"type":"arguments_delta","arguments":"\"location\":\"NYC\"}"},"event_type":"step.delta"}"#,
             r#"{"index":2,"event_type":"step.stop"}"#,
             r#"{"index":3,"step":{"type":"code_execution","language":"python"},"event_type":"step.start"}"#,
             r#"{"index":3,"delta":{"type":"code","code":"print(1)"},"event_type":"step.delta"}"#,
@@ -689,7 +693,7 @@ mod tests {
         .expect("drained");
 
         let parsed = parse(
-            r#"{"id":"v1_abc123","model":"gemini-3.6-flash","status":"requires_action","steps":[{"type":"model_output","content":[{"type":"text","text":"Hello"}]},{"type":"thought","signature":"sig-abc"},{"type":"function_call","id":"call_1","name":"get_weather","arguments":{"location":"NYC"}},{"type":"code_execution","language":"python","code":"print(1)"}],"usage":{"total_input_tokens":11,"total_output_tokens":90,"total_tokens":101}}"#,
+            r#"{"id":"v1_abc123","model":"gemini-3.6-flash","status":"requires_action","steps":[{"type":"model_output","content":[{"type":"text","text":"Hello"}]},{"type":"thought","signature":"sig-abc"},{"type":"function_call","id":"call_1","name":"get_weather","arguments":{"unit":"c","location":"NYC"}},{"type":"code_execution","language":"python","code":"print(1)"}],"usage":{"total_input_tokens":11,"total_output_tokens":90,"total_tokens":101}}"#,
             &config(),
         )
         .expect("parsed");

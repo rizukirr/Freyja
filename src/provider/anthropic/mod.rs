@@ -187,23 +187,35 @@ impl StreamDecoder for Decoder {
                         "tool_use" => ResponseStatus::RequiresAction,
                         other => ResponseStatus::Other(other.to_string()),
                     });
-                let output_tokens = value["usage"]["output_tokens"].as_u64();
+                // Every UsageWire field is `Option` with `#[serde(default)]`
+                // (types.rs:319-329) and the parser unwraps each to 0, so a
+                // usage object missing `output_tokens` still yields usage.
+                let usage = value.get("usage").map(|usage| {
+                    let output_tokens = usage["output_tokens"].as_u64().unwrap_or(0);
+                    Usage {
+                        input_tokens: self.input_tokens,
+                        output_tokens,
+                        total_tokens: self.input_tokens + output_tokens,
+                    }
+                });
                 out.push(RawDelta::Meta {
                     id: None,
                     model: None,
                     status,
                     // Input tokens arrive in message_start and output tokens
                     // here, so the total is only knowable at this point.
-                    usage: output_tokens.map(|output_tokens| Usage {
-                        input_tokens: self.input_tokens,
-                        output_tokens,
-                        total_tokens: self.input_tokens + output_tokens,
-                    }),
+                    usage,
                     provider_metadata: None,
                 });
             }
             _ => {}
         }
         Ok(())
+    }
+
+    /// convert_block re-serializes the parsed `input` object (types.rs:382-385),
+    /// which sorts its keys.
+    fn normalizes_tool_arguments(&self) -> bool {
+        true
     }
 }

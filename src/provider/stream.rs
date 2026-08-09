@@ -97,6 +97,17 @@ pub(crate) enum RawDelta {
 pub(crate) trait StreamDecoder: Send {
     /// Appends everything this frame means to `out`.
     fn decode(&mut self, frame: &SseFrame, out: &mut Vec<RawDelta>) -> Result<(), ProviderError>;
+
+    /// Whether this dialect's parser re-serializes tool arguments from parsed
+    /// JSON rather than passing the raw string through.
+    ///
+    /// Anthropic and Gemini call `Value::to_string` on the parsed object, which
+    /// sorts keys and strips whitespace; the OpenAI dialects hand back exactly
+    /// what the model emitted. The streaming path has to make the same choice
+    /// per dialect or a drained stream stops matching `generate()`.
+    fn normalizes_tool_arguments(&self) -> bool {
+        false
+    }
 }
 
 use crate::provider::{GenerateResponse, OutputContent};
@@ -124,12 +135,16 @@ struct Assembler {
     usage: Option<Usage>,
     provider_metadata: Option<Value>,
     finished: bool,
+    /// Mirrors [`StreamDecoder::normalizes_tool_arguments`] for the dialect
+    /// this stream belongs to.
+    normalize_arguments: bool,
 }
 
 impl Assembler {
-    fn new(provider: Arc<str>) -> Self {
+    fn new(provider: Arc<str>, normalize_arguments: bool) -> Self {
         Self {
             provider,
+            normalize_arguments,
             pending: HashMap::new(),
             captured: Vec::new(),
             id: String::new(),
@@ -229,6 +244,15 @@ impl Assembler {
         if call.arguments.is_empty() {
             call.arguments.push_str("{}");
         }
+        // Anthropic and Gemini parse tool input and re-serialize it, which
+        // sorts keys. Round-trip the streamed fragments the same way so the two
+        // paths agree; leave a body that is not valid JSON untouched rather
+        // than discarding what the model sent.
+        if self.normalize_arguments
+            && let Ok(value) = serde_json::from_str::<Value>(&call.arguments)
+        {
+            call.arguments = value.to_string();
+        }
         self.captured.push(OutputContent::ToolCall {
             id: call.id.clone(),
             name: call.name.clone(),
@@ -325,11 +349,12 @@ impl EventStream {
         decoder: Box<dyn StreamDecoder>,
         response: reqwest::Response,
     ) -> Self {
+        let normalize_arguments = decoder.normalizes_tool_arguments();
         Self {
             body: Body::Live(response),
             buffer: crate::provider::sse::SseBuffer::default(),
             decoder,
-            assembler: Assembler::new(provider),
+            assembler: Assembler::new(provider, normalize_arguments),
             queued: std::collections::VecDeque::new(),
             closed: false,
         }
@@ -418,11 +443,12 @@ impl EventStream {
 
     #[cfg(test)]
     fn for_test(provider: Arc<str>, decoder: Box<dyn StreamDecoder>, chunks: Vec<Vec<u8>>) -> Self {
+        let normalize_arguments = decoder.normalizes_tool_arguments();
         Self {
             body: Body::Recorded(chunks.into()),
             buffer: crate::provider::sse::SseBuffer::default(),
             decoder,
-            assembler: Assembler::new(provider),
+            assembler: Assembler::new(provider, normalize_arguments),
             queued: std::collections::VecDeque::new(),
             closed: false,
         }
@@ -481,7 +507,7 @@ mod tests {
 
     #[test]
     fn assembler_coalesces_text() {
-        let mut assembler = Assembler::new("acme".into());
+        let mut assembler = Assembler::new("acme".into(), false);
         let mut out = Vec::new();
 
         assembler.absorb(RawDelta::Text("a".into()), &mut out);
@@ -514,7 +540,7 @@ mod tests {
 
     #[test]
     fn assembler_assembles_fragmented_arguments() {
-        let mut assembler = Assembler::new("acme".into());
+        let mut assembler = Assembler::new("acme".into(), false);
         let mut out = Vec::new();
 
         assembler.absorb(
@@ -556,7 +582,7 @@ mod tests {
 
     #[test]
     fn assembler_normalizes_an_argumentless_call() {
-        let mut assembler = Assembler::new("acme".into());
+        let mut assembler = Assembler::new("acme".into(), false);
         let mut out = Vec::new();
 
         assembler.absorb(
@@ -584,7 +610,7 @@ mod tests {
 
     #[test]
     fn assembler_keeps_concurrent_calls_apart() {
-        let mut assembler = Assembler::new("acme".into());
+        let mut assembler = Assembler::new("acme".into(), false);
         let mut out = Vec::new();
 
         for (slot, id, name) in [(0, "call_a", "alpha"), (1, "call_b", "beta")] {
@@ -648,7 +674,7 @@ mod tests {
 
     #[test]
     fn assembler_flushes_unended_calls() {
-        let mut assembler = Assembler::new("acme".into());
+        let mut assembler = Assembler::new("acme".into(), false);
         let mut out = Vec::new();
 
         assembler.absorb(
@@ -746,12 +772,12 @@ mod tests {
 
     #[test]
     fn assembler_into_response_requires_a_drained_stream() {
-        let mut assembler = Assembler::new("acme".into());
+        let mut assembler = Assembler::new("acme".into(), false);
         let mut out = Vec::new();
         assembler.absorb(RawDelta::Text("hi".into()), &mut out);
 
         assert!(matches!(
-            Assembler::new("acme".into()).into_response(),
+            Assembler::new("acme".into(), false).into_response(),
             Err(ProviderError::Stream { .. })
         ));
 

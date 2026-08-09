@@ -643,7 +643,10 @@ mod tests {
     /// `stop_reason`, so it is covered by the status map rather than by content.
     #[test]
     fn streamed_response_matches_generate() {
-        // The same logical answer, expressed both ways.
+        // The same logical answer, expressed both ways. The tool call's
+        // streamed fragments spell its keys in non-alphabetical order:
+        // convert_block re-serializes the parsed input, which sorts them, so
+        // the streaming path has to sort too or the two sides disagree.
         let streamed = crate::provider::stream::drain_for_test(
             "anthropic".into(),
             Box::new(crate::provider::anthropic::Decoder::default()),
@@ -658,8 +661,8 @@ mod tests {
                 b"event: content_block_delta\ndata: {\"index\":1,\"delta\":{\"type\":\"signature_delta\",\"signature\":\"sig-1\"}}\n\n".to_vec(),
                 b"event: content_block_stop\ndata: {\"index\":1}\n\n".to_vec(),
                 b"event: content_block_start\ndata: {\"index\":2,\"content_block\":{\"type\":\"tool_use\",\"id\":\"toolu_1\",\"name\":\"get_weather\",\"input\":{}}}\n\n".to_vec(),
-                b"event: content_block_delta\ndata: {\"index\":2,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"city\\\":\"}}\n\n".to_vec(),
-                b"event: content_block_delta\ndata: {\"index\":2,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"\\\"NYC\\\"}\"}}\n\n".to_vec(),
+                b"event: content_block_delta\ndata: {\"index\":2,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"unit\\\":\\\"c\\\",\"}}\n\n".to_vec(),
+                b"event: content_block_delta\ndata: {\"index\":2,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"\\\"location\\\":\\\"NYC\\\"}\"}}\n\n".to_vec(),
                 b"event: content_block_stop\ndata: {\"index\":2}\n\n".to_vec(),
                 b"event: content_block_start\ndata: {\"index\":3,\"content_block\":{\"type\":\"server_tool_use\",\"id\":\"srvtoolu_1\",\"name\":\"web_search\",\"input\":{}}}\n\n".to_vec(),
                 b"event: content_block_delta\ndata: {\"index\":3,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"query\\\":\\\"rust\\\"}\"}}\n\n".to_vec(),
@@ -672,7 +675,7 @@ mod tests {
         let config =
             ProviderConfig::new(ProviderDialect::Anthropic, "anthropic", "https://x.test/v1");
         let parsed = parse(
-            r#"{"id":"msg_1","model":"claude-sonnet-4","stop_reason":"tool_use","content":[{"type":"text","text":"Hello"},{"type":"thinking","thinking":"Considering.","signature":"sig-1"},{"type":"tool_use","id":"toolu_1","name":"get_weather","input":{"city":"NYC"}},{"type":"server_tool_use","id":"srvtoolu_1","name":"web_search","input":{"query":"rust"}}],"usage":{"input_tokens":11,"cache_creation_input_tokens":100,"cache_read_input_tokens":1000,"output_tokens":9}}"#,
+            r#"{"id":"msg_1","model":"claude-sonnet-4","stop_reason":"tool_use","content":[{"type":"text","text":"Hello"},{"type":"thinking","thinking":"Considering.","signature":"sig-1"},{"type":"tool_use","id":"toolu_1","name":"get_weather","input":{"unit":"c","location":"NYC"}},{"type":"server_tool_use","id":"srvtoolu_1","name":"web_search","input":{"query":"rust"}}],"usage":{"input_tokens":11,"cache_creation_input_tokens":100,"cache_read_input_tokens":1000,"output_tokens":9}}"#,
             &config,
         )
         .expect("parsed");
