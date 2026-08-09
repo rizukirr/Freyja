@@ -504,10 +504,15 @@ pub enum ProviderError {
     },
     /// The response streamed successfully up to a point, then failed.
     ///
-    /// Covers a provider's own mid-stream error frame and a body that ends
-    /// before the response is complete. Distinct from [`Self::Api`], which
-    /// reports a non-success HTTP status, and from [`Self::InvalidResponse`],
-    /// which reports a body that could not be parsed at all.
+    /// Covers a provider's own mid-stream error frame, and calling
+    /// `EventStream::into_response` before the stream has been drained. A body
+    /// that simply ends early is *not* an error: pending tool calls are flushed
+    /// and the stream reports [`ResponseStatus::Incomplete`], so a truncated
+    /// answer is still readable.
+    ///
+    /// Distinct from [`Self::Api`], which reports a non-success HTTP status,
+    /// and from [`Self::InvalidResponse`], which reports a body that could not
+    /// be parsed at all.
     Stream {
         /// Endpoint whose stream failed.
         provider: Arc<str>,

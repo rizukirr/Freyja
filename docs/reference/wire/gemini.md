@@ -273,7 +273,7 @@ Both `arguments_delta` and `thought_signature` are correlated by the frame's `in
 
 The thought step is reconstructed rather than echoed whole: the signature streams in as fragments and Freyja merges them back into the step the API sent at `step.stop`. Since [replaying thought signatures verbatim](#thought-signatures-must-be-replayed) is what makes multi-turn tool calling work here, use `into_response().to_message()` to build the next turn rather than assembling one from `StreamEvent::ReasoningDelta`, which is the human-readable summary and carries no signature.
 
-Any `event_type` not listed above is ignored, including an error frame: this decoder has no error arm, so a failure surfaces as the HTTP status before the stream begins, or as the terminal `interaction.failed` status.
+Any `event_type` not listed above is ignored, including an error frame. This dialect has no error arm by design: a failure surfaces as the HTTP status before the stream begins, or as the terminal `interaction.failed` status, which maps to `ResponseStatus::Failed` exactly as the non-streaming parser does for the same body.
 
 `usage` on the terminal frame is read leniently, defaulting to zero, matching the non-streaming parser.
 
