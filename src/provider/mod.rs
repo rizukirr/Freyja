@@ -16,6 +16,7 @@ pub(crate) mod openai_responses;
 
 mod model;
 mod presets;
+mod sse;
 
 pub use model::*;
 pub use presets::ProviderType;
