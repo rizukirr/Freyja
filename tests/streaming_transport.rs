@@ -161,3 +161,38 @@ async fn gemini_requests_sse_by_query_parameter() {
         "{sent}"
     );
 }
+
+/// `generate()` must NOT ask for SSE.
+///
+/// This exists because it very nearly shipped broken: a transient edit made
+/// during another test's setup swapped `Client::run`'s URL for the streaming
+/// one, so every non-streaming Gemini call would have requested SSE and then
+/// tried to parse the event stream as JSON. The whole suite passed anyway,
+/// because until now nothing exercised `generate()` over a socket either.
+#[tokio::test]
+async fn generate_does_not_request_sse() {
+    let (base, request) = serve_once(
+        "HTTP/1.1 200 OK\r\n\
+         Content-Type: application/json\r\n\
+         Connection: close\r\n\r\n\
+         {\"id\":\"int_1\",\"model\":\"gemini-test\",\"status\":\"completed\",\"steps\":[]}",
+    );
+
+    let config =
+        ProviderConfig::new(ProviderDialect::Gemini, "local", base).default_model("test-model");
+    let client = Client::new(config, "key");
+
+    let _ = client
+        .generate(&GenerateRequest::new().message(Message::text(Role::User, "Hi")))
+        .await;
+
+    let sent = request.recv().expect("captured request");
+    assert!(
+        sent.starts_with("POST /interactions HTTP/1.1"),
+        "the non-streaming path must post to the plain URL, with no ?alt=sse: {sent}"
+    );
+    assert!(
+        !sent.contains("alt=sse"),
+        "generate() must never request an event stream: {sent}"
+    );
+}

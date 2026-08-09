@@ -489,7 +489,7 @@ impl Client {
         request: &GenerateRequest,
     ) -> Result<GenerateResponse, ProviderError> {
         let wire = provider.build(request, &self.config)?;
-        let response = self.post(self.config.stream_url(), &wire).await?;
+        let response = self.post(self.config.url(), &wire).await?;
 
         let status = response.status();
         let body = response
