@@ -3,7 +3,10 @@
 
 mod types;
 
+use crate::provider::sse::SseFrame;
+use crate::provider::stream::{RawDelta, StreamDecoder};
 use crate::provider::{GenerateRequest, GenerateResponse, Provider, ProviderConfig, ProviderError};
+use crate::provider::{ResponseStatus, Usage};
 
 pub(crate) struct OpenAiChatProvider;
 
@@ -26,10 +29,6 @@ impl Provider for OpenAiChatProvider {
         types::parse(body, config)
     }
 }
-
-use crate::provider::sse::SseFrame;
-use crate::provider::stream::{RawDelta, StreamDecoder};
-use crate::provider::{ResponseStatus, Usage};
 
 /// Decodes Chat Completions SSE frames.
 ///

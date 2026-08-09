@@ -3,7 +3,12 @@
 
 mod types;
 
+use crate::provider::sse::SseFrame;
+use crate::provider::stream::{RawDelta, StreamDecoder};
 use crate::provider::{GenerateRequest, GenerateResponse, Provider, ProviderConfig, ProviderError};
+use crate::provider::{ResponseStatus, Usage};
+use serde_json::Value;
+use std::collections::{HashMap, HashSet};
 
 pub(crate) struct AnthropicProvider;
 
@@ -26,12 +31,6 @@ impl Provider for AnthropicProvider {
         types::parse(body, config)
     }
 }
-
-use crate::provider::sse::SseFrame;
-use crate::provider::stream::{RawDelta, StreamDecoder};
-use crate::provider::{ResponseStatus, Usage};
-use serde_json::Value;
-use std::collections::{HashMap, HashSet};
 
 /// A thinking block being reassembled, so the replayable blob can be rebuilt
 /// in the same shape the non-streaming parser produces.

@@ -3,7 +3,12 @@
 
 mod types;
 
+use crate::provider::sse::SseFrame;
+use crate::provider::stream::{RawDelta, StreamDecoder};
 use crate::provider::{GenerateRequest, GenerateResponse, Provider, ProviderConfig, ProviderError};
+use crate::provider::{ResponseStatus, Usage};
+use serde_json::Value;
+use std::collections::HashMap;
 
 pub(crate) struct GeminiProvider;
 
@@ -26,12 +31,6 @@ impl Provider for GeminiProvider {
         types::parse(body, config)
     }
 }
-
-use crate::provider::sse::SseFrame;
-use crate::provider::stream::{RawDelta, StreamDecoder};
-use crate::provider::{ResponseStatus, Usage};
-use serde_json::Value;
-use std::collections::HashMap;
 
 /// What kind of step an index refers to.
 ///

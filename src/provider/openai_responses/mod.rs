@@ -3,7 +3,11 @@
 
 mod types;
 
+use crate::provider::sse::SseFrame;
+use crate::provider::stream::{RawDelta, StreamDecoder};
 use crate::provider::{GenerateRequest, GenerateResponse, Provider, ProviderConfig, ProviderError};
+use crate::provider::{ResponseStatus, Usage};
+use serde_json::Value;
 
 pub(crate) struct OpenAiResponsesProvider;
 
@@ -26,11 +30,6 @@ impl Provider for OpenAiResponsesProvider {
         types::parse(body, config)
     }
 }
-
-use crate::provider::sse::SseFrame;
-use crate::provider::stream::{RawDelta, StreamDecoder};
-use crate::provider::{ResponseStatus, Usage};
-use serde_json::Value;
 
 /// Decodes Responses API SSE frames.
 ///
