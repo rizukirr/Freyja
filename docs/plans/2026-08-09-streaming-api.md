@@ -3,6 +3,14 @@
 > **For executing agents:** implement this plan task-by-task. Each step uses checkbox (`- [ ]`) syntax. Do not skip steps. Do not batch commits across tasks.
 >
 > **Vacuous-pass guard.** `cargo test` exits 0 when its filter matches nothing — `test result: ok. 0 passed; N filtered out` is a *failure* to verify, not a pass. After every test command in this plan, check that the count of tests run is greater than zero and that the expected test names appear in the output. If a filter matches nothing, stop and report it rather than treating the exit code as success. Test paths include the module: a test in `mod tests` inside `src/provider/stream.rs` is `provider::stream::tests::<name>`, and inside `src/provider/gemini/types.rs` is `provider::gemini::types::tests::<name>`.
+> **This plan grew during execution.** It was approved with 14 tasks. Tasks 15-21
+> were appended after verification runs found defects, and the plan was repaired
+> three times mid-run: cargo-test filters that matched nothing (`570c841`),
+> doctests and clippy deferred past Task 6 because the code they check does not
+> exist yet at that point (`4fe3c3b`), and Task 14's reachability checks
+> corrected after a clippy fix changed what they were grepping for (`a7d9c6b`).
+> Every change is a separate commit with its reasoning. Read the follow-up
+> sections as part of the plan, not as an appendix.
 
 **Goal:** Add `client.stream(&request)` returning an `EventStream` of provider-neutral `StreamEvent`s across all four dialects, with tool-call arguments assembled internally and no new dependencies.
 

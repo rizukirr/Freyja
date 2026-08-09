@@ -96,6 +96,10 @@ impl ProviderDialect {
     ///
     /// Gemini's Interactions API takes `?alt=sse` in addition to the body's
     /// `stream` field; the others are selected by the body alone.
+    ///
+    /// Public for the same reason as [`Self::path`], [`Self::default_auth`], and
+    /// [`Self::required_headers`]: it describes the dialect, and a caller
+    /// building a request by hand needs it.
     pub fn stream_query(self) -> Option<&'static str> {
         match self {
             Self::Gemini => Some("alt=sse"),
@@ -485,7 +489,7 @@ impl Client {
         request: &GenerateRequest,
     ) -> Result<GenerateResponse, ProviderError> {
         let wire = provider.build(request, &self.config)?;
-        let response = self.post(self.config.url(), &wire).await?;
+        let response = self.post(self.config.stream_url(), &wire).await?;
 
         let status = response.status();
         let body = response

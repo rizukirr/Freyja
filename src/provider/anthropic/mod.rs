@@ -188,6 +188,10 @@ impl StreamDecoder for Decoder {
                 }
             }
             "message_delta" => {
+                // Mirrors `parse_status` in types.rs. Kept as its own match
+                // rather than shared with the other dialects: the strings
+                // differ per provider, and every divergence found in review
+                // came from this mapping drifting from the parser's.
                 let status = value["delta"]["stop_reason"]
                     .as_str()
                     .map(|reason| match reason {

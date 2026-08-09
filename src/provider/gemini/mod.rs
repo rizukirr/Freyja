@@ -199,8 +199,14 @@ impl StreamDecoder for Decoder {
                 out.push(RawDelta::Meta {
                     id: interaction["id"].as_str().map(str::to_string),
                     model: interaction["model"].as_str().map(str::to_string),
+                    // Mirrors the parser's status mapping arm for arm. Gemini
+                    // has no named status function: the parser maps these
+                    // strings inline in `impl From<Response> for
+                    // GenerateResponse` in types.rs. Kept as its own match
+                    // rather than shared with the other dialects: the strings
+                    // differ per provider, and every divergence found in review
+                    // came from this mapping drifting from the parser's.
                     status: Some(match interaction["status"].as_str() {
-                        // Reproduces the parser's map arm for arm.
                         Some("completed") => ResponseStatus::Completed,
                         Some("incomplete" | "budget_exceeded") => ResponseStatus::Incomplete,
                         Some("requires_action") => ResponseStatus::RequiresAction,

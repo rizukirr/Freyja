@@ -114,6 +114,8 @@ impl EventStream {
 pub enum StreamEvent {
     /// A fragment of generated text, in order.
     TextDelta(String),
+    /// The model declined to answer.
+    RefusalDelta(String),
     /// A complete tool call. Arguments are fully assembled; dispatch it now.
     ToolCall { id: String, name: String, arguments: String },
     /// Human-readable reasoning text, when the provider exposes it.
@@ -129,6 +131,16 @@ pub enum StreamEvent {
     },
 }
 ```
+
+`RefusalDelta` was not in the originally approved event model. It was added
+during implementation because both OpenAI parsers produce
+`OutputContent::Refusal` and the streaming path could not express one at all:
+a refused response arrived as content through `generate()` and as nothing
+through `stream()`, which also made `into_response()` drop a whole content part.
+`StreamEvent` is `#[non_exhaustive]`, so the addition breaks no downstream
+matcher. The internal `RawDelta::TextEnd` was added for the same class of reason
+— the parsers emit one `OutputContent::Text` per text block, so the stream needs
+a block boundary — and carries no public event.
 
 Caller-facing shape:
 

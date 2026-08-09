@@ -124,8 +124,12 @@ impl StreamDecoder for Decoder {
                 out.push(RawDelta::Meta {
                     id: response["id"].as_str().map(str::to_string),
                     model: response["model"].as_str().map(str::to_string),
+                    // Mirrors `parse_status` in types.rs, arm for arm. Kept as
+                    // its own match rather than shared with the other dialects:
+                    // the strings differ per provider, and every divergence
+                    // found in review came from this mapping drifting from the
+                    // parser's.
                     status: Some(match response["status"].as_str() {
-                        // Reproduces parse_status arm for arm.
                         Some("completed") => ResponseStatus::Completed,
                         Some("incomplete") => ResponseStatus::Incomplete,
                         Some("requires_action") => ResponseStatus::RequiresAction,
