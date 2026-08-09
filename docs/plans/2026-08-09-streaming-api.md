@@ -3685,3 +3685,91 @@ streamed as deltas replayed empty. provider_metadata was populated for
 Anthropic alone. The parity test now covers text, a reasoning blob, and
 a tool call, and asserts to_message() equality across both paths."
 ```
+
+---
+
+### Task 18: Parity test per dialect — enumerate every divergence → verify: a test named `streamed_response_matches_generate` exists in all four dialects' `types.rs`, `cargo test --all-features --lib streamed_response_matches_generate` reports 4 tests run, and every failure is reported verbatim WITHOUT fixing any decoder
+
+**Files:**
+- Modify: `src/provider/anthropic/types.rs`
+- Modify: `src/provider/gemini/types.rs`
+- Modify: `src/provider/openai_chat/types.rs`
+- Modify: `src/provider/openai_responses/types.rs`
+
+Three rounds of review each found a streaming decoder disagreeing with its own
+parser, and each round fixed only the instances named. This task inverts the
+order: write the test that would have caught all of them, for every dialect, and
+let the failures enumerate the full list in one pass.
+
+**This task fixes nothing.** Its deliverable is the tests plus a complete,
+verbatim list of what they reveal. Resist every urge to correct a decoder.
+
+- [ ] **Step 1: Read each parser to derive the expected behaviour**
+
+For each dialect, read its `parse` and the helpers it calls, and write down:
+- the full status-string map (every arm, including `requires_action` and any
+  dialect-specific values)
+- exactly how `usage` is computed (Anthropic sums cache tokens into the input
+  total; the others may differ)
+- whether the parser can produce `OutputContent::Refusal`, and from what shape
+- which content/item/step types it models explicitly, and what its catch-all does
+
+The parser is the specification for the decoder. Do not infer expected behaviour
+from the decoder.
+
+- [ ] **Step 2: Add a parity test to each dialect**
+
+Name it `streamed_response_matches_generate` in all four modules, so one filter
+runs the set. Anthropic already has one — extend it rather than duplicating.
+
+Each test drains an SSE fixture through `crate::provider::stream::drain_for_test`
+and compares against `parse()` of a non-streaming body representing the *same
+logical response*. Each fixture must cover, to the extent the dialect supports it:
+
+- text, in at least two deltas, so coalescing is exercised
+- a tool call with fragmented arguments
+- a reasoning / thinking / thought block, or an unmodeled block if the dialect
+  has no reasoning type
+- a refusal, for the dialects whose parser produces `OutputContent::Refusal`
+- usage, including Anthropic's `cache_creation_input_tokens` and
+  `cache_read_input_tokens`
+- a terminal status of `requires_action` (or the dialect's equivalent for a
+  tool-calling turn), because that is the case a streaming caller hits most
+
+Assertions, in this order:
+
+```rust
+        assert_eq!(streamed.id, parsed.id);
+        assert_eq!(streamed.model, parsed.model);
+        assert_eq!(streamed.status, parsed.status);
+        assert_eq!(streamed.usage, parsed.usage);
+        assert_eq!(streamed.content, parsed.content);
+        assert_eq!(streamed.to_message(), parsed.to_message());
+```
+
+Do not assert on `provider_metadata`; it is documented as differing by shape.
+
+- [ ] **Step 3: Run them and record every failure**
+
+Run: `cargo test --all-features --lib streamed_response_matches_generate`
+Expected: 4 tests run. Some or all FAIL — that is the point of the task.
+
+For each failure, capture the assertion message and the full `left:` / `right:`
+values verbatim. Do not truncate. Do not summarise.
+
+- [ ] **Step 4: Commit the tests, failing**
+
+The tests must not be left in a state that hides the problem, and they must not
+be `#[ignore]`d. If the repo cannot hold failing tests, mark each failing test
+`#[should_panic]` with a `// vibekit:` comment naming the divergence and the fix
+that will remove the attribute — but PREFER committing them failing and say so.
+
+```bash
+git add src/provider
+git commit -m "test: add streamed-vs-parsed parity tests for all four dialects
+
+Written parser-first: each expectation is derived from what parse()
+produces, not from what the decoder happens to do. Committed failing so
+the divergences are enumerated in one place rather than discovered one
+review at a time."
+```
