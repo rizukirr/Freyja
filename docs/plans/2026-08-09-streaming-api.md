@@ -1077,7 +1077,7 @@ from a stream the caller abandoned early."
 **Files:**
 - Modify: `src/provider/stream.rs`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 In `src/provider/stream.rs`, add to the `mod tests` block:
 
@@ -1136,12 +1136,12 @@ In `src/provider/stream.rs`, add to the `mod tests` block:
     }
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `cargo test --all-features stream::tests::event_stream_drains_a_recorded_body`
 Expected: FAIL to compile, with errors naming `for_test` and `next_blocking` as not found for `EventStream`.
 
-- [ ] **Step 3: Replace the placeholder with the real EventStream**
+- [x] **Step 3: Replace the placeholder with the real EventStream**
 
 In `src/provider/stream.rs`, delete the `EventStream` placeholder added in Task 3 Step 5 and put this in its place:
 
@@ -1311,16 +1311,16 @@ impl EventStream {
 }
 ```
 
-- [ ] **Step 4: Add the test module's SseFrame import**
+- [x] **Step 4: Add the test module's SseFrame import**
 
 In `src/provider/stream.rs`, the test module needs `SseFrame` for `TestDecoder`. It is already imported at module scope by `use crate::provider::sse::SseFrame;`, and `use super::*;` re-exports it into the tests. No edit needed — confirm by running the tests.
 
-- [ ] **Step 5: Run the test to verify it passes**
+- [x] **Step 5: Run the test to verify it passes**
 
 Run: `cargo test --all-features stream::tests::event_stream_drains_a_recorded_body`
 Expected: PASS.
 
-- [ ] **Step 6: Run the unit test suite**
+- [x] **Step 6: Run the unit test suite**
 
 Run: `cargo test --all-features --lib`
 Expected: PASS, all tests (66 at this point in the plan).
@@ -1340,7 +1340,7 @@ the four decoders (Tasks 8-11). Do NOT add `#[allow(dead_code)]` to silence
 this — the warnings are correct and disappear on their own once those tasks
 land. Task 13 Step 4 is the first point at which clippy can be clean.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add src/provider/stream.rs
