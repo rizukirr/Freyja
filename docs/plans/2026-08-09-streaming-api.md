@@ -4057,3 +4057,173 @@ deliberately pass the raw string through, so the choice is per dialect
 rather than shared. Separately, both those decoders collapsed usage to
 None when any subfield was absent, where the parsers default it to zero."
 ```
+
+---
+
+### Task 21: Preserve text-block boundaries → verify: `cargo test --all-features --lib streamed_response_matches_generate` reports 4 run / 4 passed with fixtures carrying TWO adjacent text blocks, and `assembler_keeps_text_blocks_separate` passes
+
+The parsers emit one `OutputContent::Text` per text block
+(`anthropic/types.rs:363-370`, and the equivalent in `gemini/types.rs` and
+`openai_responses/types.rs`). `Assembler::absorb` coalesces every consecutive
+`RawDelta::Text` into one part, and no decoder signals where a block ends. A
+response carrying two text blocks — Anthropic produces these with citations and
+after server tool use — drains to `[Text("AB")]` where `generate()` returns
+`[Text("A"), Text("B")]`.
+
+The coalescing itself must stay: within one block, consecutive deltas have to
+merge or every fragment becomes its own part. What is missing is the boundary.
+
+**Files:**
+- Modify: `src/provider/stream.rs`
+- Modify: `src/provider/anthropic/mod.rs`, `src/provider/anthropic/types.rs`
+- Modify: `src/provider/gemini/mod.rs`, `src/provider/gemini/types.rs`
+- Modify: `src/provider/openai_responses/mod.rs`, `src/provider/openai_responses/types.rs`
+
+OpenAiChat is deliberately excluded: its parser builds a single `Text` from
+`message.content`, so it has no block boundaries to preserve. Confirm that by
+reading its parser before deciding to skip it.
+
+- [ ] **Step 1: Write the failing assembler test**
+
+In `src/provider/stream.rs`, add to `mod tests`:
+
+```rust
+    #[test]
+    fn assembler_keeps_text_blocks_separate() {
+        let mut assembler = Assembler::new("acme".into(), false);
+        let mut out = Vec::new();
+
+        // One block arriving in two deltas, then a second block.
+        assembler.absorb(RawDelta::Text("A".into()), &mut out);
+        assembler.absorb(RawDelta::Text("a".into()), &mut out);
+        assembler.absorb(RawDelta::TextEnd, &mut out);
+        assembler.absorb(RawDelta::Text("B".into()), &mut out);
+        assembler.absorb(RawDelta::TextEnd, &mut out);
+
+        assert_eq!(
+            assembler.captured,
+            vec![
+                OutputContent::Text("Aa".into()),
+                OutputContent::Text("B".into()),
+            ],
+            "deltas within a block coalesce, but a block boundary starts a new \
+             part, because that is one OutputContent::Text per block as the \
+             parsers produce"
+        );
+        assert_eq!(
+            out,
+            vec![
+                StreamEvent::TextDelta("A".into()),
+                StreamEvent::TextDelta("a".into()),
+                StreamEvent::TextDelta("B".into()),
+            ],
+            "the boundary is internal bookkeeping and produces no event"
+        );
+    }
+```
+
+- [ ] **Step 2: Run it, confirm it fails**
+
+Run: `cargo test --all-features --lib assembler_keeps_text_blocks_separate`
+Expected: FAIL to compile — `TextEnd` is not a variant of `RawDelta`.
+
+- [ ] **Step 3: Add the boundary**
+
+In `src/provider/stream.rs`, add to `RawDelta`:
+
+```rust
+    /// The end of one text block. Text continues to coalesce within a block;
+    /// this starts a new `OutputContent::Text`, matching one part per block.
+    TextEnd,
+```
+
+Add a field to `Assembler`:
+
+```rust
+    /// Whether the trailing captured part is a text block still being filled.
+    text_open: bool,
+```
+
+initialised `false` in `new`. Change the `RawDelta::Text` arm to respect it:
+
+```rust
+            RawDelta::Text(text) => {
+                match self.captured.last_mut() {
+                    Some(OutputContent::Text(existing)) if self.text_open => {
+                        existing.push_str(&text)
+                    }
+                    _ => self.captured.push(OutputContent::Text(text.clone())),
+                }
+                self.text_open = true;
+                out.push(StreamEvent::TextDelta(text));
+            }
+```
+
+and add:
+
+```rust
+            RawDelta::TextEnd => self.text_open = false,
+```
+
+- [ ] **Step 4: Confirm the assembler test passes**
+
+Run: `cargo test --all-features --lib assembler_keeps_text_blocks_separate`
+Expected: PASS, 1 test.
+
+- [ ] **Step 5: Emit the boundary from each decoder that has blocks**
+
+`anthropic/mod.rs` — `content_block_start` currently has `Some("text") => {}`.
+Record the index in a `texts: HashSet<usize>` there, and at `content_block_stop`
+emit `RawDelta::TextEnd` when the index was a text block. Keep the existing
+tool-call and thinking branches ahead of it.
+
+`gemini/mod.rs` — text arrives as `step.delta` with `delta.type == "text"` inside
+a `model_output` step. Record `model_output` step indices at `step.start` (the arm
+is currently `Some("model_output") => {}`) and emit `RawDelta::TextEnd` at
+`step.stop` for those.
+
+`openai_responses/mod.rs` — read the parser first: `convert_item` maps each
+`output_text` part of a message item to its own `OutputContent::Text`. Emit
+`RawDelta::TextEnd` on the frame that ends one such part — check whether that is
+`response.output_text.done` or `response.content_part.done` in the fixtures and
+use whichever the dialect actually sends.
+
+`openai_chat/mod.rs` — no change. Its parser produces one `Text` per response.
+
+- [ ] **Step 6: Extend the parity fixtures to two text blocks**
+
+In `anthropic/types.rs`, `gemini/types.rs`, and `openai_responses/types.rs`, add a
+SECOND text block to both sides of `streamed_response_matches_generate`: two
+blocks on the streaming side with the boundary between them, and two
+corresponding text entries in the non-streaming body. Keep every existing
+assertion and every existing part of the fixture.
+
+Leave the OpenAiChat fixture alone and add a one-line comment there noting that
+this dialect has a single text part by construction.
+
+- [ ] **Step 7: Run everything**
+
+Run: `cargo test --all-features --lib streamed_response_matches_generate` → 4 run, 4 passed.
+Run: `cargo test --all-features` → all pass.
+Run: `cargo clippy --all-targets --all-features -- -D warnings` → clean.
+Run: `cargo fmt --all` then `cargo fmt --all --check` → no output.
+
+- [ ] **Step 8: Prove the fixtures catch the bug**
+
+Temporarily comment out the `RawDelta::TextEnd` emission in `anthropic/mod.rs`,
+re-run the parity filter, and confirm the Anthropic test FAILS. Restore it and
+confirm the suite is green again. Report both observations. A fixture that passes
+either way proves nothing.
+
+- [ ] **Step 9: Commit**
+
+```bash
+git add src/provider
+git commit -m "fix: keep streamed text blocks as separate content parts
+
+The parsers emit one OutputContent::Text per text block; the assembler
+coalesced every consecutive delta into one, so a response with two text
+blocks -- Anthropic sends these with citations and after server tool use
+-- drained to a single merged part. Coalescing within a block is still
+required, so the fix is a block boundary rather than removing it."
+```
