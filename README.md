@@ -85,7 +85,7 @@ The goal: everything you need to build an AI agent in Rust, with no vendor lock-
 
 **Phase 0, stabilize the core.** Complete. Portable defaults, tool round trips, opaque reasoning state, pooled HTTP, live verification on every provider.
 
-**Phase 1, production-grade provider layer.** Four dialects and the dialect/endpoint split are done. Remaining: streaming, retries with backoff, typed API errors, capability introspection, and derive-based structured output.
+**Phase 1, production-grade provider layer.** Four dialects, the dialect/endpoint split, and streaming are done. Remaining: retries with backoff, typed API errors, capability introspection, and derive-based structured output.
 
 **Phase 2, the agent.** A `Tool` trait and registry, a `#[tool]` macro deriving schemas from function signatures, an `Agent` type, and a bounded loop with per-tool timeouts and approval hooks.
 

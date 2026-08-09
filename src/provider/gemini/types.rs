@@ -423,10 +423,7 @@ mod tests {
             r#"{"index":0,"event_type":"step.stop"}"#,
         ]);
 
-        assert_eq!(
-            deltas[0],
-            RawDelta::ReasoningText("Working it out.".into())
-        );
+        assert_eq!(deltas[0], RawDelta::ReasoningText("Working it out.".into()));
         assert_eq!(
             deltas[1],
             RawDelta::ReasoningBlob(serde_json::json!({

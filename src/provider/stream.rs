@@ -89,8 +89,7 @@ pub(crate) enum RawDelta {
 /// one frame and its content in later ones.
 pub(crate) trait StreamDecoder: Send {
     /// Appends everything this frame means to `out`.
-    fn decode(&mut self, frame: &SseFrame, out: &mut Vec<RawDelta>)
-    -> Result<(), ProviderError>;
+    fn decode(&mut self, frame: &SseFrame, out: &mut Vec<RawDelta>) -> Result<(), ProviderError>;
 }
 
 use crate::provider::{GenerateResponse, OutputContent};
@@ -383,11 +382,7 @@ impl EventStream {
     }
 
     #[cfg(test)]
-    fn for_test(
-        provider: Arc<str>,
-        decoder: Box<dyn StreamDecoder>,
-        chunks: Vec<Vec<u8>>,
-    ) -> Self {
+    fn for_test(provider: Arc<str>, decoder: Box<dyn StreamDecoder>, chunks: Vec<Vec<u8>>) -> Self {
         Self {
             body: Body::Recorded(chunks.into()),
             buffer: crate::provider::sse::SseBuffer::default(),
@@ -463,10 +458,7 @@ mod tests {
         );
 
         // Deltas are separate events but one content part, matching generate().
-        assert_eq!(
-            assembler.captured,
-            vec![OutputContent::Text("ab".into())]
-        );
+        assert_eq!(assembler.captured, vec![OutputContent::Text("ab".into())]);
         assert_eq!(assembler.id, "resp_1");
         assert_eq!(assembler.model, "test-model");
     }
