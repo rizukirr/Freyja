@@ -4227,3 +4227,369 @@ blocks -- Anthropic sends these with citations and after server tool use
 -- drained to a single merged part. Coalescing within a block is still
 required, so the fix is a block boundary rather than removing it."
 ```
+
+---
+
+# Review follow-up: close the warns and nits
+
+> Added after `docs/reviews/2026-08-09-streaming-api-review.md` returned
+> 0 blocks, 4 warns, 3 nits, and the user asked for all of them addressed.
+
+### Task 22: Reconcile the documents with what shipped → verify: the spec's `## Approach` lists six `StreamEvent` variants including `RefusalDelta`, the plan header records that the plan grew mid-run, and `cargo test --doc` still passes
+
+Closes W1, W3, N1, N3.
+
+**Files:**
+- Modify: `docs/specs/2026-08-09-streaming-api-design.md`
+- Modify: `docs/plans/2026-08-09-streaming-api.md`
+- Modify: `src/provider/anthropic/mod.rs`, `src/provider/gemini/mod.rs`,
+  `src/provider/openai_chat/mod.rs`, `src/provider/openai_responses/mod.rs`
+- Modify: `src/provider/mod.rs`
+
+- [ ] **Step 1: W1 — bring the spec's event model up to date**
+
+In `docs/specs/2026-08-09-streaming-api-design.md`, the `## Approach` section's
+`StreamEvent` block lists five variants. Add `RefusalDelta` in the position it
+occupies in the code (immediately after `TextDelta`) so the spec matches
+`src/provider/stream.rs`:
+
+```rust
+    /// The model declined to answer.
+    RefusalDelta(String),
+```
+
+Then add this paragraph immediately after that code block:
+
+```markdown
+`RefusalDelta` was not in the originally approved event model. It was added
+during implementation because both OpenAI parsers produce
+`OutputContent::Refusal` and the streaming path could not express one at all:
+a refused response arrived as content through `generate()` and as nothing
+through `stream()`, which also made `into_response()` drop a whole content part.
+`StreamEvent` is `#[non_exhaustive]`, so the addition breaks no downstream
+matcher. The internal `RawDelta::TextEnd` was added for the same class of reason
+— the parsers emit one `OutputContent::Text` per text block, so the stream needs
+a block boundary — and carries no public event.
+```
+
+Do NOT change the spec's `status: approved` frontmatter; the design was approved
+and this records what implementation revealed.
+
+- [ ] **Step 2: W3 — make the plan honest about its own growth**
+
+In `docs/plans/2026-08-09-streaming-api.md`, immediately after the
+"Vacuous-pass guard" blockquote in the header, add:
+
+```markdown
+> **This plan grew during execution.** It was approved with 14 tasks. Tasks 15-21
+> were appended after verification runs found defects, and the plan was repaired
+> three times mid-run: cargo-test filters that matched nothing (`570c841`),
+> doctests and clippy deferred past Task 6 because the code they check does not
+> exist yet at that point (`4fe3c3b`), and Task 14's reachability checks
+> corrected after a clippy fix changed what they were grepping for (`a7d9c6b`).
+> Every change is a separate commit with its reasoning. Read the follow-up
+> sections as part of the plan, not as an appendix.
+```
+
+- [ ] **Step 3: N1 — make the per-dialect mapping duplication explicitly deliberate**
+
+Each decoder hand-writes its own status match and `Usage` construction. That
+looks like duplication but each mirrors a *different* parser, and five rounds of
+verification defects came from these drifting apart. Add a comment above the
+status match in each of the four `mod.rs` decoders, naming the parser function
+and file it mirrors, in this shape:
+
+```rust
+            // Mirrors `parse_status` in types.rs. Kept as its own match rather
+            // than shared with the other dialects: the strings differ per
+            // provider, and every divergence found in review came from this
+            // mapping drifting from the parser's.
+```
+
+Use the actual function name each dialect's parser uses — read it first rather
+than assuming they are all called `parse_status`.
+
+- [ ] **Step 4: N3 — record why `stream_query` is public**
+
+In `src/provider/mod.rs`, extend the doc comment on
+`ProviderDialect::stream_query` with a sentence explaining the choice:
+
+```rust
+    /// Public for the same reason as [`Self::path`], [`Self::default_auth`], and
+    /// [`Self::required_headers`]: it describes the dialect, and a caller
+    /// building a request by hand needs it.
+```
+
+- [ ] **Step 5: Verify**
+
+Run: `cargo test --doc` → PASS.
+Run: `cargo test --all-features` → PASS, all tests.
+Run: `cargo fmt --all --check` → no output.
+Run: `cargo clippy --all-targets --all-features -- -D warnings` → clean.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add docs src
+git commit -m "docs: reconcile spec and plan with what shipped
+
+The spec described a five-variant StreamEvent; the crate ships six, and
+the sixth exists because refusals were otherwise unobservable. Records
+that too, and that the plan grew from 14 tasks to 21 during execution."
+```
+
+---
+
+### Task 23: Test the streaming transport end to end → verify: `cargo test --all-features --test streaming_transport` reports 3 tests run and 3 passed, exercising `Client::stream` against a real local HTTP server
+
+Closes W2 and W4, and the review's self-critique risk 3.
+
+`Client::stream` is currently referenced only by `no_run` doctests and the
+example binary — **no test executes it**, and `Body::Live` (the arm that calls
+`reqwest::Response::chunk()`) never runs under `cargo test`. Request-body
+construction, the `?alt=sse` URL, headers, auth, the non-2xx early return, and
+the byte pump are all unverified.
+
+**Files:**
+- Create: `tests/streaming_transport.rs`
+
+Constraint: **do not modify `Cargo.toml`.** No new dependency and no new feature.
+Use `std::net::TcpListener` on a background `std::thread` to serve a canned
+response; `tokio` is already a dev-dependency with `macros` and `rt-multi-thread`,
+so `#[tokio::test]` is available. Bind to `127.0.0.1:0` and read back the assigned
+port so the tests cannot collide.
+
+- [ ] **Step 1: Write the harness and the happy-path test**
+
+Create `tests/streaming_transport.rs`. The server helper should accept exactly
+one connection, read the request head (so the client is not left blocked on a
+half-closed socket), hand the raw request back to the test for assertions, and
+write the supplied response bytes.
+
+```rust
+//! End-to-end transport tests for `Client::stream`.
+//!
+//! The rest of the suite drives decoders over recorded bytes; nothing else
+//! exercises the HTTP path. These use a real socket so that request building,
+//! headers, auth, the status check, and the byte pump are all covered.
+
+use freyja::{Client, GenerateRequest, Message, ProviderConfig, ProviderDialect, Role, StreamEvent};
+use std::io::{BufRead, BufReader, Write};
+use std::net::TcpListener;
+use std::sync::mpsc;
+
+/// Serves one request and returns what the client sent.
+fn serve_once(response: &'static str) -> (String, mpsc::Receiver<String>) {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+    let base = format!("http://{}", listener.local_addr().expect("addr"));
+    let (tx, rx) = mpsc::channel();
+
+    std::thread::spawn(move || {
+        let (mut socket, _) = listener.accept().expect("accept");
+        let mut reader = BufReader::new(socket.try_clone().expect("clone"));
+
+        // Read the head, then the body if the client announced a length.
+        let mut head = String::new();
+        let mut length = 0usize;
+        loop {
+            let mut line = String::new();
+            if reader.read_line(&mut line).expect("read") == 0 || line == "\r\n" {
+                break;
+            }
+            if let Some(value) = line.to_ascii_lowercase().strip_prefix("content-length:") {
+                length = value.trim().parse().unwrap_or(0);
+            }
+            head.push_str(&line);
+        }
+        let mut body = vec![0u8; length];
+        if length > 0 {
+            std::io::Read::read_exact(&mut reader, &mut body).expect("body");
+        }
+        head.push_str(&String::from_utf8_lossy(&body));
+
+        socket.write_all(response.as_bytes()).expect("write");
+        socket.flush().expect("flush");
+        let _ = tx.send(head);
+    });
+
+    (base, rx)
+}
+
+#[tokio::test]
+async fn streams_text_from_a_live_server() {
+    let (base, request) = serve_once(
+        "HTTP/1.1 200 OK\r\n\
+         Content-Type: text/event-stream\r\n\
+         Connection: close\r\n\r\n\
+         data: {\"id\":\"chatcmpl-1\",\"model\":\"gpt-4o\",\"choices\":[{\"delta\":{\"content\":\"Hel\"}}]}\n\n\
+         data: {\"choices\":[{\"delta\":{\"content\":\"lo\"}},{\"finish_reason\":\"stop\"}]}\n\n\
+         data: [DONE]\n\n",
+    );
+
+    let config = ProviderConfig::new(ProviderDialect::OpenAiChat, "local", base)
+        .default_model("test-model");
+    let client = Client::new(config, "sk-test");
+
+    let mut stream = client
+        .stream(&GenerateRequest::new().message(Message::text(Role::User, "Hi")))
+        .await
+        .expect("stream opens");
+
+    let mut text = String::new();
+    while let Some(event) = stream.next().await.expect("no stream error") {
+        if let StreamEvent::TextDelta(delta) = event {
+            text.push_str(&delta);
+        }
+    }
+    assert_eq!(text, "Hello");
+
+    let sent = request.recv().expect("captured request");
+    assert!(sent.starts_with("POST /chat/completions "), "{sent}");
+    assert!(sent.contains("authorization: Bearer sk-test") || sent.contains("Authorization: Bearer sk-test"), "{sent}");
+    assert!(sent.contains("\"stream\":true"), "the body must ask for a stream: {sent}");
+    assert!(sent.contains("\"include_usage\":true"), "usage must be requested: {sent}");
+
+    let response = stream.into_response().expect("drained");
+    assert_eq!(response.output_text(), "Hello");
+}
+```
+
+- [ ] **Step 2: Run it**
+
+Run: `cargo test --all-features --test streaming_transport`
+Expected: PASS, 1 test. If the client hangs, the server helper is not reading the
+request body before writing — fix the helper, not the client.
+
+- [ ] **Step 3: Add the non-2xx test**
+
+An error status must surface from `stream()` itself, not mid-iteration:
+
+```rust
+#[tokio::test]
+async fn surfaces_an_error_status_before_streaming() {
+    let (base, _request) = serve_once(
+        "HTTP/1.1 429 Too Many Requests\r\n\
+         Content-Type: application/json\r\n\
+         Connection: close\r\n\r\n\
+         {\"error\":{\"message\":\"slow down\"}}",
+    );
+
+    let config = ProviderConfig::new(ProviderDialect::OpenAiChat, "local", base)
+        .default_model("test-model");
+    let client = Client::new(config, "sk-test");
+
+    let error = client
+        .stream(&GenerateRequest::new().message(Message::text(Role::User, "Hi")))
+        .await
+        .expect_err("a 429 must not produce a stream");
+
+    match error {
+        freyja::ProviderError::Api { status, body, provider } => {
+            assert_eq!(status, 429);
+            assert_eq!(&*provider, "local");
+            assert!(body.contains("slow down"), "{body}");
+        }
+        other => panic!("expected ProviderError::Api, got {other:?}"),
+    }
+}
+```
+
+- [ ] **Step 4: Add the Gemini URL test**
+
+Gemini selects SSE by query parameter as well as by body field; nothing currently
+proves the client actually sends it.
+
+```rust
+#[tokio::test]
+async fn gemini_requests_sse_by_query_parameter() {
+    let (base, request) = serve_once(
+        "HTTP/1.1 200 OK\r\n\
+         Content-Type: text/event-stream\r\n\
+         Connection: close\r\n\r\n\
+         data: {\"interaction\":{\"id\":\"v1_1\",\"model\":\"gemini-test\",\"status\":\"completed\"},\"event_type\":\"interaction.completed\"}\n\n",
+    );
+
+    let config = ProviderConfig::new(ProviderDialect::Gemini, "local", base)
+        .default_model("test-model");
+    let client = Client::new(config, "key");
+
+    let mut stream = client
+        .stream(&GenerateRequest::new().message(Message::text(Role::User, "Hi")))
+        .await
+        .expect("stream opens");
+    while stream.next().await.expect("no error").is_some() {}
+
+    let sent = request.recv().expect("captured request");
+    assert!(
+        sent.starts_with("POST /interactions?alt=sse "),
+        "Gemini needs ?alt=sse on the URL, not only stream:true in the body: {sent}"
+    );
+    assert!(sent.contains("Api-Revision: 2026-05-20") || sent.contains("api-revision: 2026-05-20"), "{sent}");
+}
+```
+
+- [ ] **Step 5: Run the suite**
+
+Run: `cargo test --all-features --test streaming_transport`
+Expected: `running 3 tests` and `3 passed`. Confirm the count is 3, not 0.
+
+Run: `cargo test --all-features` → PASS, all tests.
+Run: `cargo clippy --all-targets --all-features -- -D warnings` → clean.
+Run: `cargo fmt --all` then `cargo fmt --all --check` → no output.
+
+- [ ] **Step 6: Prove the tests are load-bearing**
+
+Temporarily change `Client::stream` to POST to `self.config.url()` instead of
+`self.config.stream_url()`, re-run, and confirm `gemini_requests_sse_by_query_parameter`
+FAILS. Restore it and confirm green. Report both observations verbatim. A test
+that passes either way proves nothing.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add tests/streaming_transport.rs
+git commit -m "test: cover the streaming transport end to end
+
+Client::stream was reachable only from no_run doctests and the example
+binary, so request building, the ?alt=sse URL, headers, auth, the non-2xx
+early return, and the byte pump were all unverified. Serves canned
+responses over a real socket using std::net, so no new dependency."
+```
+
+---
+
+### Task 24: Collapse the redundant test helper → verify: `cargo test --all-features` passes with `next_blocking` removed and its two callers unaffected
+
+Closes N2.
+
+`EventStream::for_test`, `EventStream::next_blocking`, and the free
+`drain_for_test` total ~35 lines for what two functions can do.
+
+**Files:**
+- Modify: `src/provider/stream.rs`
+
+- [ ] **Step 1: Read the three helpers and their callers**
+
+Run: `grep -rn "next_blocking\|for_test\|drain_for_test" src/`
+
+Decide which of the two remaining shapes is smaller, given every caller:
+either fold `next_blocking`'s poll loop into `drain_for_test` and have the one
+event-by-event test drive it directly, or keep `next_blocking` and drop the
+separate `drain_for_test` wrapper. Pick the one that removes more lines without
+making a call site harder to read.
+
+- [ ] **Step 2: Make the change and confirm nothing else moved**
+
+Run: `cargo test --all-features`
+Expected: PASS, same test count as before the change. A changed count means a
+test was lost — restore it.
+
+Run: `cargo clippy --all-targets --all-features -- -D warnings` → clean.
+Run: `cargo fmt --all --check` → no output.
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add src/provider/stream.rs
+git commit -m "refactor: collapse a redundant streaming test helper"
+```
