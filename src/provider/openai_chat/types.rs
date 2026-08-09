@@ -700,6 +700,69 @@ mod tests {
         assert_eq!(response.output_text(), "");
     }
 
+    /// Streaming must reproduce, part for part, what `parse()` builds from the
+    /// non-streaming body describing the same logical turn.
+    ///
+    /// The expectations below are derived from the parser, which is the
+    /// specification. `parse_finish_reason` maps `stop` and a missing reason
+    /// onto [`ResponseStatus::Completed`], `length` onto
+    /// [`ResponseStatus::Incomplete`], `tool_calls` and `function_call` onto
+    /// [`ResponseStatus::RequiresAction`], and anything else onto
+    /// [`ResponseStatus::Other`]. Usage is a straight copy of `prompt_tokens` /
+    /// `completion_tokens` / `total_tokens`. `From<Response>` builds content in
+    /// a fixed order — non-empty `content` as [`OutputContent::Text`], then
+    /// non-empty `refusal` as [`OutputContent::Refusal`], then every entry of
+    /// `tool_calls` — and models nothing else, so there is no reasoning shape
+    /// for this dialect to cover.
+    #[test]
+    fn streamed_response_matches_generate() {
+        // A tool-calling turn: text in two deltas, a refusal, and a call whose
+        // arguments arrive fragmented.
+        let frames = [
+            r#"{"id":"chatcmpl-1","model":"gpt-4o","choices":[{"index":0,"delta":{"role":"assistant","content":"Hel"}}]}"#,
+            r#"{"id":"chatcmpl-1","model":"gpt-4o","choices":[{"index":0,"delta":{"content":"lo"}}]}"#,
+            r#"{"id":"chatcmpl-1","model":"gpt-4o","choices":[{"index":0,"delta":{"refusal":"I cannot help"}}]}"#,
+            r#"{"id":"chatcmpl-1","model":"gpt-4o","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"get_weather","arguments":""}}]}}]}"#,
+            r#"{"id":"chatcmpl-1","model":"gpt-4o","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"loc"}}]}}]}"#,
+            r#"{"id":"chatcmpl-1","model":"gpt-4o","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"ation\":\"NYC\"}"}}]}}]}"#,
+            r#"{"id":"chatcmpl-1","model":"gpt-4o","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}"#,
+            r#"{"id":"chatcmpl-1","model":"gpt-4o","choices":[],"usage":{"prompt_tokens":11,"completion_tokens":9,"total_tokens":20}}"#,
+            "[DONE]",
+        ];
+
+        let streamed = crate::provider::stream::drain_for_test(
+            "test-endpoint".into(),
+            Box::new(crate::provider::openai_chat::Decoder),
+            frames
+                .iter()
+                .map(|frame| format!("data: {frame}\n\n").into_bytes())
+                .collect(),
+        )
+        .expect("drained");
+
+        let parsed = parse(
+            r#"{"id":"chatcmpl-1","model":"gpt-4o","choices":[{"index":0,"message":{"role":"assistant","content":"Hello","refusal":"I cannot help","tool_calls":[{"id":"call_1","type":"function","function":{"name":"get_weather","arguments":"{\"location\":\"NYC\"}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":11,"completion_tokens":9,"total_tokens":20}}"#,
+            &config(),
+        )
+        .expect("parsed");
+
+        assert_eq!(streamed.id, parsed.id);
+        assert_eq!(streamed.model, parsed.model);
+        assert_eq!(streamed.status, parsed.status);
+        assert_eq!(streamed.usage, parsed.usage);
+        assert_eq!(
+            streamed.content, parsed.content,
+            "content must match part for part: two text deltas coalesce into \
+             one OutputContent::Text, the refusal becomes OutputContent::Refusal \
+             as the parser produces it, and the fragmented call is assembled"
+        );
+        assert_eq!(
+            streamed.to_message(),
+            parsed.to_message(),
+            "the assistant turn replayed into the next request must be identical"
+        );
+    }
+
     use crate::provider::sse::SseFrame;
     use crate::provider::stream::{RawDelta, StreamDecoder};
 

@@ -639,6 +639,82 @@ mod tests {
         );
     }
 
+    /// Streaming must reproduce, part for part, what `parse()` builds from the
+    /// non-streaming body describing the same logical turn.
+    ///
+    /// The expectations below are derived from the parser, which is the
+    /// specification. `From<Response>` maps `completed` onto
+    /// [`ResponseStatus::Completed`], `incomplete` and `budget_exceeded` onto
+    /// [`ResponseStatus::Incomplete`], `requires_action` onto
+    /// [`ResponseStatus::RequiresAction`], `failed` and `cancelled` onto
+    /// [`ResponseStatus::Failed`], and anything else onto
+    /// [`ResponseStatus::Other`]. Usage is a straight copy of
+    /// `total_input_tokens` / `total_output_tokens` / `total_tokens`.
+    /// `convert_step` models exactly `model_output` (its `text` parts) and
+    /// `function_call`, and preserves every other step verbatim as
+    /// [`OutputContent::Reasoning`]. No shape in this dialect yields
+    /// [`OutputContent::Refusal`], so the fixture has none.
+    #[test]
+    fn streamed_response_matches_generate() {
+        // A tool-calling turn: text in two deltas, a thought with a signature,
+        // a function call with fragmented arguments, an unmodeled step whose
+        // payload arrives as a delta, and a terminal `requires_action`.
+        let frames = [
+            r#"{"index":0,"step":{"type":"model_output"},"event_type":"step.start"}"#,
+            r#"{"index":0,"delta":{"type":"text","text":"Hel"},"event_type":"step.delta"}"#,
+            r#"{"index":0,"delta":{"type":"text","text":"lo"},"event_type":"step.delta"}"#,
+            r#"{"index":0,"event_type":"step.stop"}"#,
+            r#"{"index":1,"step":{"type":"thought"},"event_type":"step.start"}"#,
+            r#"{"index":1,"delta":{"type":"thought_summary","content":{"type":"text","text":"Working it out."}},"event_type":"step.delta"}"#,
+            r#"{"index":1,"delta":{"type":"thought_signature","signature":"sig-abc"},"event_type":"step.delta"}"#,
+            r#"{"index":1,"event_type":"step.stop"}"#,
+            r#"{"index":2,"step":{"type":"function_call","id":"call_1","name":"get_weather","arguments":{}},"event_type":"step.start"}"#,
+            r#"{"index":2,"delta":{"type":"arguments_delta","arguments":"{\"location\":"},"event_type":"step.delta"}"#,
+            r#"{"index":2,"delta":{"type":"arguments_delta","arguments":"\"NYC\"}"},"event_type":"step.delta"}"#,
+            r#"{"index":2,"event_type":"step.stop"}"#,
+            r#"{"index":3,"step":{"type":"code_execution","language":"python"},"event_type":"step.start"}"#,
+            r#"{"index":3,"delta":{"type":"code","code":"print(1)"},"event_type":"step.delta"}"#,
+            r#"{"index":3,"event_type":"step.stop"}"#,
+            r#"{"interaction":{"id":"v1_abc123","model":"gemini-3.6-flash","status":"requires_action","usage":{"total_input_tokens":11,"total_output_tokens":90,"total_tokens":101}},"event_type":"interaction.completed"}"#,
+        ];
+
+        let streamed = crate::provider::stream::drain_for_test(
+            "gemini".into(),
+            Box::new(crate::provider::gemini::Decoder::default()),
+            frames
+                .iter()
+                .map(|frame| format!("data: {frame}\n\n").into_bytes())
+                .collect(),
+        )
+        .expect("drained");
+
+        let parsed = parse(
+            r#"{"id":"v1_abc123","model":"gemini-3.6-flash","status":"requires_action","steps":[{"type":"model_output","content":[{"type":"text","text":"Hello"}]},{"type":"thought","signature":"sig-abc"},{"type":"function_call","id":"call_1","name":"get_weather","arguments":{"location":"NYC"}},{"type":"code_execution","language":"python","code":"print(1)"}],"usage":{"total_input_tokens":11,"total_output_tokens":90,"total_tokens":101}}"#,
+            &config(),
+        )
+        .expect("parsed");
+
+        assert_eq!(streamed.id, parsed.id);
+        assert_eq!(streamed.model, parsed.model);
+        assert_eq!(
+            streamed.status, parsed.status,
+            "the parser maps requires_action, budget_exceeded and cancelled; a \
+             tool-calling turn is the case a streaming caller hits most"
+        );
+        assert_eq!(streamed.usage, parsed.usage);
+        assert_eq!(
+            streamed.content, parsed.content,
+            "content must match part for part, including that two text deltas \
+             coalesce into one OutputContent::Text and that an unmodeled step \
+             replays with the payload that streamed into it"
+        );
+        assert_eq!(
+            streamed.to_message(),
+            parsed.to_message(),
+            "the assistant turn replayed into the next request must be identical"
+        );
+    }
+
     #[test]
     fn rejects_capabilities_that_cannot_be_translated() {
         let request = GenerateRequest::new().reasoning_effort(ReasoningEffort::High);

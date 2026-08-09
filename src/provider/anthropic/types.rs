@@ -629,6 +629,18 @@ mod tests {
         assert_eq!(response.provider_metadata.unwrap()["role"], "assistant");
     }
 
+    /// Streaming must reproduce, part for part, what `parse()` builds from the
+    /// non-streaming body describing the same logical turn.
+    ///
+    /// The expectations below are derived from the parser, which is the
+    /// specification: `parse_status` maps `tool_use` onto
+    /// [`ResponseStatus::RequiresAction`], `From<Response>` sums
+    /// `input_tokens`, `cache_creation_input_tokens` and
+    /// `cache_read_input_tokens` into the neutral input total, and
+    /// `convert_block` models exactly `text` and `tool_use` while preserving
+    /// every other block verbatim as [`OutputContent::Reasoning`]. This dialect
+    /// has no shape that yields [`OutputContent::Refusal`]; a refusal is a
+    /// `stop_reason`, so it is covered by the status map rather than by content.
     #[test]
     fn streamed_response_matches_generate() {
         // The same logical answer, expressed both ways.
@@ -636,7 +648,7 @@ mod tests {
             "anthropic".into(),
             Box::new(crate::provider::anthropic::Decoder::default()),
             vec![
-                b"event: message_start\ndata: {\"message\":{\"id\":\"msg_1\",\"model\":\"claude-sonnet-4\",\"usage\":{\"input_tokens\":11,\"output_tokens\":0}}}\n\n".to_vec(),
+                b"event: message_start\ndata: {\"message\":{\"id\":\"msg_1\",\"model\":\"claude-sonnet-4\",\"usage\":{\"input_tokens\":11,\"cache_creation_input_tokens\":100,\"cache_read_input_tokens\":1000,\"output_tokens\":0}}}\n\n".to_vec(),
                 b"event: content_block_start\ndata: {\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n".to_vec(),
                 b"event: content_block_delta\ndata: {\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"Hel\"}}\n\n".to_vec(),
                 b"event: content_block_delta\ndata: {\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"lo\"}}\n\n".to_vec(),
@@ -646,8 +658,12 @@ mod tests {
                 b"event: content_block_delta\ndata: {\"index\":1,\"delta\":{\"type\":\"signature_delta\",\"signature\":\"sig-1\"}}\n\n".to_vec(),
                 b"event: content_block_stop\ndata: {\"index\":1}\n\n".to_vec(),
                 b"event: content_block_start\ndata: {\"index\":2,\"content_block\":{\"type\":\"tool_use\",\"id\":\"toolu_1\",\"name\":\"get_weather\",\"input\":{}}}\n\n".to_vec(),
-                b"event: content_block_delta\ndata: {\"index\":2,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"city\\\":\\\"NYC\\\"}\"}}\n\n".to_vec(),
+                b"event: content_block_delta\ndata: {\"index\":2,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"city\\\":\"}}\n\n".to_vec(),
+                b"event: content_block_delta\ndata: {\"index\":2,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"\\\"NYC\\\"}\"}}\n\n".to_vec(),
                 b"event: content_block_stop\ndata: {\"index\":2}\n\n".to_vec(),
+                b"event: content_block_start\ndata: {\"index\":3,\"content_block\":{\"type\":\"server_tool_use\",\"id\":\"srvtoolu_1\",\"name\":\"web_search\",\"input\":{}}}\n\n".to_vec(),
+                b"event: content_block_delta\ndata: {\"index\":3,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"query\\\":\\\"rust\\\"}\"}}\n\n".to_vec(),
+                b"event: content_block_stop\ndata: {\"index\":3}\n\n".to_vec(),
                 b"event: message_delta\ndata: {\"delta\":{\"stop_reason\":\"tool_use\"},\"usage\":{\"output_tokens\":9}}\n\n".to_vec(),
             ],
         )
@@ -656,7 +672,7 @@ mod tests {
         let config =
             ProviderConfig::new(ProviderDialect::Anthropic, "anthropic", "https://x.test/v1");
         let parsed = parse(
-            r#"{"id":"msg_1","model":"claude-sonnet-4","stop_reason":"tool_use","content":[{"type":"text","text":"Hello"},{"type":"thinking","thinking":"Considering.","signature":"sig-1"},{"type":"tool_use","id":"toolu_1","name":"get_weather","input":{"city":"NYC"}}],"usage":{"input_tokens":11,"output_tokens":9}}"#,
+            r#"{"id":"msg_1","model":"claude-sonnet-4","stop_reason":"tool_use","content":[{"type":"text","text":"Hello"},{"type":"thinking","thinking":"Considering.","signature":"sig-1"},{"type":"tool_use","id":"toolu_1","name":"get_weather","input":{"city":"NYC"}},{"type":"server_tool_use","id":"srvtoolu_1","name":"web_search","input":{"query":"rust"}}],"usage":{"input_tokens":11,"cache_creation_input_tokens":100,"cache_read_input_tokens":1000,"output_tokens":9}}"#,
             &config,
         )
         .expect("parsed");
@@ -664,7 +680,11 @@ mod tests {
         assert_eq!(streamed.id, parsed.id);
         assert_eq!(streamed.model, parsed.model);
         assert_eq!(streamed.status, parsed.status);
-        assert_eq!(streamed.usage, parsed.usage);
+        assert_eq!(
+            streamed.usage, parsed.usage,
+            "the parser sums input_tokens with both cache token fields, so a \
+             stream that reads input_tokens alone reports a smaller prompt"
+        );
         assert_eq!(
             streamed.content, parsed.content,
             "content must match part for part, including that two text deltas \
@@ -677,8 +697,9 @@ mod tests {
         );
         assert_eq!(
             streamed.content.len(),
-            3,
-            "text, reasoning blob, and tool call must all survive the stream"
+            4,
+            "text, thinking, tool call, and the unmodeled server_tool_use block \
+             must all survive the stream"
         );
         assert!(streamed.has_tool_calls());
         assert_eq!(

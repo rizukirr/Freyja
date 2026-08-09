@@ -492,6 +492,118 @@ mod tests {
         assert_eq!(input[2]["output"], "42");
     }
 
+    /// Streaming must reproduce, part for part, what `parse()` builds from the
+    /// non-streaming body describing the same logical turn.
+    ///
+    /// The expectations below are derived from the parser, which is the
+    /// specification. `parse_status` maps `completed`, `incomplete`,
+    /// `requires_action` and `failed` onto their neutral counterparts and
+    /// anything else onto [`ResponseStatus::Other`]. Usage is a straight copy of
+    /// `input_tokens` / `output_tokens` / `total_tokens`. `convert_item` models
+    /// exactly `message` — whose `output_text` parts become
+    /// [`OutputContent::Text`] and whose `refusal` parts become
+    /// [`OutputContent::Refusal`] — and `function_call`, preserving every other
+    /// item verbatim as [`OutputContent::Reasoning`].
+    #[test]
+    fn streamed_response_matches_generate() {
+        // A tool-calling turn: a reasoning item, text in two deltas, a refusal,
+        // a call with fragmented arguments, and a terminal `requires_action`.
+        let frames = [
+            (
+                "response.created",
+                r#"{"response":{"id":"resp_1","model":"gpt-5","status":"in_progress"}}"#,
+            ),
+            (
+                "response.output_item.added",
+                r#"{"output_index":0,"item":{"type":"reasoning","id":"rs_1","summary":[]}}"#,
+            ),
+            (
+                "response.reasoning_summary_text.delta",
+                r#"{"item_id":"rs_1","output_index":0,"delta":"Thinking."}"#,
+            ),
+            (
+                "response.output_item.done",
+                r#"{"output_index":0,"item":{"type":"reasoning","id":"rs_1","summary":[{"type":"summary_text","text":"Thinking."}]}}"#,
+            ),
+            (
+                "response.output_item.added",
+                r#"{"output_index":1,"item":{"type":"message","id":"msg_1","role":"assistant","content":[]}}"#,
+            ),
+            (
+                "response.output_text.delta",
+                r#"{"item_id":"msg_1","output_index":1,"delta":"Hel"}"#,
+            ),
+            (
+                "response.output_text.delta",
+                r#"{"item_id":"msg_1","output_index":1,"delta":"lo"}"#,
+            ),
+            (
+                "response.refusal.delta",
+                r#"{"item_id":"msg_1","output_index":1,"delta":"I cannot help"}"#,
+            ),
+            (
+                "response.output_item.done",
+                r#"{"output_index":1,"item":{"type":"message","id":"msg_1","role":"assistant","content":[{"type":"output_text","text":"Hello"},{"type":"refusal","refusal":"I cannot help"}]}}"#,
+            ),
+            (
+                "response.output_item.added",
+                r#"{"output_index":2,"item":{"type":"function_call","id":"fc_1","call_id":"call_1","name":"get_weather","arguments":""}}"#,
+            ),
+            (
+                "response.function_call_arguments.delta",
+                r#"{"item_id":"fc_1","output_index":2,"delta":"{\"loc"}"#,
+            ),
+            (
+                "response.function_call_arguments.done",
+                r#"{"item_id":"fc_1","output_index":2,"arguments":"{\"location\":\"NYC\"}"}"#,
+            ),
+            (
+                "response.output_item.done",
+                r#"{"output_index":2,"item":{"type":"function_call","id":"fc_1","call_id":"call_1","name":"get_weather","arguments":"{\"location\":\"NYC\"}"}}"#,
+            ),
+            (
+                "response.completed",
+                r#"{"response":{"id":"resp_1","model":"gpt-5","status":"requires_action","usage":{"input_tokens":11,"output_tokens":9,"total_tokens":20}}}"#,
+            ),
+        ];
+
+        let streamed = crate::provider::stream::drain_for_test(
+            "openai".into(),
+            Box::new(crate::provider::openai_responses::Decoder),
+            frames
+                .iter()
+                .map(|(event, data)| format!("event: {event}\ndata: {data}\n\n").into_bytes())
+                .collect(),
+        )
+        .expect("drained");
+
+        let parsed = parse(
+            r#"{"id":"resp_1","model":"gpt-5","status":"requires_action","output":[{"type":"reasoning","id":"rs_1","summary":[{"type":"summary_text","text":"Thinking."}]},{"type":"message","id":"msg_1","role":"assistant","content":[{"type":"output_text","text":"Hello"},{"type":"refusal","refusal":"I cannot help"}]},{"type":"function_call","id":"fc_1","call_id":"call_1","name":"get_weather","arguments":"{\"location\":\"NYC\"}"}],"usage":{"input_tokens":11,"output_tokens":9,"total_tokens":20}}"#,
+            &config(),
+        )
+        .expect("parsed");
+
+        assert_eq!(streamed.id, parsed.id);
+        assert_eq!(streamed.model, parsed.model);
+        assert_eq!(
+            streamed.status, parsed.status,
+            "the parser maps requires_action; a tool-calling turn is the case a \
+             streaming caller hits most"
+        );
+        assert_eq!(streamed.usage, parsed.usage);
+        assert_eq!(
+            streamed.content, parsed.content,
+            "content must match part for part: two text deltas coalesce into one \
+             OutputContent::Text, the refusal becomes OutputContent::Refusal as \
+             the parser produces it, and the unmodeled reasoning item survives"
+        );
+        assert_eq!(
+            streamed.to_message(),
+            parsed.to_message(),
+            "the assistant turn replayed into the next request must be identical"
+        );
+    }
+
     use crate::provider::sse::SseFrame;
     use crate::provider::stream::{RawDelta, StreamDecoder};
 
