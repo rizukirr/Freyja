@@ -197,6 +197,8 @@ let usable: Vec<_> = [ProviderType::OpenAi, ProviderType::Gemini]
     .collect();
 ```
 
+`examples/portable.rs` does exactly this against three real endpoints, next to the same request being sent, so the two ways of learning the fact sit side by side. Run it with `cargo run --example portable`.
+
 #### What else it catches
 
 Everything decidable before the network, not only capabilities. A request naming no model, on an endpoint with no `default_model`, is an `InvalidRequest` from `generate` and an `InvalidRequest` from `check`. Reporting it is the honest behaviour: `check` promises that `generate` would get as far as the network, and that request would not.
