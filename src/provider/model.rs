@@ -619,9 +619,14 @@ pub enum ProviderError {
     /// Not retryable by waiting: it needs billing action. Several vendors
     /// report this with the same `429` they use for throttling and separate the
     /// two only in the body, so a caller that treats every `429` as a rate
-    /// limit will retry a dead account forever. Freyja splits them where the
-    /// body makes it possible and falls back to [`Self::RateLimit`] where it
-    /// does not — see [`Self::from_status`] for which endpoints that covers.
+    /// limit will retry a dead account forever.
+    ///
+    /// Coverage is uneven, because the split is only possible where the body
+    /// says so. The `insufficient_quota` marker on OpenAI-shaped bodies covers
+    /// both OpenAI dialects and the endpoints that copy them; Gemini reports
+    /// both cases as `RESOURCE_EXHAUSTED` and cannot be split, and Anthropic
+    /// has no equivalent. On those, an exhausted quota arrives as
+    /// [`Self::RateLimit`] and a bounded retry loop is the protection.
     QuotaExceeded {
         /// Endpoint that refused.
         provider: Arc<str>,
