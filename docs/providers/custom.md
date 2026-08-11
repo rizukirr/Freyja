@@ -125,7 +125,7 @@ invalid request for my-gateway: no model set on the request and no default_model
 
 Freyja's `UnsupportedCapability` errors are raised by the *dialect*, so they tell you what the format cannot express, not what a particular endpoint declined to implement. Anything in the second category arrives as one of the status-bearing variants with the endpoint's own message. That is deliberate: Freyja will not pretend to know the capabilities of an endpoint it has never seen.
 
-Capability introspection is Phase 1 work. Until then, the honest test of a compatible endpoint is a real request.
+`Client::check` will tell you whether the *dialect* can express a request, before it is sent. It will not tell you whether this endpoint implements everything the dialect can express, because Freyja has never seen it. The honest test of a compatible endpoint is still a real request.
 
 ## Starting from a preset
 
