@@ -38,7 +38,7 @@ The reason is maintenance honesty rather than effort. A preset is a standing pro
 | Text generation | yes | |
 | Images in user turns | yes | Sent as `image_url` parts |
 | System and developer turns | yes | **Not hoisted**, they stay as messages |
-| `max_tokens` | yes | Sent as `max_tokens`, see the caveat below |
+| `max_tokens` | yes | `max_tokens` or `max_completion_tokens`, see below |
 | `temperature`, `top_p` | yes | Forwarded unchanged |
 | `reasoning_effort` | yes | Forwarded, support varies by endpoint |
 | `response_format` | yes | All three variants map |
@@ -97,11 +97,33 @@ So `InputContent::Reasoning` is **skipped** rather than rejected. That matters w
 
 This is the one deliberate exception to the no-silent-degradation rule, and it is narrow. Freyja is dropping state the target format neither accepts nor requires, not a capability you asked for. Anthropic behaves the same way when a Claude thinking block reaches a different model.
 
-## `max_tokens` may need renaming
+## The token cap has two spellings
 
-Freyja sends `max_tokens`, which is what the compatible ecosystem understands.
+This format has had two fields for the output cap. `max_tokens` came first and is what the compatible ecosystem implements. OpenAI later replaced it with `max_completion_tokens`, and its newer models now **reject** the old spelling rather than ignoring it:
 
-OpenAI's own newer models have deprecated it in favour of `max_completion_tokens` and may reject the old spelling. If you are pointing this dialect at `api.openai.com` and get a 400 naming the field, that is why. Use [OpenAI](../providers/openai.md) with the Responses API instead, which is the better fit for OpenAI's own endpoint anyway.
+```
+Unsupported parameter: 'max_tokens' is not supported with this model.
+Use 'max_completion_tokens' instead.
+```
+
+That is a rejection of the field's *presence*, not its value, so sending both to cover the two spellings fails on exactly the endpoint that needs the new one. Freyja sends one or the other, chosen by the endpoint:
+
+```rust
+use freyja::{ProviderConfig, ProviderDialect, TokenLimitField};
+
+let config = ProviderConfig::new(
+        ProviderDialect::OpenAiChat,
+        "OpenAI",
+        "https://api.openai.com/v1",
+    )
+    .token_limit_field(TokenLimitField::MaxCompletionTokens);
+```
+
+The default is `max_tokens`, because this dialect is reached only through an explicit `ProviderConfig` — `ProviderType::OpenAi` is the Responses dialect — so by default it is serving one of the compatible vendors it exists for. Set the field when you point it at OpenAI itself.
+
+Both spellings were verified against `api.openai.com`: the default is rejected there, and `MaxCompletionTokens` is accepted.
+
+If OpenAI's own endpoint is the target, [the Responses API](../providers/openai.md) remains the better fit — it names its cap `max_output_tokens` and has no such history.
 
 ## Field mapping
 
@@ -111,7 +133,7 @@ OpenAI's own newer models have deprecated it in favour of `max_completion_tokens
 |---|---|
 | `model` | `model`, from the request or the endpoint default |
 | all turns including system | `messages` |
-| `max_tokens` | `max_tokens` |
+| `max_tokens` | `max_tokens`, or `max_completion_tokens` per `token_limit_field` |
 | `temperature` | `temperature` |
 | `top_p` | `top_p` |
 | `reasoning_effort` | `reasoning_effort` |

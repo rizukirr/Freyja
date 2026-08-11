@@ -93,6 +93,6 @@ pub mod provider;
 pub use provider::{
     Auth, Client, EventStream, GenerateRequest, GenerateResponse, InputContent, Message,
     OutputContent, Provider, ProviderConfig, ProviderDialect, ProviderError, ProviderType,
-    ReasoningEffort, ResponseFormat, ResponseStatus, Role, StreamEvent, ToolChoice, ToolDefinition,
-    TransportError, Usage,
+    ReasoningEffort, ResponseFormat, ResponseStatus, Role, StreamEvent, TokenLimitField,
+    ToolChoice, ToolDefinition, TransportError, Usage,
 };

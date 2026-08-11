@@ -103,7 +103,7 @@ Phase 0 is complete and Phase 1 is nearly done: the neutral core is stable, four
 | Pre-flight checks | `client.check(&request)`, no network call |
 | Not implemented | Automatic tool dispatch, orchestration |
 
-`cargo test`: 111 unit tests, 4 integration tests, and 12 doctests. `cargo clippy --all-targets -- -D warnings` clean. [Features](docs/features.md) has the honest boundary, including which capabilities each provider refuses.
+`cargo test`: 114 unit tests, 4 integration tests, and 13 doctests. `cargo clippy --all-targets -- -D warnings` clean. [Features](docs/features.md) has the honest boundary, including which capabilities each provider refuses.
 
 ## Roadmap
 

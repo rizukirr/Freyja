@@ -119,6 +119,25 @@ pub enum Auth {
     None,
 }
 
+/// Which field carries the output token cap on a Chat Completions endpoint.
+///
+/// The format has had two. `max_tokens` came first and is what the compatible
+/// ecosystem implements; OpenAI later replaced it with `max_completion_tokens`
+/// and newer OpenAI models now reject the old name outright rather than
+/// ignoring it, so this cannot be papered over by sending both.
+///
+/// Only the [`ProviderDialect::OpenAiChat`] dialect reads this. The other three
+/// name their cap unambiguously: `max_output_tokens` on Responses,
+/// `maxOutputTokens` on Gemini, `max_tokens` on Anthropic.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum TokenLimitField {
+    /// `max_tokens`. The original field, and the default.
+    MaxTokens,
+    /// `max_completion_tokens`. Required by newer OpenAI models.
+    MaxCompletionTokens,
+}
+
 /// An endpoint: where to send a request, how to authenticate, and what to
 /// default when the caller does not say.
 ///
@@ -150,6 +169,13 @@ pub struct ProviderConfig {
     pub default_model: Option<String>,
     /// Extra headers, for gateways that want attribution or routing hints.
     pub extra_headers: Vec<(String, String)>,
+    /// Which field carries [`GenerateRequest::max_tokens`] on this endpoint.
+    ///
+    /// Read only by the [`ProviderDialect::OpenAiChat`] dialect, and defaulted
+    /// to [`TokenLimitField::MaxTokens`] because that is what the compatible
+    /// ecosystem implements. Point that dialect at OpenAI itself and you want
+    /// [`TokenLimitField::MaxCompletionTokens`] instead.
+    pub token_limit_field: TokenLimitField,
 }
 
 impl ProviderConfig {
@@ -167,6 +193,7 @@ impl ProviderConfig {
             api_key_env: None,
             default_model: None,
             extra_headers: Vec::new(),
+            token_limit_field: TokenLimitField::MaxTokens,
         }
     }
 
@@ -191,6 +218,27 @@ impl ProviderConfig {
     /// Adds an extra header sent with every request.
     pub fn header(mut self, name: impl Into<String>, value: impl Into<String>) -> Self {
         self.extra_headers.push((name.into(), value.into()));
+        self
+    }
+
+    /// Chooses which field carries the output token cap.
+    ///
+    /// Needed only when pointing [`ProviderDialect::OpenAiChat`] at an endpoint
+    /// that has moved to `max_completion_tokens`, OpenAI itself being the one
+    /// that has:
+    ///
+    /// ```
+    /// use freyja::{ProviderConfig, ProviderDialect, TokenLimitField};
+    ///
+    /// let config = ProviderConfig::new(
+    ///         ProviderDialect::OpenAiChat,
+    ///         "OpenAI",
+    ///         "https://api.openai.com/v1",
+    ///     )
+    ///     .token_limit_field(TokenLimitField::MaxCompletionTokens);
+    /// ```
+    pub fn token_limit_field(mut self, field: TokenLimitField) -> Self {
+        self.token_limit_field = field;
         self
     }
 
