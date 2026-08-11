@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::fmt;
 use std::sync::Arc;
+use std::time::Duration;
 
 /// A provider-neutral generation request.
 ///
@@ -461,11 +462,82 @@ pub struct Usage {
     pub total_tokens: u64,
 }
 
+/// Why a request never reached the endpoint.
+///
+/// Every variant describes a failure that happened below HTTP semantics: no
+/// status code was ever received, so there is nothing for the endpoint to have
+/// said. The distinction that matters to a caller is whether trying again could
+/// help, which [`ProviderError::is_retryable`] answers from this.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum TransportError {
+    /// No reply arrived within the configured inactivity timeout.
+    ///
+    /// Transient by nature: the same request may well succeed on a later
+    /// attempt.
+    Timeout,
+    /// The connection could not be established at all.
+    ///
+    /// Covers DNS failure, a refused connection, and a rejected TLS
+    /// certificate. `reqwest` reports the three identically, and they call for
+    /// the same response from a caller: fix the configuration rather than try
+    /// again.
+    Connect,
+    /// The connection died while the body was being read.
+    ///
+    /// The endpoint accepted the request and began answering, so a later
+    /// attempt is worth making.
+    Body,
+    /// A transport failure the classification above does not cover.
+    Other,
+}
+
+impl TransportError {
+    /// Classify a transport failure from what `reqwest` reports about it.
+    pub(crate) fn classify(error: &reqwest::Error) -> Self {
+        if error.is_timeout() {
+            Self::Timeout
+        } else if error.is_connect() {
+            Self::Connect
+        } else if error.is_body() {
+            Self::Body
+        } else {
+            Self::Other
+        }
+    }
+
+    /// Whether repeating the request could plausibly get further.
+    const fn is_retryable(self) -> bool {
+        matches!(self, Self::Timeout | Self::Body)
+    }
+
+    /// A short description, used by [`ProviderError`]'s `Display`.
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Timeout => "timed out",
+            Self::Connect => "could not be reached",
+            Self::Body => "dropped the connection",
+            Self::Other => "transport failed",
+        }
+    }
+}
+
 /// Everything that can go wrong on the way to a [`GenerateResponse`].
 ///
 /// `provider` is the endpoint's configured name rather than its dialect, so a
 /// failure against a Claude-compatible gateway reports that gateway and not
 /// "Anthropic".
+///
+/// The variants fall into three groups: refusals raised before anything left
+/// the process, transport failures where no answer came back, and answers the
+/// endpoint actually sent. That last group is named by meaning rather than by
+/// status code, because the same code means different things on different
+/// vendors — but each variant still carries the status and the raw body, so
+/// nothing the endpoint said is lost.
+///
+/// Freyja never retries. [`Self::is_retryable`] and [`Self::retry_after`]
+/// report what it knows so a caller's own loop does not have to rediscover it
+/// per vendor.
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum ProviderError {
@@ -478,15 +550,107 @@ pub enum ProviderError {
         capability: &'static str,
     },
     /// The request is malformed and was rejected before leaving the process.
+    ///
+    /// Distinct from [`Self::BadRequest`], which is the endpoint rejecting a
+    /// request Freyja was willing to send.
     InvalidRequest {
         /// Endpoint whose mapping rejected the request.
         provider: Arc<str>,
         /// What is wrong with it.
         message: String,
     },
-    /// The HTTP request never completed.
-    Http(String),
-    /// The provider answered with a non-success status.
+    /// The HTTP request never completed, so no status was ever received.
+    ///
+    /// Distinct from [`Self::Api`] and its siblings, where the endpoint did
+    /// answer and the answer was an error.
+    Http {
+        /// Endpoint that could not be reached.
+        provider: Arc<str>,
+        /// Why it could not be reached.
+        kind: TransportError,
+        /// The underlying transport message, preserved for debugging.
+        message: String,
+    },
+    /// `400` — the endpoint rejected the request body.
+    ///
+    /// Not retryable: the same bytes will be rejected again.
+    BadRequest {
+        /// Endpoint that rejected it.
+        provider: Arc<str>,
+        /// Raw response body, preserved for debugging.
+        body: String,
+    },
+    /// `401` or `403` — the credential is missing, wrong, or not permitted to
+    /// use this model.
+    ///
+    /// Not retryable: the key has to change.
+    Unauthorized {
+        /// Endpoint that refused.
+        provider: Arc<str>,
+        /// The status, since `401` and `403` both land here.
+        status: u16,
+        /// Raw response body, preserved for debugging.
+        body: String,
+    },
+    /// `404` — no such model, or the base URL is wrong.
+    ///
+    /// Not retryable.
+    NotFound {
+        /// Endpoint that answered.
+        provider: Arc<str>,
+        /// Raw response body, preserved for debugging.
+        body: String,
+    },
+    /// `429` — requests are arriving faster than the endpoint will serve them.
+    ///
+    /// Retryable once `retry_after` has elapsed. That field carries the
+    /// endpoint's own `Retry-After` header when it sent one, and is `None`
+    /// otherwise, in which case the caller's own backoff applies.
+    RateLimit {
+        /// Endpoint that throttled the request.
+        provider: Arc<str>,
+        /// How long the endpoint asked the caller to wait, if it said.
+        retry_after: Option<Duration>,
+        /// Raw response body, preserved for debugging.
+        body: String,
+    },
+    /// The account is out of credit or past a hard quota.
+    ///
+    /// Not retryable by waiting: it needs billing action. Several vendors
+    /// report this with the same `429` they use for throttling and separate the
+    /// two only in the body, so a caller that treats every `429` as a rate
+    /// limit will retry a dead account forever.
+    ///
+    /// Coverage is uneven, because the split is only possible where the body
+    /// says so. The `insufficient_quota` marker on OpenAI-shaped bodies covers
+    /// both OpenAI dialects and the endpoints that copy them; Gemini reports
+    /// both cases as `RESOURCE_EXHAUSTED` and cannot be split, and Anthropic
+    /// has no equivalent. On those, an exhausted quota arrives as
+    /// [`Self::RateLimit`] and a bounded retry loop is the protection.
+    QuotaExceeded {
+        /// Endpoint that refused.
+        provider: Arc<str>,
+        /// The status the endpoint used, since vendors disagree.
+        status: u16,
+        /// Raw response body, preserved for debugging.
+        body: String,
+    },
+    /// `5xx` — the endpoint failed on its own side.
+    ///
+    /// Retryable.
+    ServerError {
+        /// Endpoint that failed.
+        provider: Arc<str>,
+        /// HTTP status code, including non-standard ones such as Anthropic's
+        /// `529`.
+        status: u16,
+        /// Raw response body, preserved for debugging.
+        body: String,
+    },
+    /// A non-success status Freyja does not classify.
+    ///
+    /// The fallback arm. A status no named variant claims arrives here intact
+    /// rather than being forced into an approximate category.
     Api {
         /// Endpoint that answered.
         provider: Arc<str>,
@@ -521,6 +685,137 @@ pub enum ProviderError {
     },
 }
 
+/// Marker OpenAI-shaped error bodies use to distinguish an exhausted quota from
+/// ordinary throttling. Both arrive as `429`.
+const QUOTA_MARKER: &str = "insufficient_quota";
+
+impl ProviderError {
+    /// Classify a non-success response into the narrowest variant that fits.
+    ///
+    /// A status no named variant claims becomes [`Self::Api`] rather than being
+    /// forced into an approximate category, so an unfamiliar endpoint never
+    /// reports something Freyja cannot actually tell.
+    ///
+    /// The `429` split into [`Self::RateLimit`] and [`Self::QuotaExceeded`]
+    /// keys on the `insufficient_quota` marker that OpenAI-shaped bodies carry,
+    /// which covers the OpenAI dialects and the many third-party endpoints that
+    /// copy them. Gemini reports both cases as `RESOURCE_EXHAUSTED` and cannot
+    /// be split; Anthropic has no equivalent. On those, an exhausted quota
+    /// arrives as [`Self::RateLimit`].
+    pub(crate) fn from_status(
+        provider: Arc<str>,
+        status: u16,
+        retry_after: Option<Duration>,
+        body: String,
+    ) -> Self {
+        match status {
+            400 => Self::BadRequest { provider, body },
+            401 | 403 => Self::Unauthorized {
+                provider,
+                status,
+                body,
+            },
+            404 => Self::NotFound { provider, body },
+            429 if body.contains(QUOTA_MARKER) => Self::QuotaExceeded {
+                provider,
+                status,
+                body,
+            },
+            429 => Self::RateLimit {
+                provider,
+                retry_after,
+                body,
+            },
+            500..=599 => Self::ServerError {
+                provider,
+                status,
+                body,
+            },
+            _ => Self::Api {
+                provider,
+                status,
+                body,
+            },
+        }
+    }
+
+    /// Build a [`Self::Http`] from a transport failure, classifying it.
+    pub(crate) fn transport(provider: Arc<str>, error: &reqwest::Error) -> Self {
+        Self::Http {
+            provider,
+            kind: TransportError::classify(error),
+            message: error.to_string(),
+        }
+    }
+
+    /// Whether repeating the identical request could plausibly succeed.
+    ///
+    /// Freyja never retries — this reports what it knows so a caller's own loop
+    /// does not have to rediscover it per vendor. `false` means the request
+    /// will fail the same way every time until something outside it changes:
+    /// the key, the model name, the request body, or the account balance.
+    ///
+    /// A caller that also wants to respect the endpoint's pacing pairs this
+    /// with [`Self::retry_after`].
+    pub fn is_retryable(&self) -> bool {
+        match self {
+            Self::Http { kind, .. } => kind.is_retryable(),
+            Self::RateLimit { .. } | Self::ServerError { .. } => true,
+            Self::Api { status, .. } => *status >= 500,
+            _ => false,
+        }
+    }
+
+    /// How long the endpoint asked the caller to wait, when it said so.
+    ///
+    /// Only [`Self::RateLimit`] carries this, and only when the response
+    /// included a `Retry-After` header.
+    pub fn retry_after(&self) -> Option<Duration> {
+        match self {
+            Self::RateLimit { retry_after, .. } => *retry_after,
+            _ => None,
+        }
+    }
+
+    /// The HTTP status, for the errors that have one.
+    ///
+    /// `None` for failures raised before the request left the process and for
+    /// transport failures, neither of which ever saw a status.
+    pub fn status(&self) -> Option<u16> {
+        match self {
+            Self::BadRequest { .. } => Some(400),
+            Self::NotFound { .. } => Some(404),
+            Self::RateLimit { .. } => Some(429),
+            Self::Unauthorized { status, .. }
+            | Self::QuotaExceeded { status, .. }
+            | Self::ServerError { status, .. }
+            | Self::Api { status, .. } => Some(*status),
+            _ => None,
+        }
+    }
+
+    /// The endpoint's configured name.
+    ///
+    /// Every variant carries it, so a caller holding several clients can always
+    /// tell which one failed.
+    pub fn provider(&self) -> &str {
+        match self {
+            Self::UnsupportedCapability { provider, .. }
+            | Self::InvalidRequest { provider, .. }
+            | Self::Http { provider, .. }
+            | Self::BadRequest { provider, .. }
+            | Self::Unauthorized { provider, .. }
+            | Self::NotFound { provider, .. }
+            | Self::RateLimit { provider, .. }
+            | Self::QuotaExceeded { provider, .. }
+            | Self::ServerError { provider, .. }
+            | Self::Api { provider, .. }
+            | Self::InvalidResponse { provider, .. }
+            | Self::Stream { provider, .. } => provider,
+        }
+    }
+}
+
 impl fmt::Display for ProviderError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -531,7 +826,47 @@ impl fmt::Display for ProviderError {
             Self::InvalidRequest { provider, message } => {
                 write!(f, "invalid request for {provider}: {message}")
             }
-            Self::Http(message) => write!(f, "HTTP request failed: {message}"),
+            Self::Http {
+                provider,
+                kind,
+                message,
+            } => write!(f, "{provider} {}: {message}", kind.as_str()),
+            Self::BadRequest { provider, body } => {
+                write!(f, "{provider} rejected the request: {body}")
+            }
+            Self::Unauthorized {
+                provider,
+                status,
+                body,
+            } => write!(
+                f,
+                "{provider} refused the credential (HTTP {status}): {body}"
+            ),
+            Self::NotFound { provider, body } => {
+                write!(f, "{provider} has no such model or endpoint: {body}")
+            }
+            Self::RateLimit {
+                provider,
+                retry_after,
+                body,
+            } => match retry_after {
+                Some(wait) => write!(
+                    f,
+                    "{provider} rate limited the request, retry after {}s: {body}",
+                    wait.as_secs()
+                ),
+                None => write!(f, "{provider} rate limited the request: {body}"),
+            },
+            Self::QuotaExceeded {
+                provider,
+                status,
+                body,
+            } => write!(f, "{provider} quota exhausted (HTTP {status}): {body}"),
+            Self::ServerError {
+                provider,
+                status,
+                body,
+            } => write!(f, "{provider} failed with HTTP {status}: {body}"),
             Self::Api {
                 provider,
                 status,
@@ -622,5 +957,215 @@ mod tests {
         };
 
         assert_eq!(error.to_string(), "acme stream failed: boom");
+    }
+
+    /// Shorthand for the mapping tests: only the status is under test.
+    fn classify(status: u16, body: &str) -> ProviderError {
+        ProviderError::from_status("acme".into(), status, None, body.into())
+    }
+
+    #[test]
+    fn from_status_names_the_statuses_it_recognises() {
+        assert!(matches!(
+            classify(400, "{}"),
+            ProviderError::BadRequest { .. }
+        ));
+        assert!(matches!(
+            classify(401, "{}"),
+            ProviderError::Unauthorized { status: 401, .. }
+        ));
+        assert!(matches!(
+            classify(403, "{}"),
+            ProviderError::Unauthorized { status: 403, .. }
+        ));
+        assert!(matches!(
+            classify(404, "{}"),
+            ProviderError::NotFound { .. }
+        ));
+        assert!(matches!(
+            classify(429, "{}"),
+            ProviderError::RateLimit { .. }
+        ));
+        assert!(matches!(
+            classify(503, "{}"),
+            ProviderError::ServerError { status: 503, .. }
+        ));
+    }
+
+    #[test]
+    fn from_status_treats_every_5xx_as_a_server_error() {
+        // Anthropic's overload signal is non-standard, so a hard-coded list of
+        // the familiar 500-503 would drop it into the fallback arm and report
+        // it as unretryable.
+        let error = classify(529, "overloaded_error");
+
+        assert!(matches!(
+            error,
+            ProviderError::ServerError { status: 529, .. }
+        ));
+        assert!(error.is_retryable());
+    }
+
+    #[test]
+    fn from_status_falls_back_rather_than_guessing() {
+        // A status no variant claims must survive intact instead of being
+        // forced into an approximate category.
+        let error = classify(418, "teapot");
+
+        assert!(matches!(error, ProviderError::Api { status: 418, .. }));
+        assert_eq!(error.status(), Some(418));
+        assert!(!error.is_retryable());
+    }
+
+    #[test]
+    fn an_exhausted_quota_is_not_a_rate_limit() {
+        // Both arrive as 429 on OpenAI-shaped endpoints and only the body
+        // separates them. Reporting the second as a rate limit would tell a
+        // caller to retry a request that can never succeed.
+        let throttled = classify(429, r#"{"error":{"code":"rate_limit_exceeded"}}"#);
+        let exhausted = classify(429, r#"{"error":{"code":"insufficient_quota"}}"#);
+
+        assert!(matches!(throttled, ProviderError::RateLimit { .. }));
+        assert!(throttled.is_retryable());
+
+        assert!(matches!(
+            exhausted,
+            ProviderError::QuotaExceeded { status: 429, .. }
+        ));
+        assert!(!exhausted.is_retryable());
+    }
+
+    #[test]
+    fn retry_after_survives_onto_the_rate_limit() {
+        let error = ProviderError::from_status(
+            "acme".into(),
+            429,
+            Some(Duration::from_secs(30)),
+            "slow down".into(),
+        );
+
+        assert_eq!(error.retry_after(), Some(Duration::from_secs(30)));
+        assert_eq!(
+            error.to_string(),
+            "acme rate limited the request, retry after 30s: slow down"
+        );
+    }
+
+    #[test]
+    fn only_a_rate_limit_carries_a_retry_delay() {
+        assert_eq!(classify(503, "{}").retry_after(), None);
+        assert_eq!(classify(429, "{}").retry_after(), None);
+    }
+
+    #[test]
+    fn transport_failures_split_on_whether_waiting_helps() {
+        let retryable = [TransportError::Timeout, TransportError::Body];
+        let permanent = [TransportError::Connect, TransportError::Other];
+
+        for kind in retryable {
+            let error = ProviderError::Http {
+                provider: "acme".into(),
+                kind,
+                message: "x".into(),
+            };
+            assert!(error.is_retryable(), "{kind:?} should be retryable");
+            assert_eq!(error.status(), None, "no status was ever received");
+        }
+
+        for kind in permanent {
+            let error = ProviderError::Http {
+                provider: "acme".into(),
+                kind,
+                message: "x".into(),
+            };
+            assert!(!error.is_retryable(), "{kind:?} should not be retryable");
+        }
+    }
+
+    #[test]
+    fn refusals_raised_before_the_network_are_never_retryable() {
+        let unsupported = ProviderError::UnsupportedCapability {
+            provider: "acme".into(),
+            capability: "tool_choice",
+        };
+        let invalid = ProviderError::InvalidRequest {
+            provider: "acme".into(),
+            message: "no messages".into(),
+        };
+
+        assert!(!unsupported.is_retryable());
+        assert!(!invalid.is_retryable());
+        assert_eq!(unsupported.status(), None);
+        assert_eq!(invalid.status(), None);
+    }
+
+    #[test]
+    fn every_error_names_the_endpoint_that_produced_it() {
+        // A caller holding several clients has to be able to tell which one
+        // failed, including on the transport failures that once carried only a
+        // message.
+        let errors = [
+            classify(400, "{}"),
+            classify(401, "{}"),
+            classify(404, "{}"),
+            classify(429, "{}"),
+            classify(429, "insufficient_quota"),
+            classify(500, "{}"),
+            classify(418, "{}"),
+            ProviderError::Http {
+                provider: "acme".into(),
+                kind: TransportError::Timeout,
+                message: "x".into(),
+            },
+            ProviderError::UnsupportedCapability {
+                provider: "acme".into(),
+                capability: "reasoning_effort",
+            },
+            ProviderError::InvalidRequest {
+                provider: "acme".into(),
+                message: "x".into(),
+            },
+            ProviderError::InvalidResponse {
+                provider: "acme".into(),
+                message: "x".into(),
+            },
+            ProviderError::Stream {
+                provider: "acme".into(),
+                message: "x".into(),
+            },
+        ];
+
+        for error in &errors {
+            assert_eq!(error.provider(), "acme", "{error:?}");
+        }
+    }
+
+    #[test]
+    fn named_errors_display_their_cause_and_endpoint() {
+        assert_eq!(
+            classify(400, "bad json").to_string(),
+            "acme rejected the request: bad json"
+        );
+        assert_eq!(
+            classify(401, "no key").to_string(),
+            "acme refused the credential (HTTP 401): no key"
+        );
+        assert_eq!(
+            classify(404, "no model").to_string(),
+            "acme has no such model or endpoint: no model"
+        );
+        assert_eq!(
+            classify(500, "oops").to_string(),
+            "acme failed with HTTP 500: oops"
+        );
+        assert_eq!(
+            ProviderError::Http {
+                provider: "acme".into(),
+                kind: TransportError::Timeout,
+                message: "operation timed out".into(),
+            }
+            .to_string(),
+            "acme timed out: operation timed out"
+        );
     }
 }

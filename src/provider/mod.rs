@@ -463,15 +463,19 @@ impl Client {
 
         let status = response.status();
         if !status.is_success() {
+            // Read before `text()`, which consumes the response and takes the
+            // headers with it.
+            let retry_after = parse_retry_after(response.headers());
             let body = response
                 .text()
                 .await
-                .map_err(|error| ProviderError::Http(error.to_string()))?;
-            return Err(ProviderError::Api {
-                provider: self.config.name.clone(),
-                status: status.as_u16(),
+                .map_err(|error| ProviderError::transport(self.config.name.clone(), &error))?;
+            return Err(ProviderError::from_status(
+                self.config.name.clone(),
+                status.as_u16(),
+                retry_after,
                 body,
-            });
+            ));
         }
 
         Ok(EventStream::new(
@@ -492,17 +496,19 @@ impl Client {
         let response = self.post(self.config.url(), &wire).await?;
 
         let status = response.status();
+        let retry_after = parse_retry_after(response.headers());
         let body = response
             .text()
             .await
-            .map_err(|error| ProviderError::Http(error.to_string()))?;
+            .map_err(|error| ProviderError::transport(self.config.name.clone(), &error))?;
 
         if !status.is_success() {
-            return Err(ProviderError::Api {
-                provider: self.config.name.clone(),
-                status: status.as_u16(),
+            return Err(ProviderError::from_status(
+                self.config.name.clone(),
+                status.as_u16(),
+                retry_after,
                 body,
-            });
+            ));
         }
 
         provider.parse(&body, &self.config)
@@ -532,8 +538,26 @@ impl Client {
         post.json(wire)
             .send()
             .await
-            .map_err(|error| ProviderError::Http(error.to_string()))
+            .map_err(|error| ProviderError::transport(self.config.name.clone(), &error))
     }
+}
+
+/// Read `Retry-After` as a delay, so a caller can honour the endpoint's own
+/// pacing instead of guessing.
+///
+/// The header has two forms. Only delay-seconds is parsed: the HTTP-date form
+/// would need a clock and a date parser, neither of which Freyja has a
+/// dependency for, and no major vendor sends it. An unreadable or absent header
+/// is `None`, which leaves the caller's own backoff in charge.
+fn parse_retry_after(headers: &reqwest::header::HeaderMap) -> Option<Duration> {
+    headers
+        .get(reqwest::header::RETRY_AFTER)?
+        .to_str()
+        .ok()?
+        .trim()
+        .parse::<u64>()
+        .ok()
+        .map(Duration::from_secs)
 }
 
 fn default_http() -> reqwest::Client {
@@ -654,5 +678,40 @@ mod tests {
         // Every other dialect streams from the same URL it generates from.
         let anthropic = ProviderConfig::new(ProviderDialect::Anthropic, "a", "https://x.test/v1");
         assert_eq!(anthropic.stream_url(), anthropic.url());
+    }
+
+    fn headers_with(value: &str) -> reqwest::header::HeaderMap {
+        let mut headers = reqwest::header::HeaderMap::new();
+        headers.insert(
+            reqwest::header::RETRY_AFTER,
+            reqwest::header::HeaderValue::from_str(value).expect("valid header value"),
+        );
+        headers
+    }
+
+    #[test]
+    fn retry_after_reads_the_delay_seconds_form() {
+        assert_eq!(
+            parse_retry_after(&headers_with("30")),
+            Some(Duration::from_secs(30))
+        );
+        assert_eq!(
+            parse_retry_after(&headers_with(" 5 ")),
+            Some(Duration::from_secs(5))
+        );
+    }
+
+    #[test]
+    fn an_unusable_retry_after_leaves_the_caller_in_charge() {
+        // The HTTP-date form would need a clock and a date parser. Reporting
+        // `None` hands pacing back to the caller's own backoff, which is
+        // correct; guessing a duration would not be.
+        assert_eq!(
+            parse_retry_after(&headers_with("Wed, 21 Oct 2015 07:28:00 GMT")),
+            None
+        );
+        assert_eq!(parse_retry_after(&headers_with("soon")), None);
+        assert_eq!(parse_retry_after(&headers_with("-1")), None);
+        assert_eq!(parse_retry_after(&reqwest::header::HeaderMap::new()), None);
     }
 }

@@ -285,7 +285,7 @@ See [Streaming](../streaming.md).
 { "error": { "message": "Unknown parameter 'id' at 'input[2].content[0]'.", "code": "invalid_request" } }
 ```
 
-The messages are precise and include a JSON path, which makes them the fastest way to debug a mapping problem. Freyja preserves the whole body in `ProviderError::Api`, so nothing is lost.
+The messages are precise and include a JSON path, which makes them the fastest way to debug a mapping problem. Freyja preserves the whole body alongside the classified status, so nothing is lost.
 
 The exception is `Request contains an invalid argument`, a generic protobuf-level rejection with no path. In practice that one usually means a missing or malformed thought signature.
 

@@ -297,7 +297,7 @@ See [Streaming](../streaming.md).
 }
 ```
 
-Freyja preserves the whole body in `ProviderError::Api` alongside the HTTP status. It does not parse the body into typed variants yet, so branch on the status code and read `body` when you need the detail. See [Errors](../../reference/errors.md).
+Freyja classifies the status into a named variant and preserves the whole body alongside it. Anthropic's `529` overload signal is non-standard but lands in `ServerError` with the rest of the 5xx range, so it reports as retryable. See [Errors](../../reference/errors.md).
 
 `error.type` is finer grained than the status code, for instance `billing_error` and `permission_error` both arrive as 403. Include `request_id` when reporting a problem to Anthropic, it traces the request end to end.
 

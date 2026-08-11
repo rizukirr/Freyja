@@ -105,7 +105,7 @@ pub trait Provider: Send + Sync {
 }
 ```
 
-`Client::stream` is the second shared path, and it is shared the same way: build the body, call `.streaming()` on it, POST to `ProviderConfig::stream_url()`, check the status, then hand the still-open response and a boxed decoder to `EventStream`. `stream_url()` appends `ProviderDialect::stream_query()`, which is `?alt=sse` for Gemini and nothing for the other three, since they select SSE from the body alone. Checking the status before returning means a rejected request surfaces as `ProviderError::Api` from `stream()` itself rather than on the first `next()`.
+`Client::stream` is the second shared path, and it is shared the same way: build the body, call `.streaming()` on it, POST to `ProviderConfig::stream_url()`, check the status, then hand the still-open response and a boxed decoder to `EventStream`. `stream_url()` appends `ProviderDialect::stream_query()`, which is `?alt=sse` for Gemini and nothing for the other three, since they select SSE from the body alone. Checking the status before returning means a rejected request surfaces from `stream()` itself rather than on the first `next()`, classified by `ProviderError::from_status` exactly as on the non-streaming path.
 
 Bytes come from `reqwest::Response::chunk()`, the inherent method. reqwest's `stream` feature is not enabled and no `futures` dependency was added for it.
 

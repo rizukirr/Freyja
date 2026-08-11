@@ -94,5 +94,5 @@ pub use provider::{
     Auth, Client, EventStream, GenerateRequest, GenerateResponse, InputContent, Message,
     OutputContent, Provider, ProviderConfig, ProviderDialect, ProviderError, ProviderType,
     ReasoningEffort, ResponseFormat, ResponseStatus, Role, StreamEvent, ToolChoice, ToolDefinition,
-    Usage,
+    TransportError, Usage,
 };

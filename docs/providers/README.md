@@ -80,6 +80,6 @@ Set none of them and your request runs anywhere. Each is refused before the netw
 
 ## Debugging a provider
 
-When a request fails with `ProviderError::Api` and the vendor's message is not enough, the wire reference documents the native JSON Freyja sends and receives, so you do not have to read vendor documentation to interpret a body.
+When a request fails and the vendor's message is not enough, the wire reference documents the native JSON Freyja sends and receives, so you do not have to read vendor documentation to interpret an error body.
 
 [OpenAI](../reference/wire/openai.md) · [Chat Completions](../reference/wire/openai-chat.md) · [Gemini](../reference/wire/gemini.md) · [Anthropic](../reference/wire/anthropic.md)

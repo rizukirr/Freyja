@@ -101,6 +101,7 @@ async fn surfaces_an_error_status_before_streaming() {
     let (base, _request) = serve_once(
         "HTTP/1.1 429 Too Many Requests\r\n\
          Content-Type: application/json\r\n\
+         Retry-After: 30\r\n\
          Connection: close\r\n\r\n\
          {\"error\":{\"message\":\"slow down\"}}",
     );
@@ -118,18 +119,27 @@ async fn surfaces_an_error_status_before_streaming() {
         Err(error) => error,
     };
 
-    match error {
-        freyja::ProviderError::Api {
-            status,
-            body,
+    match &error {
+        freyja::ProviderError::RateLimit {
             provider,
+            retry_after,
+            body,
         } => {
-            assert_eq!(status, 429);
-            assert_eq!(&*provider, "local");
+            assert_eq!(&**provider, "local");
+            // The header is read before `text()` consumes the response, so the
+            // endpoint's own pacing survives into the error.
+            assert_eq!(*retry_after, Some(std::time::Duration::from_secs(30)));
             assert!(body.contains("slow down"), "{body}");
         }
-        other => panic!("expected ProviderError::Api, got {other:?}"),
+        other => panic!("expected ProviderError::RateLimit, got {other:?}"),
     }
+
+    assert_eq!(error.status(), Some(429));
+    assert!(error.is_retryable());
+    assert_eq!(
+        error.retry_after(),
+        Some(std::time::Duration::from_secs(30))
+    );
 }
 
 #[tokio::test]

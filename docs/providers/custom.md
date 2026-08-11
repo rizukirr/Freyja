@@ -123,7 +123,7 @@ invalid request for my-gateway: no model set on the request and no default_model
 
 "Compatible" is a spectrum. An endpoint may implement the format but not tools, ignore `strict`, omit `usage`, or reject a field the real vendor accepts.
 
-Freyja's `UnsupportedCapability` errors are raised by the *dialect*, so they tell you what the format cannot express, not what a particular endpoint declined to implement. Anything in the second category arrives as a `ProviderError::Api` with the endpoint's own message. That is deliberate: Freyja will not pretend to know the capabilities of an endpoint it has never seen.
+Freyja's `UnsupportedCapability` errors are raised by the *dialect*, so they tell you what the format cannot express, not what a particular endpoint declined to implement. Anything in the second category arrives as one of the status-bearing variants with the endpoint's own message. That is deliberate: Freyja will not pretend to know the capabilities of an endpoint it has never seen.
 
 Capability introspection is Phase 1 work. Until then, the honest test of a compatible endpoint is a real request.
 
@@ -147,6 +147,6 @@ What is welcome instead: a correction to the [compatible-endpoint table](#known-
 
 ## Errors name your endpoint, not the vendor
 
-`ProviderError` carries the `name` from your `ProviderConfig` in every variant that names a provider, including `Stream { provider, message }`, which reports a stream that began and then failed. So a Claude-compatible gateway configured as `my-gateway` reports `my-gateway`, never `anthropic`, and you can tell which endpoint broke without reading the URL back.
+`ProviderError` carries the `name` from your `ProviderConfig` in every variant, reachable with `error.provider()`. So a Claude-compatible gateway configured as `my-gateway` reports `my-gateway`, never `anthropic`, and you can tell which endpoint broke without reading the URL back.
 
-The enum is `#[non_exhaustive]` and has six variants today, so match with a `_` arm. See [Errors](../reference/errors.md).
+The enum is `#[non_exhaustive]`, so match with a `_` arm. See [Errors](../reference/errors.md).
