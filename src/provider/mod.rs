@@ -410,7 +410,8 @@ impl Client {
     /// ```
     ///
     /// No network call, no credentials used, and cheap enough to run per
-    /// request: it serializes one body and drops it.
+    /// request: it builds one wire body and drops it. The body is never even
+    /// serialized to JSON, since that happens on the way to the socket.
     ///
     /// # What `Ok` does and does not promise
     ///

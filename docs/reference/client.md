@@ -157,7 +157,7 @@ A drained stream converts back into the same `GenerateResponse` that `generate` 
 pub fn check(&self, request: &GenerateRequest) -> Result<(), ProviderError>
 ```
 
-Decides whether this endpoint's dialect can carry a request, without sending it. No network call, no credentials used, and cheap enough to run per request: it serializes one body and drops it.
+Decides whether this endpoint's dialect can carry a request, without sending it. No network call, no credentials used, and cheap enough to run per request: it builds one wire body and drops it. The body is never even serialized to JSON, since that happens on the way to the socket.
 
 ```rust
 match client.check(&request) {
