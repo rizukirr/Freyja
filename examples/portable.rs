@@ -16,7 +16,8 @@
 //! it — though the point lands better with two.
 
 use freyja::{
-    Client, GenerateRequest, Message, ProviderError, ProviderType, ReasoningEffort, Role,
+    Client, GenerateRequest, Message, ProviderError, ProviderType, ReasoningEffort, ResponseFormat,
+    Role,
 };
 
 const PROVIDERS: [ProviderType; 3] = [
@@ -40,17 +41,21 @@ async fn main() {
     println!("== the same request, on every endpoint with a key ==");
     run_on_all(&portable).await;
 
-    // Now ask for something not every vendor has. `Minimal` is a portable name
-    // for a per-vendor idea, and two of the three cannot honour it:
+    // Now ask for two things not every vendor has. Both are portable names for
+    // ideas each vendor arranges differently, and each one loses a different
+    // provider:
     //
-    //   OpenAI     maps it to its own minimal effort
-    //   Anthropic  has thinking budgets, but no floor this low
-    //   Gemini     has no portable effort scale at all
+    //   OpenAI     takes both
+    //   Anthropic  has effort levels, but no schema-less JSON mode
+    //   Gemini     has JSON modes, but no portable effort scale
     //
     // Freyja refuses rather than dropping the field, so you learn this from an
     // error before the network call instead of from an answer that quietly
     // ignored you. `tool_choice` behaves the same way on Gemini.
-    let demanding = portable.reasoning_effort(ReasoningEffort::Minimal);
+    let demanding = portable
+        .clone()
+        .reasoning_effort(ReasoningEffort::High)
+        .response_format(ResponseFormat::JsonObject);
 
     println!("\n== the same request, plus a capability not everyone has ==");
     run_on_all(&demanding).await;

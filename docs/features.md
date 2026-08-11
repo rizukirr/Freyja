@@ -75,11 +75,13 @@ Capability coverage is not uniform, and Freyja refuses rather than pretending.
 | Capability | OpenAI | Gemini | Anthropic | Chat Completions |
 |---|---|---|---|---|
 | `tool_choice` | Yes | **No** | Yes | Yes |
-| `reasoning_effort` | Yes | **No** | Partly | Yes |
+| `reasoning_effort` | Yes | **No** | Yes | Yes |
 | `response_format` | Yes | Yes | Schema only | Yes |
 | `previous_response_id` | Yes | Yes | **No** | **No** |
 
 A **No** means `UnsupportedCapability` before any network call, so you find out immediately rather than getting an answer that ignored you. Each provider page has the full table.
+
+A **Yes** means Freyja can express it, not that every model will accept every value. Only the dialect is known here; the endpoint and the model are not. `reasoning_effort` is the clearest case — OpenAI's Responses API takes `Max` and its Chat Completions API does not, on the same model, and both arrive as the vendor's own `BadRequest` rather than as a refusal from Freyja.
 
 ## Verification status
 

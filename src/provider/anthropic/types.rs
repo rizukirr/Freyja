@@ -186,12 +186,6 @@ impl Request {
                 ReasoningEffort::None => {
                     thinking = Some(serde_json::json!({"type": "disabled"}));
                 }
-                ReasoningEffort::Minimal => {
-                    return Err(ProviderError::UnsupportedCapability {
-                        provider: config.name.clone(),
-                        capability: "reasoning effort 'minimal'",
-                    });
-                }
                 other => {
                     output_config.insert("effort".into(), serde_json::to_value(other).unwrap());
                 }
@@ -560,7 +554,6 @@ mod tests {
     fn refuses_capabilities_it_cannot_express() {
         let unsupported = [
             GenerateRequest::new().previous_response_id("msg_1"),
-            GenerateRequest::new().reasoning_effort(ReasoningEffort::Minimal),
             GenerateRequest::new().response_format(ResponseFormat::JsonObject),
         ];
 
