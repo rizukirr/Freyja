@@ -128,6 +128,9 @@ cargo run --example simple           # one question, one answer
 cargo run --example streaming        # the same answer, printed as it arrives
 cargo run --example tool_loop        # a bounded agent loop
 cargo run --example custom_endpoint  # an endpoint with no preset
+cargo run --example retry            # a retry loop over the error classification
+cargo run --example chat             # an interactive multi-turn conversation
+cargo run --example portable         # one request, every vendor, and its limits
 ```
 
 They are compiled by `cargo test`, so they cannot drift out of date the way README snippets do.

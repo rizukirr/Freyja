@@ -8,7 +8,7 @@
 A provider-neutral LLM client for Rust, and the foundation for building agents on top of it.
 
 > [!WARNING]
-> Under active development and **not ready for production use**. The public API is unstable and will change without notice before `0.1.0`.
+> Under active development and **not ready for production use**. The public API is unstable and will change without notice before `1.0.0`.
 
 You write one request. Freyja translates it into whatever wire format the model you picked actually speaks, sends it, and translates the answer back. Changing vendor is changing one line.
 
@@ -67,13 +67,16 @@ cargo run --example simple           # one question, one answer
 cargo run --example streaming        # the same answer, printed as it arrives
 cargo run --example tool_loop        # a bounded agent loop
 cargo run --example custom_endpoint  # an endpoint with no preset
+cargo run --example retry            # a retry loop over the error classification
+cargo run --example chat             # an interactive multi-turn conversation
+cargo run --example portable         # one request, every vendor, and its limits
 ```
 
 ## Documentation
 
 Full docs in [`docs/`](docs/README.md), written to be read in order:
 
-| | |
+| Page | What it covers |
 |---|---|
 | [Introduction](docs/introduction.md) | What Freyja is, what it is not, and why it exists |
 | [Features](docs/features.md) | What works today, and what does not |
@@ -85,18 +88,19 @@ Then [providers](docs/providers/README.md), the [API reference](docs/README.md#r
 
 ## Status
 
-Phase 0 is complete: the neutral core is stable, four wire dialects are implemented, and tool calling works end to end.
+Phase 0 is complete and Phase 1 is under way: the neutral core is stable, four wire dialects are implemented, tool calling works end to end, every dialect streams, and failures are classified by cause. Capability introspection and derive-based structured output are the Phase 1 work that remains.
 
-| | |
+| Area | State |
 |---|---|
 | Built-in providers | OpenAI, Gemini, Anthropic, all verified against live APIs |
 | Other endpoints | DeepSeek, Groq, OpenRouter, Ollama and friends via `Client::custom` |
 | Tool calling | Full round trip, verified live on four endpoints |
 | Streaming | All four dialects, tested offline only — not yet run against a live API |
 | Dependencies | Three: `reqwest`, `serde`, `serde_json` |
-| Not implemented | Retries, automatic tool dispatch, orchestration |
+| Errors | Classified by cause, with `is_retryable()` and `Retry-After` |
+| Not implemented | Automatic tool dispatch, orchestration |
 
-`cargo test`: 92 unit tests, 4 integration tests, and 10 doctests. `cargo clippy --all-targets -- -D warnings` clean. [Features](docs/features.md) has the honest boundary, including which capabilities each provider refuses.
+`cargo test`: 105 unit tests, 4 integration tests, and 10 doctests. `cargo clippy --all-targets -- -D warnings` clean. [Features](docs/features.md) has the honest boundary, including which capabilities each provider refuses.
 
 ## Roadmap
 
@@ -104,7 +108,7 @@ The goal: everything you need to build an AI agent in Rust, with no vendor lock-
 
 **Phase 0, stabilize the core.** Complete. Portable defaults, tool round trips, opaque reasoning state, pooled HTTP, live verification on every provider.
 
-**Phase 1, production-grade provider layer.** Four dialects, the dialect/endpoint split, and streaming are done. Remaining: retries with backoff, typed API errors, capability introspection, and derive-based structured output.
+**Phase 1, production-grade provider layer.** Four dialects, the dialect/endpoint split, streaming, and typed errors are done. Remaining: capability introspection and derive-based structured output.
 
 **Phase 2, the agent.** A `Tool` trait and registry, a `#[tool]` macro deriving schemas from function signatures, an `Agent` type, and a bounded loop with per-tool timeouts and approval hooks.
 
@@ -115,6 +119,8 @@ The goal: everything you need to build an AI agent in Rust, with no vendor lock-
 **Phase 5, observability and release.** `tracing` instrumentation, cost accounting, record and replay for deterministic tests, and a mock provider for testing agents without network access.
 
 Out of scope: prompt-template DSLs, a built-in vector database, a web UI or server, and fine-tuning orchestration. Freyja is a library, not a platform.
+
+Also out of scope: **automatic retries**. Backing off means sleeping, and Freyja exposes `async fn` without spawning so the caller picks the runtime; retrying internally would take that choice away to save ten lines. `ProviderError::is_retryable()` and `retry_after()` make the decision cheap instead, and compose with `backon` or `tower::retry`. See [Errors](docs/reference/errors.md#retries).
 
 ## Development
 

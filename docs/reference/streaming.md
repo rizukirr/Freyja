@@ -172,7 +172,7 @@ let client = Client::with_http_client(ProviderType::OpenAi, api_key, http);
 
 ## Errors
 
-Everything that can fail before the first byte, notably `Api` for a non-success status, surfaces from `stream`. After that, failures surface from `next`: `ProviderError::Stream` for the provider's own mid-stream error frame, `ProviderError::Http` for the connection dropping underneath.
+Everything that can fail before the first byte surfaces from `stream`, classified by cause: `RateLimit`, `Unauthorized`, `ServerError`, and the rest of the status-bearing variants. After that, failures surface from `next`: `ProviderError::Stream` for the provider's own mid-stream error frame, `ProviderError::Http` with a `Body` kind for the connection dropping underneath.
 
 A stream that simply stops early, with no error frame, is not an error. The `Done` event carries `ResponseStatus::Incomplete`, because nothing set a terminal status, so check `status` rather than assuming a stream that ended is a stream that finished. See [Errors](errors.md#stream).
 

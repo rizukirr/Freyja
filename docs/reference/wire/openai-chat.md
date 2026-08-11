@@ -249,6 +249,6 @@ See [Streaming](../streaming.md).
 }
 ```
 
-Freyja preserves the whole body in `ProviderError::Api` alongside the HTTP status, attributed to the endpoint's configured name rather than to the dialect, so a Groq failure reports Groq.
+Freyja classifies the status into a named variant and preserves the whole body alongside it, attributed to the endpoint's configured name rather than to the dialect, so a Groq failure reports Groq.
 
 Status codes mostly follow the OpenAI convention, 400 for a bad request, 401 for a bad key, 429 for rate limiting, 5xx for the endpoint's own trouble. Compatible vendors vary here more than anywhere else, and some return 200 with an error body. Read the body when the status alone is not enough.

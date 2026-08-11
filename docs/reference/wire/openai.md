@@ -253,4 +253,4 @@ See [Streaming](../streaming.md).
 { "error": { "message": "Rate limit reached ...", "type": "rate_limit_error", "code": "rate_limit_exceeded" } }
 ```
 
-Freyja preserves the whole body in `ProviderError::Api` alongside the HTTP status. It does not parse the body into typed variants yet, so branch on the status code and read `body` when you need the detail. See [Errors](../../reference/errors.md).
+Freyja classifies the status into a named variant and preserves the whole body alongside it, so `code` above stays readable. The `insufficient_quota` code is the one Freyja reads rather than merely preserves: it separates an exhausted account from ordinary throttling, which share the 429. See [Errors](../../reference/errors.md).

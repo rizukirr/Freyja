@@ -154,7 +154,7 @@ Read the result with `response.output_text()` and parse it yourself.
 OpenAI returned HTTP 429: {"error":{"message":"Rate limit reached",...}}
 ```
 
-Freyja does not parse the error body into typed variants and does not retry. Both are Phase 1 work. See [Errors](../reference/errors.md).
+Freyja classifies the status into a named variant and reads `Retry-After`, but never retries: that loop belongs to you. See [Errors](../reference/errors.md).
 
 ## Verification status
 

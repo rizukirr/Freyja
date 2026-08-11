@@ -134,7 +134,7 @@ pub async fn stream(&self, request: &GenerateRequest)
     -> Result<EventStream, ProviderError>
 ```
 
-Opens a streaming generation. Returns once the provider has accepted the request, so a non-success status arrives here as `ProviderError::Api` rather than mid-stream.
+Opens a streaming generation. Returns once the provider has accepted the request, so a non-success status arrives here, classified by cause, rather than mid-stream.
 
 ```rust
 use freyja::StreamEvent;

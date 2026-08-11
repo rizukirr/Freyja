@@ -49,7 +49,8 @@ Built-in means Freyja ships and tests the URL and default model. It does not mea
 |---|---|
 | Connection pooling | One HTTP client per `Client`, reused |
 | Timeouts | 120 seconds of inactivity by default, or supply your own HTTP client |
-| Errors | Six variants, each attributed to the endpoint that failed |
+| Errors | Classified by cause, each attributed to the endpoint that failed |
+| Retry decisions | `is_retryable()` and the endpoint's own `Retry-After` |
 | Credential safety | `Debug` redacts the API key |
 | Dependencies | Three: `reqwest`, `serde`, `serde_json` |
 
@@ -59,7 +60,7 @@ Be sure none of these is on your critical path before adopting.
 
 | | Status | Workaround |
 |---|---|---|
-| **Retries** | Not implemented | A 429 or 5xx surfaces once. Retry at your call site; [Errors](reference/errors.md) says which are worth retrying. |
+| **Retries** | Out of scope, deliberately | A 429 or 5xx surfaces once. `is_retryable()` and `retry_after()` tell you what to do; the loop is yours, and composes with `backon` or `tower::retry`. See [Errors](reference/errors.md#retries). |
 | **Automatic tool dispatch** | Not implemented | You match on the tool name and call your function. There is no registry or `Tool` trait yet. |
 | **Schema derivation** | Not implemented | Tool parameter schemas are hand-written JSON. |
 | **Capability introspection** | Not implemented | You discover an unsupported capability by getting an error, not by asking first. |
