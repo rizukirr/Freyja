@@ -88,6 +88,7 @@ let client = Client::without_key(config);
 | `api_key_env` | no | Only needed for `Client::from_env` |
 | `default_model` | no | Used when a request does not name a model |
 | `extra_headers` | no | Attribution or routing hints some gateways want |
+| `token_limit_field` | defaulted | `OpenAiChat` only: which field carries the output cap |
 
 ## Auth
 

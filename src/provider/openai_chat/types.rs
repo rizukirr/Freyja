@@ -13,8 +13,14 @@ use serde_json::Value;
 pub struct Request {
     model: String,
     messages: Vec<MessageWire>,
+    // Exactly one of these carries the cap, chosen by
+    // `ProviderConfig::token_limit_field`. Newer OpenAI models reject the
+    // presence of `max_tokens`, not just its value, so sending both to cover
+    // the two spellings fails on the endpoint that needs the new one.
     #[serde(skip_serializing_if = "Option::is_none")]
     max_tokens: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    max_completion_tokens: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     temperature: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -237,7 +243,14 @@ impl Request {
         Ok(Self {
             model: config.model_for(value)?,
             messages,
-            max_tokens: value.max_tokens,
+            max_tokens: match config.token_limit_field {
+                TokenLimitField::MaxTokens => value.max_tokens,
+                _ => None,
+            },
+            max_completion_tokens: match config.token_limit_field {
+                TokenLimitField::MaxCompletionTokens => value.max_tokens,
+                _ => None,
+            },
             temperature: value.temperature,
             top_p: value.top_p,
             reasoning_effort: value.reasoning_effort,
@@ -438,6 +451,59 @@ mod tests {
         assert_eq!(json["messages"][0]["role"], "system");
         assert_eq!(json["messages"][0]["content"], "Be concise");
         assert_eq!(json["messages"][1]["role"], "user");
+    }
+
+    #[test]
+    fn the_token_cap_defaults_to_the_field_the_ecosystem_implements() {
+        // This dialect is reached only through an explicit ProviderConfig --
+        // ProviderType::OpenAi is the Responses dialect -- so the default
+        // serves the compatible vendors it exists for.
+        let request = GenerateRequest::new()
+            .message(Message::text(Role::User, "Hi"))
+            .max_tokens(16);
+
+        let json = serde_json::to_value(Request::build(&request, &config()).unwrap()).unwrap();
+
+        assert_eq!(json["max_tokens"], 16);
+        assert!(
+            json.get("max_completion_tokens").is_none(),
+            "only one spelling may be sent"
+        );
+    }
+
+    #[test]
+    fn the_token_cap_moves_to_the_field_openai_now_requires() {
+        // Newer OpenAI models reject the presence of `max_tokens`, so a
+        // request carrying both fails on exactly the endpoint that needs the
+        // new one. Sending one or the other is the whole point.
+        let config = config().token_limit_field(TokenLimitField::MaxCompletionTokens);
+        let request = GenerateRequest::new()
+            .message(Message::text(Role::User, "Hi"))
+            .max_tokens(16);
+
+        let json = serde_json::to_value(Request::build(&request, &config).unwrap()).unwrap();
+
+        assert_eq!(json["max_completion_tokens"], 16);
+        assert!(
+            json.get("max_tokens").is_none(),
+            "the old spelling must not ride along"
+        );
+    }
+
+    #[test]
+    fn an_unset_cap_sends_neither_field() {
+        let request = GenerateRequest::new().message(Message::text(Role::User, "Hi"));
+
+        for field in [
+            TokenLimitField::MaxTokens,
+            TokenLimitField::MaxCompletionTokens,
+        ] {
+            let config = config().token_limit_field(field);
+            let json = serde_json::to_value(Request::build(&request, &config).unwrap()).unwrap();
+
+            assert!(json.get("max_tokens").is_none(), "{field:?}");
+            assert!(json.get("max_completion_tokens").is_none(), "{field:?}");
+        }
     }
 
     #[test]

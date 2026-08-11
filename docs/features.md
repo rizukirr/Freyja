@@ -94,4 +94,4 @@ Freyja distinguishes "the tests pass" from "a real vendor accepted it", because 
 | Anthropic | Yes |
 | A Chat Completions endpoint (DeepSeek) | Yes |
 
-Beyond text and tool calling, coverage is offline tests only. Images, structured output, reasoning effort, and streaming have not been exercised against a live API on any provider. Each dialect's streaming frames are taken from the vendor's own documentation and tested against recorded fixtures, including a test per dialect asserting that a drained stream matches what `generate` builds from the same turn.
+Beyond text and tool calling, coverage is thinner. Reasoning effort has been exercised live on OpenAI, on both dialects and across every level, and so has the Chat Completions token cap in both its spellings. Images, structured output, and streaming have not been run against a live API on any provider, and reasoning effort has not been on Gemini or Anthropic. Each dialect's streaming frames are taken from the vendor's own documentation and tested against recorded fixtures, including a test per dialect asserting that a drained stream matches what `generate` builds from the same turn.

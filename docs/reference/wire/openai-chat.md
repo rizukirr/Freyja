@@ -33,6 +33,8 @@ There is no version header. The base URL is whatever the vendor documents, `http
 
 Only `model` and `messages` are required. Freyja omits every unset field rather than sending null.
 
+`max_tokens` is the default spelling and what the compatible ecosystem implements. OpenAI's own newer models reject it and require `max_completion_tokens` instead; `ProviderConfig::token_limit_field` chooses which one is sent, and exactly one ever is. See [Chat Completions](../../providers/openai-chat.md#the-token-cap-has-two-spellings).
+
 The request also carries `stream` and `stream_options`, both of which `generate()` leaves unset and therefore off the wire. Every body on this page is byte-accurate for a `generate()` call. See [Streaming](#streaming).
 
 Note what is absent: no `system` field, no `instructions`, and no continuation token. System instructions are a message role, and the API is fully stateless, so the whole transcript goes on every request.
