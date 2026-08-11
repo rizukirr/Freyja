@@ -422,6 +422,14 @@ impl Client {
     /// will not claim to know what that gateway implements. A request that
     /// passes here can still come back [`ProviderError::BadRequest`].
     ///
+    /// The model is invisible to it. `check` never reads the model name — it
+    /// is copied into the body and not inspected — so asking a model that does
+    /// no reasoning for a `reasoning_effort` passes here and is settled by the
+    /// vendor. Wire formats change on the order of years and are documented;
+    /// what a given model accepts changes constantly and differs on every
+    /// compatible gateway, so a table of it would be confidently wrong within a
+    /// month.
+    ///
     /// The converse is solid: an `Err` here is an error `generate` would have
     /// raised too, before reaching the network.
     ///

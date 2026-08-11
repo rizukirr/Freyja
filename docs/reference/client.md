@@ -183,6 +183,10 @@ That the *dialect* can express this request: every field has somewhere to go in 
 
 Not that the endpoint will accept it. Freyja knows the wire format; it has never met your gateway, and will not claim to know what that gateway implements. A request that passes `check` can still come back `BadRequest`. See [Custom providers](../providers/custom.md).
 
+Not that the *model* supports it either. `check` never reads the model name — `ProviderConfig::model_for` picks which string to send and nothing inspects it — so a model that does no reasoning still passes a request carrying `reasoning_effort`, and the vendor settles it.
+
+That boundary is deliberate. Wire formats change on the order of years and are documented. What a given model accepts changes weekly, silently, and differs on every compatible gateway; a table of it would be confidently wrong within a month, which is worse than saying nothing. It is the same reasoning `presets.rs` gives for shipping only three presets: a stale promise fails at the vendor with a confusing error instead of locally with a clear one.
+
 The converse is solid: an `Err` from `check` is an error `generate` would have raised too, before reaching the network.
 
 #### Choosing an endpoint
