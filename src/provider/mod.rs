@@ -846,25 +846,10 @@ mod tests {
     #[test]
     fn check_reports_a_value_the_dialect_cannot_express() {
         // The case a struct of booleans gets wrong. Anthropic supports
-        // reasoning_effort and response_format; it refuses one value of each,
-        // so `reasoning_effort: true` would be a true answer to the wrong
+        // response_format and refuses one value of it, so
+        // `response_format: true` would be a true answer to the wrong
         // question.
         let anthropic = offline(ProviderDialect::Anthropic);
-
-        assert!(
-            anthropic
-                .check(&ask().reasoning_effort(ReasoningEffort::High))
-                .is_ok(),
-            "the field itself is supported"
-        );
-        assert_eq!(
-            refusal(
-                ProviderDialect::Anthropic,
-                &ask().reasoning_effort(ReasoningEffort::Minimal)
-            ),
-            "reasoning effort 'minimal'",
-            "but not at this value"
-        );
 
         assert!(
             anthropic
@@ -941,7 +926,7 @@ mod tests {
         // the same conversion, so it cannot drift. `stream` converts before it
         // opens a socket, which is why this reaches a verdict against an
         // endpoint that does not exist.
-        let refused = ask().reasoning_effort(ReasoningEffort::Minimal);
+        let refused = ask().response_format(ResponseFormat::JsonObject);
         let client = offline(ProviderDialect::Anthropic);
 
         let from_check = client.check(&refused).expect_err("check refuses");

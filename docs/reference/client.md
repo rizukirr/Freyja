@@ -173,7 +173,7 @@ This is Freyja's answer to capability introspection, and it is a different shape
 
 **It cannot drift.** A hand-maintained capability table is a second description of the dialects, kept in sync by hand. `check` is not a description; it is the code itself.
 
-**It answers questions a table cannot express.** Support is not always a property of the field. Anthropic accepts `reasoning_effort`, but not the value `Minimal`; it accepts `response_format`, but not `JsonObject`. A `reasoning_effort: bool` would answer `true` and the request would still fail. And placement rules — an image belongs on a user turn — depend on the transcript you built, not on the vendor at all.
+**It answers questions a table cannot express.** Support is not always a property of the field. Anthropic accepts `response_format`, but not the value `JsonObject`. A `response_format: bool` would answer `true` and the request would still fail. And placement rules — an image belongs on a user turn — depend on the transcript you built, not on the vendor at all.
 
 **It reports the reason.** You get the capability string and the endpoint name, not a bare `false`.
 

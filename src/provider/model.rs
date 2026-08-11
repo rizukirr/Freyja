@@ -246,8 +246,6 @@ pub enum InputContent {
 pub enum ReasoningEffort {
     /// No internal reasoning.
     None,
-    /// The smallest amount the provider supports.
-    Minimal,
     /// Low.
     Low,
     /// Medium.

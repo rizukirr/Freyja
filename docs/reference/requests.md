@@ -86,7 +86,6 @@ How much internal reasoning the model should spend before answering.
 ```rust
 pub enum ReasoningEffort {
     None,
-    Minimal,
     Low,
     Medium,
     High,
@@ -95,7 +94,11 @@ pub enum ReasoningEffort {
 }
 ```
 
-Serialized lowercase. Not every provider accepts every level. Gemini rejects this field entirely today, and Anthropic rejects `Minimal` while mapping `None` onto disabled thinking rather than an effort level. See [Gemini](../providers/gemini.md) and [Anthropic](../providers/anthropic.md).
+Serialized lowercase. Not every provider accepts every level: Gemini rejects this field entirely today, and Anthropic maps `None` onto disabled thinking rather than an effort level. See [Gemini](../providers/gemini.md) and [Anthropic](../providers/anthropic.md).
+
+There was a `Minimal` here until it was removed. No endpoint Freyja can reach accepted it: OpenAI answers `Unsupported value: 'minimal'` on both of its dialects, Anthropic has no equivalent tier, and Gemini refuses the field outright. A variant nothing accepts is a portable name for nothing.
+
+The levels are not uniform even within one vendor. OpenAI's Responses API accepts `Max` and its Chat Completions API does not, on the same model — which is why Freyja passes the value through and lets the endpoint answer rather than keeping a table of who takes what.
 
 ### `response_format`
 

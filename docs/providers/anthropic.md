@@ -26,7 +26,7 @@ Verified against the live endpoint: a full tool round trip completes, prompt to 
 | System and developer turns | yes | Hoisted into the top level `system` field |
 | `max_tokens` | yes | **Required by the API**, defaulted when unset |
 | `temperature`, `top_p` | yes | Forwarded, but rejected by newer models, see below |
-| `reasoning_effort` | partly | Mapped onto `output_config.effort`, `Minimal` rejected |
+| `reasoning_effort` | yes | Mapped onto `output_config.effort`, except `None` which disables thinking |
 | `response_format` | partly | Schema only, `JsonObject` rejected |
 | Tool declarations | yes | `parameters` becomes `input_schema` |
 | `tool_choice` | yes | `Required` becomes `{"type": "any"}` |
@@ -76,10 +76,9 @@ Anthropic returned HTTP 400: {"type":"error","error":{"type":"invalid_request_er
 | Neutral | Wire |
 |---|---|
 | `ReasoningEffort::None` | `"thinking": {"type": "disabled"}` |
-| `ReasoningEffort::Minimal` | rejected with `UnsupportedCapability` |
 | `Low`, `Medium`, `High`, `Xhigh`, `Max` | `"output_config": {"effort": "..."}` |
 
-`None` is the one case that is not an effort level at all, it is an instruction to turn thinking off, so it lands on a different field. `Minimal` has no Anthropic equivalent and is refused rather than being rounded up to `low`.
+`None` is the one case that is not an effort level at all, it is an instruction to turn thinking off, so it lands on a different field. Every other level maps straight across.
 
 Note that disabling thinking has its own hazards on Claude Opus 5: the model occasionally writes a tool call into its visible text instead of emitting a `tool_use` block, which means the call silently never runs. Prefer `Low` over `None` unless you have a specific reason.
 
@@ -218,7 +217,6 @@ Unlike Gemini, `has_tool_calls()` and `status` agree here: a response with tool 
 | Condition | Error |
 |---|---|
 | `previous_response_id` set | `UnsupportedCapability` |
-| `reasoning_effort` is `Minimal` | `UnsupportedCapability` |
 | `response_format` is `JsonObject` | `UnsupportedCapability` |
 | Non text content in a system or developer turn | `UnsupportedCapability` |
 | An image on a non user turn | `UnsupportedCapability` |

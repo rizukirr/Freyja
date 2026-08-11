@@ -72,7 +72,7 @@ Portability has a price, and it is worth knowing which fields cost you.
 | If you use | You lose |
 |---|---|
 | `tool_choice` | Gemini |
-| `reasoning_effort` | Gemini, and `Minimal` on Anthropic |
+| `reasoning_effort` | Gemini |
 | `previous_response_id` | Anthropic, and every `OpenAiChat` endpoint |
 | `response_format` as free JSON | Anthropic |
 
