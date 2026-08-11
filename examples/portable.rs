@@ -1,9 +1,11 @@
 //! One request, every vendor — and the honest limits of that.
 //!
 //! This is the claim the crate is built on: you describe what you want once,
-//! and changing vendor changes one line. The first half proves it. The second
-//! half shows what happens when a request asks for something a vendor cannot
-//! express, which is the more interesting case.
+//! and changing vendor changes one line. The first section proves it. The
+//! second shows what happens when a request asks for something a vendor cannot
+//! express, which is the more interesting case. The third asks the same
+//! question with `Client::check`, which reaches the same verdicts without
+//! sending anything.
 //!
 //! ```sh
 //! cargo run --example portable
@@ -52,6 +54,37 @@ async fn main() {
 
     println!("\n== the same request, plus a capability not everyone has ==");
     run_on_all(&demanding).await;
+
+    // The same fact, learned the other way round.
+    survey(&demanding);
+}
+
+/// Asks every endpoint whether it could carry a request, without sending it.
+///
+/// `check` runs the conversion `generate` runs and throws the result away, so
+/// the verdicts below are the same ones the section above paid a network round
+/// trip to discover. No key is used and nothing is sent.
+///
+/// Worth doing when you need the answer *before* committing to a vendor —
+/// picking one at runtime, or greying out an option in a UI — rather than as a
+/// guard in front of every call, where the error from `generate` says the same
+/// thing.
+fn survey(request: &GenerateRequest) {
+    println!("\n== which of them could carry it, asked rather than tried ==");
+
+    for provider in PROVIDERS {
+        let Some(client) = Client::from_env(provider) else {
+            continue;
+        };
+        let name = client.config().name.clone();
+
+        match client.check(request) {
+            Ok(()) => println!("{name:>9}  yes"),
+            // Note this is the same error, verbatim, that `run_on_all` printed
+            // above. It is the same code path, so the two cannot disagree.
+            Err(error) => println!("{name:>9}  no — {error}"),
+        }
+    }
 }
 
 /// Sends one request to every endpoint that has a key, in turn.

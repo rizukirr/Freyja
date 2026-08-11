@@ -375,6 +375,100 @@ impl Client {
         &self.config
     }
 
+    /// Decides whether this endpoint's dialect can carry a request, without
+    /// sending it.
+    ///
+    /// Answers the question a capability table would answer, by running the
+    /// conversion [`generate`](Self::generate) and [`stream`](Self::stream)
+    /// run and discarding the result. It is the same code, so it cannot drift
+    /// from what those two actually do, and it reports the real error rather
+    /// than a bare `false`:
+    ///
+    /// ```
+    /// use freyja::{
+    ///     Client, GenerateRequest, Message, ProviderError, ProviderType, ReasoningEffort, Role,
+    /// };
+    ///
+    /// let client = Client::custom(
+    ///     ProviderType::Gemini.dialect(),
+    ///     "gemini",
+    ///     "https://generativelanguage.googleapis.com/v1beta",
+    ///     "key",
+    /// );
+    /// let request = GenerateRequest::new()
+    ///     .model("gemini-3.5-flash")
+    ///     .message(Message::text(Role::User, "Hi"))
+    ///     .reasoning_effort(ReasoningEffort::High);
+    ///
+    /// match client.check(&request) {
+    ///     Ok(()) => { /* generate() will get as far as the network */ }
+    ///     Err(ProviderError::UnsupportedCapability { capability, .. }) => {
+    ///         assert_eq!(capability, "portable reasoning effort levels");
+    ///     }
+    ///     Err(error) => panic!("{error}"),
+    /// }
+    /// ```
+    ///
+    /// No network call, no credentials used, and cheap enough to run per
+    /// request: it builds one wire body and drops it. The body is never even
+    /// serialized to JSON, since that happens on the way to the socket.
+    ///
+    /// # What `Ok` does and does not promise
+    ///
+    /// `Ok` means the *dialect* can express this request — every field has
+    /// somewhere to go in the wire format, and the transcript is shaped the way
+    /// the format requires. It is not a promise that the endpoint will accept
+    /// it. Freyja knows the wire format; it has never met your gateway, and
+    /// will not claim to know what that gateway implements. A request that
+    /// passes here can still come back [`ProviderError::BadRequest`].
+    ///
+    /// The model is invisible to it. `check` never reads the model name — it
+    /// is copied into the body and not inspected — so asking a model that does
+    /// no reasoning for a `reasoning_effort` passes here and is settled by the
+    /// vendor. Wire formats change on the order of years and are documented;
+    /// what a given model accepts changes constantly and differs on every
+    /// compatible gateway, so a table of it would be confidently wrong within a
+    /// month.
+    ///
+    /// The converse is solid: an `Err` here is an error `generate` would have
+    /// raised too, before reaching the network.
+    ///
+    /// # Choosing a provider
+    ///
+    /// Because the answer depends on the request rather than on a fixed table,
+    /// comparing endpoints means checking the same request against each:
+    ///
+    /// ```
+    /// # use freyja::{Client, GenerateRequest, Message, ProviderType, Role, ToolChoice};
+    /// # let request = GenerateRequest::new()
+    /// #     .model("m")
+    /// #     .message(Message::text(Role::User, "Hi"))
+    /// #     .tool_choice(ToolChoice::Required);
+    /// let usable: Vec<_> = [ProviderType::OpenAi, ProviderType::Gemini]
+    ///     .into_iter()
+    ///     .filter_map(|kind| Client::from_env(kind))
+    ///     .filter(|client| client.check(&request).is_ok())
+    ///     .collect();
+    /// ```
+    pub fn check(&self, request: &GenerateRequest) -> Result<(), ProviderError> {
+        // `stream` builds through the same call before adding its streaming
+        // flag, so one check covers both paths.
+        match self.config.dialect {
+            ProviderDialect::OpenAiResponses => openai_responses::OpenAiResponsesProvider
+                .build(request, &self.config)
+                .map(drop),
+            ProviderDialect::OpenAiChat => openai_chat::OpenAiChatProvider
+                .build(request, &self.config)
+                .map(drop),
+            ProviderDialect::Gemini => gemini::GeminiProvider
+                .build(request, &self.config)
+                .map(drop),
+            ProviderDialect::Anthropic => anthropic::AnthropicProvider
+                .build(request, &self.config)
+                .map(drop),
+        }
+    }
+
     /// Sends a request and returns the normalized response.
     pub async fn generate(
         &self,
@@ -678,6 +772,185 @@ mod tests {
         // Every other dialect streams from the same URL it generates from.
         let anthropic = ProviderConfig::new(ProviderDialect::Anthropic, "a", "https://x.test/v1");
         assert_eq!(anthropic.stream_url(), anthropic.url());
+    }
+
+    const DIALECTS: [ProviderDialect; 4] = [
+        ProviderDialect::OpenAiResponses,
+        ProviderDialect::OpenAiChat,
+        ProviderDialect::Gemini,
+        ProviderDialect::Anthropic,
+    ];
+
+    /// A client that could never reach anything, which is the point: `check`
+    /// must not need a reachable endpoint or a real key.
+    fn offline(dialect: ProviderDialect) -> Client {
+        Client::custom(dialect, "test", "http://127.0.0.1:1/v1", "unused")
+    }
+
+    fn ask() -> GenerateRequest {
+        GenerateRequest::new()
+            .model("m")
+            .message(Message::text(Role::User, "Hi"))
+    }
+
+    /// The capability a check refused, or a panic naming what happened instead.
+    fn refusal(dialect: ProviderDialect, request: &GenerateRequest) -> &'static str {
+        match offline(dialect).check(request) {
+            Err(ProviderError::UnsupportedCapability { capability, .. }) => capability,
+            other => panic!("{dialect:?}: expected a refusal, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn check_accepts_what_every_dialect_can_carry() {
+        for dialect in DIALECTS {
+            assert!(
+                offline(dialect).check(&ask()).is_ok(),
+                "{dialect:?} should carry a plain text request"
+            );
+        }
+    }
+
+    #[test]
+    fn check_reports_a_field_the_dialect_cannot_express() {
+        assert_eq!(
+            refusal(
+                ProviderDialect::Gemini,
+                &ask().reasoning_effort(ReasoningEffort::High)
+            ),
+            "portable reasoning effort levels"
+        );
+        assert_eq!(
+            refusal(
+                ProviderDialect::Gemini,
+                &ask().tool_choice(ToolChoice::Required)
+            ),
+            "portable tool choice"
+        );
+        assert_eq!(
+            refusal(
+                ProviderDialect::Anthropic,
+                &ask().previous_response_id("resp_1")
+            ),
+            "server-side conversation continuation"
+        );
+        assert_eq!(
+            refusal(
+                ProviderDialect::OpenAiChat,
+                &ask().previous_response_id("chatcmpl-1")
+            ),
+            "server-side conversation continuation"
+        );
+    }
+
+    #[test]
+    fn check_reports_a_value_the_dialect_cannot_express() {
+        // The case a struct of booleans gets wrong. Anthropic supports
+        // reasoning_effort and response_format; it refuses one value of each,
+        // so `reasoning_effort: true` would be a true answer to the wrong
+        // question.
+        let anthropic = offline(ProviderDialect::Anthropic);
+
+        assert!(
+            anthropic
+                .check(&ask().reasoning_effort(ReasoningEffort::High))
+                .is_ok(),
+            "the field itself is supported"
+        );
+        assert_eq!(
+            refusal(
+                ProviderDialect::Anthropic,
+                &ask().reasoning_effort(ReasoningEffort::Minimal)
+            ),
+            "reasoning effort 'minimal'",
+            "but not at this value"
+        );
+
+        assert!(
+            anthropic
+                .check(&ask().response_format(ResponseFormat::JsonSchema {
+                    name: "s".into(),
+                    schema: serde_json::json!({"type": "object"}),
+                    strict: true,
+                }))
+                .is_ok(),
+        );
+        assert_eq!(
+            refusal(
+                ProviderDialect::Anthropic,
+                &ask().response_format(ResponseFormat::JsonObject)
+            ),
+            "schema-less JSON response format"
+        );
+    }
+
+    #[test]
+    fn check_reports_a_placement_no_table_could_describe() {
+        // Not a property of the vendor at all: the same image is fine one turn
+        // earlier. Only something that sees the request can answer it.
+        let misplaced = GenerateRequest::new()
+            .model("m")
+            .message(Message::new(
+                Role::Assistant,
+                [InputContent::ImageUrl("https://e.test/a.png".into())],
+            ))
+            .message(Message::text(Role::User, "What is this?"));
+
+        for dialect in DIALECTS {
+            assert_eq!(
+                refusal(dialect, &misplaced),
+                "images outside user messages",
+                "{dialect:?}"
+            );
+        }
+
+        let placed = GenerateRequest::new().model("m").message(Message::new(
+            Role::User,
+            [
+                InputContent::ImageUrl("https://e.test/a.png".into()),
+                InputContent::Text("What is this?".into()),
+            ],
+        ));
+
+        for dialect in DIALECTS {
+            assert!(offline(dialect).check(&placed).is_ok(), "{dialect:?}");
+        }
+    }
+
+    #[test]
+    fn check_catches_everything_decidable_before_the_network() {
+        // Not a capability: the request names no model and the endpoint has no
+        // default. `generate` raises this too, so `check` reporting it is the
+        // honest behaviour rather than scope creep.
+        let no_model = GenerateRequest::new().message(Message::text(Role::User, "Hi"));
+
+        for dialect in DIALECTS {
+            assert!(
+                matches!(
+                    offline(dialect).check(&no_model),
+                    Err(ProviderError::InvalidRequest { .. })
+                ),
+                "{dialect:?}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn check_agrees_with_the_path_it_stands_in_for() {
+        // The whole argument for building rather than tabulating: `check` runs
+        // the same conversion, so it cannot drift. `stream` converts before it
+        // opens a socket, which is why this reaches a verdict against an
+        // endpoint that does not exist.
+        let refused = ask().reasoning_effort(ReasoningEffort::Minimal);
+        let client = offline(ProviderDialect::Anthropic);
+
+        let from_check = client.check(&refused).expect_err("check refuses");
+        let from_stream = match client.stream(&refused).await {
+            Ok(_) => panic!("a refused request must not open a stream"),
+            Err(error) => error,
+        };
+
+        assert_eq!(from_check.to_string(), from_stream.to_string());
     }
 
     fn headers_with(value: &str) -> reqwest::header::HeaderMap {

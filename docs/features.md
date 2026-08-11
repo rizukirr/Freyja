@@ -14,6 +14,7 @@ What Freyja does today, and what it does not. The second list matters as much as
 | Model selection | Yes, or leave it unset and take the endpoint's default |
 | Sampling controls | `max_tokens`, `temperature`, `top_p` |
 | Reasoning effort | Where the provider supports it, refused where it does not |
+| Asking before sending | `Client::check`, no network call and no key used |
 | Structured output | JSON schema, and free JSON where the provider offers it |
 | Token accounting | Yes, normalized across providers |
 | Streaming | Yes, on every dialect, see [Streaming](reference/streaming.md) |
@@ -63,7 +64,7 @@ Be sure none of these is on your critical path before adopting.
 | **Retries** | Out of scope, deliberately | A 429 or 5xx surfaces once. `is_retryable()` and `retry_after()` tell you what to do; the loop is yours, and composes with `backon` or `tower::retry`. See [Errors](reference/errors.md#retries). |
 | **Automatic tool dispatch** | Not implemented | You match on the tool name and call your function. There is no registry or `Tool` trait yet. |
 | **Schema derivation** | Not implemented | Tool parameter schemas are hand-written JSON. |
-| **Capability introspection** | Not implemented | You discover an unsupported capability by getting an error, not by asking first. |
+| **Capability tables** | Not planned | `Client::check` answers the same question by running the conversion, so there is nothing to keep in sync. It needs a request in hand, which a table would not. |
 | **Embeddings, memory, RAG** | Not implemented | Freyja is a generation client today. |
 | **Agent orchestration** | Not implemented | You write the loop. It is about fifteen lines. |
 

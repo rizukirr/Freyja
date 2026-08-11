@@ -83,7 +83,7 @@ The last row is uneven because OpenAI Chat Completions keeps system turns as ord
 
 Recovery means removing the field or switching providers. Retrying is pointless.
 
-There is no way to ask in advance whether a capability is supported. A `Provider::capabilities()` method is Phase 1 work.
+To ask in advance, use [`Client::check`](client.md#check), which runs the same conversion without sending anything and hands back this same error. There is no table of booleans to consult, deliberately: support is not always a property of the field, and a table would be a second description of the dialects to keep in sync by hand.
 
 ### InvalidRequest
 

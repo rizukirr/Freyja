@@ -151,6 +151,62 @@ let response = stream.into_response()?;
 
 A drained stream converts back into the same `GenerateResponse` that `generate` would have returned, so a tool loop needs no second code path. Every dialect supports it. See [Streaming](streaming.md).
 
+### `check`
+
+```rust
+pub fn check(&self, request: &GenerateRequest) -> Result<(), ProviderError>
+```
+
+Decides whether this endpoint's dialect can carry a request, without sending it. No network call, no credentials used, and cheap enough to run per request: it builds one wire body and drops it. The body is never even serialized to JSON, since that happens on the way to the socket.
+
+```rust
+match client.check(&request) {
+    Ok(()) => { /* generate() will get as far as the network */ }
+    Err(ProviderError::UnsupportedCapability { capability, .. }) => {
+        eprintln!("this endpoint cannot express {capability}");
+    }
+    Err(error) => return Err(error),
+}
+```
+
+This is Freyja's answer to capability introspection, and it is a different shape from the usual one. There is no table of booleans to consult, because `check` runs the same conversion `generate` and `stream` run and reports what happened. Three consequences follow, and they are the reason for the design:
+
+**It cannot drift.** A hand-maintained capability table is a second description of the dialects, kept in sync by hand. `check` is not a description; it is the code itself.
+
+**It answers questions a table cannot express.** Support is not always a property of the field. Anthropic accepts `reasoning_effort`, but not the value `Minimal`; it accepts `response_format`, but not `JsonObject`. A `reasoning_effort: bool` would answer `true` and the request would still fail. And placement rules — an image belongs on a user turn — depend on the transcript you built, not on the vendor at all.
+
+**It reports the reason.** You get the capability string and the endpoint name, not a bare `false`.
+
+#### What `Ok` promises
+
+That the *dialect* can express this request: every field has somewhere to go in the wire format, and the transcript is shaped the way the format requires.
+
+Not that the endpoint will accept it. Freyja knows the wire format; it has never met your gateway, and will not claim to know what that gateway implements. A request that passes `check` can still come back `BadRequest`. See [Custom providers](../providers/custom.md).
+
+Not that the *model* supports it either. `check` never reads the model name — `ProviderConfig::model_for` picks which string to send and nothing inspects it — so a model that does no reasoning still passes a request carrying `reasoning_effort`, and the vendor settles it.
+
+That boundary is deliberate. Wire formats change on the order of years and are documented. What a given model accepts changes weekly, silently, and differs on every compatible gateway; a table of it would be confidently wrong within a month, which is worse than saying nothing. It is the same reasoning `presets.rs` gives for shipping only three presets: a stale promise fails at the vendor with a confusing error instead of locally with a clear one.
+
+The converse is solid: an `Err` from `check` is an error `generate` would have raised too, before reaching the network.
+
+#### Choosing an endpoint
+
+Because the answer depends on the request rather than on a fixed table, comparing endpoints means checking the same request against each:
+
+```rust
+let usable: Vec<_> = [ProviderType::OpenAi, ProviderType::Gemini]
+    .into_iter()
+    .filter_map(Client::from_env)
+    .filter(|client| client.check(&request).is_ok())
+    .collect();
+```
+
+`examples/portable.rs` does exactly this against three real endpoints, next to the same request being sent, so the two ways of learning the fact sit side by side. Run it with `cargo run --example portable`.
+
+#### What else it catches
+
+Everything decidable before the network, not only capabilities. A request naming no model, on an endpoint with no `default_model`, is an `InvalidRequest` from `generate` and an `InvalidRequest` from `check`. Reporting it is the honest behaviour: `check` promises that `generate` would get as far as the network, and that request would not.
+
 ### `config`
 
 ```rust
