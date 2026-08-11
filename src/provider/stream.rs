@@ -450,7 +450,7 @@ impl EventStream {
                 let chunk = response
                     .chunk()
                     .await
-                    .map_err(|error| ProviderError::Http(error.to_string()))?;
+                    .map_err(|error| ProviderError::transport(self.provider.clone(), &error))?;
                 match chunk {
                     Some(bytes) => {
                         self.buffer.push(&bytes);
