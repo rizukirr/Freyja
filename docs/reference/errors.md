@@ -66,14 +66,13 @@ None of these retries anything. See [Retries](#retries).
 The request asked for something this provider cannot express. Freyja refuses rather than silently dropping the field, because a quietly ignored `tool_choice` produces a plausible looking answer that is wrong in a way you cannot see.
 
 ```
-Gemini does not support portable tool choice
+Gemini does not support request metadata
 ```
 
 Raised before any network call. Current cases:
 
 | Provider | Capability |
 |---|---|
-| Gemini | `portable tool choice` |
 | Gemini | `reasoning effort 'none'`, `'xhigh'`, `'max'` |
 | Gemini | `request metadata` |
 | Anthropic | `server-side conversation continuation` |

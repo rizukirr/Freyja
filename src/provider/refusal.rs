@@ -8,7 +8,7 @@
 //! `tool_choice` because neither appears at the top level of a request — and
 //! both live under `generation_config`, where nobody had looked. Both refusals
 //! shipped, and neither was ever checked against the endpoint, because nothing
-//! recorded that they had not been.
+//! recorded that they had not been. Both are mappings now.
 //!
 //! This module is that record. Every refusal in the codebase names a constant
 //! declared here and appears in [`REFUSALS`] with its [`Evidence`], so the
@@ -36,8 +36,6 @@ pub(crate) fn unsupported(config: &ProviderConfig, capability: &'static str) -> 
 
 /// Continuing a conversation by id rather than by replaying the transcript.
 pub(crate) const CONVERSATION_CONTINUATION: &str = "server-side conversation continuation";
-/// Forcing the model to call a tool, or a particular tool.
-pub(crate) const TOOL_CHOICE: &str = "portable tool choice";
 /// Free-form labels or trace ids attached to the request.
 pub(crate) const REQUEST_METADATA: &str = "request metadata";
 /// Asking for any valid JSON, with no schema to constrain it.
@@ -121,16 +119,6 @@ pub(crate) const REFUSALS: &[Refusal] = &[
         capability: IMAGES_OUTSIDE_USER,
         evidence: Evidence::Unverified,
         note: "Never sent. See the OpenAiResponses row.",
-    },
-    Refusal {
-        dialect: ProviderDialect::Gemini,
-        capability: TOOL_CHOICE,
-        evidence: Evidence::Refuted,
-        note: "`generation_config.tool_choice` exists and takes 'auto', 'any', and \
-               'none'. Sent loose it answers `Unknown parameter 'tool_choice'`, \
-               which is what the refusal was written from; nested it answers \
-               `Invalid enum value 'required'`, which is a live field rejecting a \
-               value. This refusal must be replaced by a mapping.",
     },
     Refusal {
         dialect: ProviderDialect::Gemini,
@@ -226,8 +214,8 @@ mod tests {
         assert_eq!(count(Evidence::Probed), 4, "endpoint asked, said no");
         assert_eq!(count(Evidence::Structural), 2, "no field could exist");
         assert_eq!(count(Evidence::Unverified), 8, "nobody has checked");
-        assert_eq!(count(Evidence::Refuted), 1, "known wrong, still shipping");
-        assert_eq!(REFUSALS.len(), 15);
+        assert_eq!(count(Evidence::Refuted), 0, "known wrong, still shipping");
+        assert_eq!(REFUSALS.len(), 14);
     }
 
     /// A dialect refusing the same capability twice means two code paths

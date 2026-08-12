@@ -5,10 +5,10 @@ use crate::provider::*;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-/// Sampling and reasoning controls, which this API nests rather than taking at
-/// the top level. Sending them loose is rejected outright: the endpoint
-/// validates the parameter names it is given and answers `Unknown parameter
-/// 'temperature'`.
+/// Sampling, reasoning, and tool controls, which this API nests rather than
+/// taking at the top level. Sending them loose is rejected outright: the
+/// endpoint validates the parameter names it is given and answers `Unknown
+/// parameter 'temperature'`.
 #[derive(Serialize)]
 struct GenerationConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -19,6 +19,32 @@ struct GenerationConfig {
     top_p: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     thinking_level: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tool_choice: Option<Value>,
+}
+
+/// Maps portable tool choice onto this API's `generation_config.tool_choice`.
+///
+/// The field takes two shapes. A bare mode string covers the first three
+/// levels; `allowed_tools` narrows a mode to a named set, which is how a
+/// specific tool is demanded — "call something, and the something is this one".
+///
+/// The accepted values are `auto`, `any`, `none`, and `validated`, lowercase.
+/// Anything else, `required` included, comes back as `Invalid enum value`.
+///
+/// All four shapes were sent live and cleared the endpoint's validation. None
+/// of them returned a completion — the free tier ran out during the probing —
+/// so `Named` compelling the tool rather than merely permitting it is read off
+/// the shape, not observed.
+fn tool_choice(choice: &ToolChoice) -> Value {
+    match choice {
+        ToolChoice::Auto => Value::from("auto"),
+        ToolChoice::None => Value::from("none"),
+        ToolChoice::Required => Value::from("any"),
+        ToolChoice::Named(name) => serde_json::json!({
+            "allowed_tools": {"mode": "any", "tools": [name]}
+        }),
+    }
 }
 
 /// Maps a portable effort level onto this API's `thinking_level`, or names the
@@ -72,9 +98,8 @@ impl Request {
             })
             .transpose()?;
 
-        if value.tool_choice.is_some() {
-            return Err(refusal::unsupported(config, refusal::TOOL_CHOICE));
-        }
+        let tool_choice = value.tool_choice.as_ref().map(tool_choice);
+
         // This API carries request metadata on `labels`, and then refuses it:
         // "The parameter 'labels' is not available on the Gemini API but it is
         // available on the Gemini Enterprise Agent Platform." Sending it costs
@@ -207,17 +232,19 @@ impl Request {
             model: config.model_for(value)?,
             input,
             system_instruction: (!system.is_empty()).then(|| system.join("\n\n")),
-            // Omitted entirely when the caller set none of the four, rather
+            // Omitted entirely when the caller set none of the five, rather
             // than sent as an empty object.
             generation_config: (value.max_tokens.is_some()
                 || value.temperature.is_some()
                 || value.top_p.is_some()
-                || thinking_level.is_some())
+                || thinking_level.is_some()
+                || tool_choice.is_some())
             .then_some(GenerationConfig {
                 max_output_tokens: value.max_tokens,
                 temperature: value.temperature,
                 top_p: value.top_p,
                 thinking_level,
+                tool_choice,
             }),
             response_format,
             tools: value
@@ -584,6 +611,37 @@ mod tests {
     }
 
     #[test]
+    fn tool_choice_is_nested_and_named_choice_uses_allowed_tools() {
+        let cases = [
+            (ToolChoice::Auto, serde_json::json!("auto")),
+            (ToolChoice::None, serde_json::json!("none")),
+            // Not "required": this API answers `Invalid enum value 'required'`.
+            (ToolChoice::Required, serde_json::json!("any")),
+            (
+                ToolChoice::Named("add".into()),
+                serde_json::json!({"allowed_tools": {"mode": "any", "tools": ["add"]}}),
+            ),
+        ];
+
+        for (choice, expected) in cases {
+            let request = GenerateRequest::new()
+                .message(Message::text(Role::User, "Hi"))
+                .tool_choice(choice.clone());
+
+            let json = serde_json::to_value(Request::build(&request, &config()).unwrap()).unwrap();
+
+            assert_eq!(
+                json["generation_config"]["tool_choice"], expected,
+                "{choice:?} mapped wrong"
+            );
+            assert!(
+                json.get("tool_choice").is_none(),
+                "loose at the top level this is `Unknown parameter 'tool_choice'`"
+            );
+        }
+    }
+
+    #[test]
     fn reasoning_effort_alone_still_builds_a_generation_config() {
         // It is the fourth field to nest there, and the gate that omits an
         // empty object has to know about it.
@@ -893,10 +951,6 @@ mod tests {
             (
                 GenerateRequest::new().reasoning_effort(ReasoningEffort::Max),
                 "reasoning effort 'max'",
-            ),
-            (
-                GenerateRequest::new().tool_choice(ToolChoice::Required),
-                "portable tool choice",
             ),
             // Carried on `labels`, which this endpoint refuses by name. Caught
             // here so it costs nothing rather than a round trip.

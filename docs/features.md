@@ -76,7 +76,7 @@ Capability coverage is not uniform, and Freyja refuses rather than pretending.
 
 | Capability | OpenAI | Gemini | Anthropic | Chat Completions |
 |---|---|---|---|---|
-| `tool_choice` | Yes | **No** | Yes | Yes |
+| `tool_choice` | Yes | Yes | Yes | Yes |
 | `reasoning_effort` | Yes | Some levels | Yes | Yes |
 | `response_format` | Yes | Yes | Schema only | Yes |
 | `previous_response_id` | Yes | Yes | **No** | **No** |

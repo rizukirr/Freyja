@@ -59,7 +59,7 @@ let request = GenerateRequest::new()
 
 Every optional field left as `None` is omitted from the wire request entirely, so the vendor applies its own default.
 
-This was learned painfully. An earlier version defaulted `tool_choice` to `Auto`, a field Gemini cannot express, so every default-constructed request failed against Gemini before it reached the network. A value that looks harmless on one provider is a 400 on another.
+This was learned painfully. An earlier version defaulted `tool_choice` to `Auto` and `reasoning_effort` to `Medium`, and every default-constructed request failed against Gemini before it reached the network. The refusals it tripped over both turned out to be wrong — Gemini carries both fields, nested where nobody had looked — which is a second argument for the same rule: a field you never set cannot be refused by mistake.
 
 **The consequence for you:** set only what you actually care about. Every field you set is one more thing that can be refused somewhere.
 
@@ -68,8 +68,8 @@ This was learned painfully. An earlier version defaulted `tool_choice` to `Auto`
 When you ask for something the endpoint cannot express, Freyja returns an error before sending anything.
 
 ```rust
-GenerateRequest::new().tool_choice(ToolChoice::Required);
-// Against Gemini: Gemini does not support portable tool choice
+GenerateRequest::new().response_format(ResponseFormat::JsonObject);
+// Against Anthropic: Anthropic does not support schema-less JSON response format
 ```
 
 The alternative would be to drop the field and send the request anyway. That is worse. You would get a plausible, well-formed answer, and nothing anywhere would tell you the constraint you asked for had been ignored. A refusal is loud, and loud is debuggable.

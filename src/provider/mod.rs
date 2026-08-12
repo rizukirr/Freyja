@@ -938,13 +938,6 @@ mod tests {
     fn check_reports_a_field_the_dialect_cannot_express() {
         assert_eq!(
             refusal(
-                ProviderDialect::Gemini,
-                &ask().tool_choice(ToolChoice::Required)
-            ),
-            "portable tool choice"
-        );
-        assert_eq!(
-            refusal(
                 ProviderDialect::Anthropic,
                 &ask().previous_response_id("resp_1")
             ),

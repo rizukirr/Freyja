@@ -29,7 +29,7 @@ This backend is less complete than OpenAI. Read the gaps below before relying on
 | `reasoning_effort` | partly | `Low`, `Medium`, `High` only, as `generation_config.thinking_level`, see below |
 | `response_format` | yes | The schema *is* `response_format`, see below |
 | Tool declarations | yes | |
-| `tool_choice` | **no** | Rejected with `UnsupportedCapability` |
+| `tool_choice` | yes | Sent as `generation_config.tool_choice`, see below |
 | Tool round trip | yes | Verified live, requires thought-signature replay |
 | `previous_response_id` | yes | Sent as `previous_interaction_id` |
 | `metadata` | **no** | Rejected with `UnsupportedCapability`, see below |
@@ -60,22 +60,39 @@ Gemini's own `minimal` has no portable level to map from and is unreachable. It 
 
 Freyja refused this field outright until the endpoint was actually asked. The refusal was written from the wire format's top level, where `thinking_level` does not exist — the same mistake that sent `max_output_tokens`, `temperature`, and `top_p` loose. Nesting fixed those three and missed this one.
 
-## Two capabilities are rejected outright
+## Tool choice nests too, and takes two shapes
+
+`generation_config.tool_choice` is either a bare mode or an object naming the tools the model may pick from. Freyja uses the first for three of the four portable levels and the second for `Named`:
+
+| `ToolChoice` | Wire |
+|---|---|
+| `Auto` | `"auto"` |
+| `None` | `"none"` |
+| `Required` | `"any"` |
+| `Named("add")` | `{"allowed_tools": {"mode": "any", "tools": ["add"]}}` |
+
+Note `Required` is **not** `"required"` — that spelling comes back as `Invalid enum value 'required'`. The mode accepts `auto`, `any`, `none`, and `validated`, lowercase only.
+
+This was the second refusal written from the top level of the request, where the field does not exist. Sent loose it answers `Unknown parameter 'tool_choice'`, which is what the old refusal was written from; nested, the same request answers `Invalid enum value`, which is a live field rejecting a value.
+
+**What was verified, precisely.** All four shapes above were sent to the live endpoint and passed its parameter and enum validation, and every wrong spelling tried — `required`, `function`, `ANY`, `mode` as a sibling key, `allowed_tools` as an array — was rejected by name. That establishes the field exists and the shapes are well formed.
+
+It does not establish behavior. No completion came back for these four: the free tier's daily request budget was spent on the probing that found the field. So **`Named` forcing that specific tool is inferred from the shape's own semantics, not observed.** If it turns out `allowed_tools` merely permits rather than compels, this row is what needs revisiting.
+
+## One capability is rejected outright
 
 ```rust
-// Both fail before any network call.
-GenerateRequest::new().tool_choice(ToolChoice::Required);
+// Fails before any network call.
 GenerateRequest::new().metadata(serde_json::json!({"trace": "abc"}));
 ```
 
 ```
-Gemini does not support portable tool choice
 Gemini does not support request metadata
 ```
 
-Freyja refuses rather than dropping the field, because a silently ignored `tool_choice: Required` returns an answer that looks fine and is not what you asked for.
+Freyja refuses rather than dropping the field, because a silently ignored field returns an answer that looks fine and is not what you asked for.
 
-The first is a limit of the wire format. The second is not: this API has a `labels` field for exactly this purpose, and then declines to accept it.
+This one is not a gap in the wire format: the API has a `labels` field for exactly this purpose, and then declines to accept it.
 
 ```
 The parameter 'labels' is not available on the Gemini API
@@ -84,7 +101,7 @@ but it is available on the Gemini Enterprise Agent Platform.
 
 Freyja sent `labels` anyway until that was tried, so any request carrying `metadata` failed at the vendor after a round trip. It is refused locally now, which costs nothing and is caught by `Client::check`. If Google's Enterprise platform ever needs supporting, it is a different endpoint from the one this dialect targets and can be revisited then.
 
-This is why `GenerateRequest::new()` sets no defaults. An earlier version defaulted `tool_choice` and `reasoning_effort`, so every default constructed request failed against Gemini. If you need tool choice, use OpenAI or Anthropic.
+This is why `GenerateRequest::new()` sets no defaults. An earlier version defaulted `tool_choice` and `reasoning_effort`; both were refused at the time, so every default constructed request failed against Gemini. Both refusals turned out to be wrong, which is its own argument for setting only what you asked for.
 
 ## Input uses a step list, not turns
 
@@ -206,7 +223,6 @@ A text turn has been run against the live endpoint, `?alt=sse` and all: deltas a
 | Condition | Error |
 |---|---|
 | `reasoning_effort` set to `None`, `Xhigh`, or `Max` | `UnsupportedCapability` |
-| `tool_choice` set | `UnsupportedCapability` |
 | Non text content in a system or developer turn | `UnsupportedCapability` |
 | An image on a non user turn | `UnsupportedCapability` |
 | Text content on a `Role::Tool` turn | `InvalidRequest` |

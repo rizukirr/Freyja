@@ -31,7 +31,8 @@ That query parameter is what actually selects SSE framing on this API; `"stream"
   "input": "...",
   "system_instruction": "Be concise",
   "generation_config": {
-    "max_output_tokens": 512, "temperature": 0.2, "top_p": 0.9, "thinking_level": "low"
+    "max_output_tokens": 512, "temperature": 0.2, "top_p": 0.9,
+    "thinking_level": "low", "tool_choice": "any"
   },
   "response_format": { "type": "object", "properties": {}, "required": [] },
   "tools": [ { "type": "function", "name": "add", "description": "...", "parameters": {} } ],
@@ -47,7 +48,7 @@ Note the naming: `system_instruction` rather than a system turn, `max_output_tok
 
 Two shapes here are unlike the other three dialects, and the endpoint enforces both by name rather than ignoring what it does not recognise.
 
-**Sampling and reasoning controls nest.** `max_output_tokens`, `temperature`, `top_p`, and `thinking_level` live inside `generation_config`. Sent loose they are rejected — `Unknown parameter 'temperature'` — and so is an unknown key inside the object, which is how you can tell the validation is real rather than tolerant.
+**Sampling, reasoning, and tool controls nest.** `max_output_tokens`, `temperature`, `top_p`, `thinking_level`, and `tool_choice` live inside `generation_config`. Sent loose they are rejected — `Unknown parameter 'temperature'` — and so is an unknown key inside the object, which is how you can tell the validation is real rather than tolerant.
 
 `thinking_level` is where reasoning effort goes, and it takes four values by name:
 
@@ -315,4 +316,4 @@ The exception is `Request contains an invalid argument`, a generic protobuf-leve
 
 ## What Freyja does not send
 
-`tool_choice` and `metadata` are refused with `UnsupportedCapability` before the request is built, along with `reasoning_effort` at `None`, `Xhigh`, or `Max`. See [Gemini](../../providers/gemini.md).
+`metadata` is refused with `UnsupportedCapability` before the request is built, along with `reasoning_effort` at `None`, `Xhigh`, or `Max`. See [Gemini](../../providers/gemini.md).
