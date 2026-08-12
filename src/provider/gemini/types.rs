@@ -34,9 +34,9 @@ fn thinking_level(effort: ReasoningEffort) -> Result<&'static str, &'static str>
         ReasoningEffort::Low => Ok("low"),
         ReasoningEffort::Medium => Ok("medium"),
         ReasoningEffort::High => Ok("high"),
-        ReasoningEffort::None => Err("reasoning effort 'none'"),
-        ReasoningEffort::Xhigh => Err("reasoning effort 'xhigh'"),
-        ReasoningEffort::Max => Err("reasoning effort 'max'"),
+        ReasoningEffort::None => Err(refusal::EFFORT_NONE),
+        ReasoningEffort::Xhigh => Err(refusal::EFFORT_XHIGH),
+        ReasoningEffort::Max => Err(refusal::EFFORT_MAX),
     }
 }
 
@@ -67,28 +67,20 @@ impl Request {
         let thinking_level = value
             .reasoning_effort
             .map(|effort| {
-                thinking_level(effort).map_err(|capability| ProviderError::UnsupportedCapability {
-                    provider: config.name.clone(),
-                    capability,
-                })
+                thinking_level(effort)
+                    .map_err(|capability| refusal::unsupported(config, capability))
             })
             .transpose()?;
 
         if value.tool_choice.is_some() {
-            return Err(ProviderError::UnsupportedCapability {
-                provider: config.name.clone(),
-                capability: "portable tool choice",
-            });
+            return Err(refusal::unsupported(config, refusal::TOOL_CHOICE));
         }
         // This API carries request metadata on `labels`, and then refuses it:
         // "The parameter 'labels' is not available on the Gemini API but it is
         // available on the Gemini Enterprise Agent Platform." Sending it costs
         // a round trip to be told no, so it is refused here instead.
         if value.metadata.is_some() {
-            return Err(ProviderError::UnsupportedCapability {
-                provider: config.name.clone(),
-                capability: "request metadata",
-            });
+            return Err(refusal::unsupported(config, refusal::REQUEST_METADATA));
         }
 
         let mut system = Vec::new();
@@ -113,10 +105,7 @@ impl Request {
                     match part {
                         InputContent::Text(text) => system.push(text.clone()),
                         _ => {
-                            return Err(ProviderError::UnsupportedCapability {
-                                provider: config.name.clone(),
-                                capability: "non-text content in system/developer messages",
-                            });
+                            return Err(refusal::unsupported(config, refusal::NON_TEXT_SYSTEM));
                         }
                     }
                 }
@@ -147,10 +136,7 @@ impl Request {
                     }
                     InputContent::ImageUrl(url) => {
                         if message.role != Role::User {
-                            return Err(ProviderError::UnsupportedCapability {
-                                provider: config.name.clone(),
-                                capability: "images outside user messages",
-                            });
+                            return Err(refusal::unsupported(config, refusal::IMAGES_OUTSIDE_USER));
                         }
                         pending.push(serde_json::json!({"type": "image", "uri": url}));
                     }

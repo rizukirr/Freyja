@@ -16,6 +16,7 @@ pub(crate) mod openai_responses;
 
 mod model;
 mod presets;
+mod refusal;
 pub(crate) mod sse;
 pub(crate) mod stream;
 
@@ -478,8 +479,13 @@ impl Client {
     /// compatible gateway, so a table of it would be confidently wrong within a
     /// month.
     ///
-    /// The converse is solid: an `Err` here is an error `generate` would have
-    /// raised too, before reaching the network.
+    /// An `Err` here is an error `generate` would have raised too, since the
+    /// two run the same conversion. That makes the two agree; it does not make
+    /// either correct. A refusal is a claim that this wire format has nowhere
+    /// to put a field, and a claim can be wrong: Freyja refused
+    /// `reasoning_effort` on Gemini for months, having looked for it at the top
+    /// level of a request that keeps it under `generation_config`. Every
+    /// refusal and the evidence behind it is listed in `src/provider/refusal.rs`.
     ///
     /// # Choosing a provider
     ///
