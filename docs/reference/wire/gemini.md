@@ -30,10 +30,8 @@ That query parameter is what actually selects SSE framing on this API; `"stream"
   "model": "gemini-3.5-flash",
   "input": "...",
   "system_instruction": "Be concise",
-  "max_output_tokens": 512,
-  "temperature": 0.2,
-  "top_p": 0.9,
-  "response_format": { "type": "json_schema", "name": "person", "json_schema": {}, "strict": true },
+  "generation_config": { "max_output_tokens": 512, "temperature": 0.2, "top_p": 0.9 },
+  "response_format": { "type": "object", "properties": {}, "required": [] },
   "tools": [ { "type": "function", "name": "add", "description": "...", "parameters": {} } ],
   "previous_interaction_id": "v1_...",
   "labels": {}
@@ -44,7 +42,23 @@ Only `model` and `input` are required. Freyja omits every unset field rather tha
 
 The request also carries `stream`, which `generate()` leaves unset and which is therefore omitted rather than sent as `false`. Every body on this page is byte-accurate for a `generate()` call.
 
-Note the naming: `system_instruction` rather than a system turn, `max_output_tokens` rather than `max_tokens`, `previous_interaction_id` rather than `previous_response_id`, and `labels` rather than `metadata`.
+Note the naming: `system_instruction` rather than a system turn, `max_output_tokens` rather than `max_tokens`, and `previous_interaction_id` rather than `previous_response_id`.
+
+Two shapes here are unlike the other three dialects, and the endpoint enforces both by name rather than ignoring what it does not recognise.
+
+**Sampling controls nest.** `max_output_tokens`, `temperature`, and `top_p` live inside `generation_config`. Sent loose they are rejected — `Unknown parameter 'temperature'` — and so is an unknown key inside the object, which is how you can tell the validation is real rather than tolerant.
+
+**`response_format` is the schema**, not a wrapper around one. Its `type` takes JSON Schema type names, and says so when given anything else:
+
+```
+The value 'json_schema' is not supported for 'type' at 'response_format'.
+Supported values: 'boolean', 'video', 'audio', 'integer', 'number', 'image',
+'array', 'object', 'text', 'string'.
+```
+
+So a JSON-schema request puts the schema straight into the field, and `name` and `strict` have nowhere to go — dropped, as they are on Anthropic. `ResponseFormat::JsonObject` becomes `{"type": "object"}`.
+
+**`labels` is rejected outright** on this endpoint: *"The parameter 'labels' is not available on the Gemini API but it is available on the Gemini Enterprise Agent Platform."* Freyja still maps `metadata` onto it, so a request carrying metadata fails here. Leave `metadata` unset against the Gemini API.
 
 ## Input takes two shapes
 

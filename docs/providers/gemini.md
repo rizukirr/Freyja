@@ -24,15 +24,15 @@ This backend is less complete than OpenAI. Read the gaps below before relying on
 | Text generation | yes | |
 | Images in user turns | yes | Sent as `{"type": "image", "uri": ...}` |
 | System and developer turns | yes | Hoisted into `system_instruction` |
-| `max_tokens` | yes | Sent as `max_output_tokens` |
-| `temperature`, `top_p` | yes | Forwarded unchanged |
+| `max_tokens` | yes | Sent as `generation_config.max_output_tokens` |
+| `temperature`, `top_p` | yes | Nested inside `generation_config` |
 | `reasoning_effort` | **no** | Rejected with `UnsupportedCapability` |
-| `response_format` | yes | Mapped onto `response_format` |
+| `response_format` | yes | The schema *is* `response_format`, see below |
 | Tool declarations | yes | |
 | `tool_choice` | **no** | Rejected with `UnsupportedCapability` |
 | Tool round trip | yes | Verified live, requires thought-signature replay |
 | `previous_response_id` | yes | Sent as `previous_interaction_id` |
-| `metadata` | yes | Sent as `labels` |
+| `metadata` | **no** | Mapped onto `labels`, which this endpoint rejects |
 | Usage reporting | yes | Field names normalized |
 | Refusals | no | Not carried as a distinct block |
 | Streaming | yes | `stream: true` **and** `?alt=sse` on the URL, which is what selects SSE. **Never run live**, see below |
@@ -96,13 +96,13 @@ A bare number is also rejected as a `result`, so Freyja sends a JSON object thro
 | `model` | `model`, defaulting to `gemini-3.5-flash` |
 | system and developer turns | `system_instruction`, joined with a blank line |
 | other turns | `input` step list |
-| `max_tokens` | `max_output_tokens` |
-| `temperature` | `temperature` |
-| `top_p` | `top_p` |
-| `response_format` | `response_format` |
+| `max_tokens` | `generation_config.max_output_tokens` |
+| `temperature` | `generation_config.temperature` |
+| `top_p` | `generation_config.top_p` |
+| `response_format` | `response_format`, carrying the schema itself |
 | `tools` | `tools`, each with `"type": "function"` |
 | `previous_response_id` | `previous_interaction_id` |
-| `metadata` | `labels` |
+| `metadata` | `labels`, **rejected by this endpoint** |
 
 ### Inbound
 

@@ -5,6 +5,19 @@ use crate::provider::*;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+/// Sampling controls, which this API nests rather than taking at the top
+/// level. Sending them loose is rejected outright: the endpoint validates the
+/// parameter names it is given and answers `Unknown parameter 'temperature'`.
+#[derive(Serialize)]
+struct GenerationConfig {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    max_output_tokens: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    temperature: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    top_p: Option<f32>,
+}
+
 #[derive(Serialize)]
 pub struct Request {
     model: String,
@@ -12,11 +25,7 @@ pub struct Request {
     #[serde(skip_serializing_if = "Option::is_none")]
     system_instruction: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    max_output_tokens: Option<u32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    temperature: Option<f32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    top_p: Option<f32>,
+    generation_config: Option<GenerationConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
     response_format: Option<Value>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -164,30 +173,30 @@ impl Request {
             Value::Array(steps)
         };
 
+        // `response_format` on this API *is* the schema: its `type` takes the
+        // JSON Schema type names -- object, string, array and the rest -- and
+        // rejects the `json_schema` wrapper the other dialects use. `name` and
+        // `strict` have nowhere to go and are dropped, as they are on Anthropic.
         let response_format = value.response_format.as_ref().map(|format| match format {
             ResponseFormat::Text => serde_json::json!({"type": "text"}),
-            ResponseFormat::JsonObject => {
-                serde_json::json!({"type": "json_schema", "json_schema": {"type": "object"}})
-            }
-            ResponseFormat::JsonSchema {
-                name,
-                schema,
-                strict,
-            } => serde_json::json!({
-                "type": "json_schema",
-                "name": name,
-                "json_schema": schema,
-                "strict": strict,
-            }),
+            ResponseFormat::JsonObject => serde_json::json!({"type": "object"}),
+            ResponseFormat::JsonSchema { schema, .. } => schema.clone(),
         });
 
         Ok(Self {
             model: config.model_for(value)?,
             input,
             system_instruction: (!system.is_empty()).then(|| system.join("\n\n")),
-            max_output_tokens: value.max_tokens,
-            temperature: value.temperature,
-            top_p: value.top_p,
+            // Omitted entirely when the caller set none of the three, rather
+            // than sent as an empty object.
+            generation_config: (value.max_tokens.is_some()
+                || value.temperature.is_some()
+                || value.top_p.is_some())
+            .then_some(GenerationConfig {
+                max_output_tokens: value.max_tokens,
+                temperature: value.temperature,
+                top_p: value.top_p,
+            }),
             response_format,
             tools: value
                 .tools
@@ -504,7 +513,89 @@ mod tests {
         assert_eq!(json["model"], "gemini-3.5-flash");
         assert_eq!(json["system_instruction"], "Be concise");
         assert_eq!(json["input"], "Hello");
-        assert_eq!(json["max_output_tokens"], 42);
+        // Nested, not loose: the endpoint rejects `max_output_tokens` at the
+        // top level by name.
+        assert_eq!(json["generation_config"]["max_output_tokens"], 42);
+        assert!(json.get("max_output_tokens").is_none());
+    }
+
+    #[test]
+    fn sampling_controls_are_nested_together() {
+        let request = GenerateRequest::new()
+            .message(Message::text(Role::User, "Hi"))
+            .max_tokens(42)
+            .temperature(0.2)
+            .top_p(0.9);
+
+        let json = serde_json::to_value(Request::build(&request, &config()).unwrap()).unwrap();
+
+        let config = &json["generation_config"];
+        assert_eq!(config["max_output_tokens"], 42);
+        // Compared through f32: the neutral field is f32, and widening it for
+        // JSON leaves 0.2 as 0.20000000298023224.
+        assert_eq!(config["temperature"].as_f64(), Some(0.2f32 as f64));
+        assert_eq!(config["top_p"].as_f64(), Some(0.9f32 as f64));
+
+        for loose in ["max_output_tokens", "temperature", "top_p"] {
+            assert!(json.get(loose).is_none(), "{loose} must not ride loose");
+        }
+    }
+
+    #[test]
+    fn no_sampling_controls_means_no_generation_config() {
+        // An empty object would be sent otherwise, which says something the
+        // caller did not.
+        let request = GenerateRequest::new().message(Message::text(Role::User, "Hi"));
+
+        let json = serde_json::to_value(Request::build(&request, &config()).unwrap()).unwrap();
+
+        assert!(json.get("generation_config").is_none());
+    }
+
+    #[test]
+    fn response_format_carries_the_schema_itself() {
+        // This API's `response_format.type` takes JSON Schema type names --
+        // object, string, array -- and rejects the `json_schema` wrapper the
+        // other three dialects use. So the schema goes there whole.
+        let schema = serde_json::json!({
+            "type": "object",
+            "properties": {"name": {"type": "string"}},
+            "required": ["name"],
+            "additionalProperties": false
+        });
+        let request = GenerateRequest::new()
+            .message(Message::text(Role::User, "Hi"))
+            .response_format(ResponseFormat::JsonSchema {
+                name: "person".into(),
+                schema: schema.clone(),
+                strict: true,
+            });
+
+        let json = serde_json::to_value(Request::build(&request, &config()).unwrap()).unwrap();
+
+        assert_eq!(json["response_format"], schema);
+        // `name` and `strict` have nowhere to go here, as on Anthropic.
+        assert!(json["response_format"].get("name").is_none());
+        assert!(json["response_format"].get("strict").is_none());
+    }
+
+    #[test]
+    fn the_looser_json_modes_use_plain_type_names() {
+        for (format, expected) in [
+            (ResponseFormat::Text, "text"),
+            (ResponseFormat::JsonObject, "object"),
+        ] {
+            let request = GenerateRequest::new()
+                .message(Message::text(Role::User, "Hi"))
+                .response_format(format);
+
+            let json = serde_json::to_value(Request::build(&request, &config()).unwrap()).unwrap();
+
+            assert_eq!(
+                json["response_format"],
+                serde_json::json!({"type": expected})
+            );
+        }
     }
 
     #[test]
