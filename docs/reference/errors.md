@@ -75,6 +75,7 @@ Raised before any network call. Current cases:
 |---|---|
 | Gemini | `portable reasoning effort levels` |
 | Gemini | `portable tool choice` |
+| Gemini | `request metadata` |
 | Anthropic | `server-side conversation continuation` |
 | Anthropic | `schema-less JSON response format` |
 | OpenAI Chat Completions | `server-side conversation continuation` |

@@ -79,6 +79,7 @@ Capability coverage is not uniform, and Freyja refuses rather than pretending.
 | `reasoning_effort` | Yes | **No** | Yes | Yes |
 | `response_format` | Yes | Yes | Schema only | Yes |
 | `previous_response_id` | Yes | Yes | **No** | **No** |
+| `metadata` | Yes | **No** | Yes | Yes |
 
 A **No** means `UnsupportedCapability` before any network call, so you find out immediately rather than getting an answer that ignored you. Each provider page has the full table.
 
