@@ -664,6 +664,25 @@ pub enum ProviderError {
         /// Parse failure detail, including the body.
         message: String,
     },
+    /// The call succeeded, but the model's answer did not match the type the
+    /// caller asked [`Client::generate_as`](crate::Client::generate_as) for.
+    ///
+    /// Distinct from [`Self::InvalidResponse`], which is the *vendor's* body
+    /// being unreadable and means Freyja has a bug. Here the vendor behaved: it
+    /// returned a well-formed response whose content is not the shape you
+    /// wanted. That is a problem with the schema, the prompt, or the token cap.
+    OutputMismatch {
+        /// Endpoint that answered.
+        provider: Arc<str>,
+        /// What the deserializer could not do.
+        message: String,
+        /// The model's answer, kept so it can be logged, shown, or salvaged.
+        text: String,
+        /// Whether the answer was cut short, which is the usual cause: a
+        /// truncated JSON object is still text and is never valid JSON. Raise
+        /// [`GenerateRequest::max_tokens`] rather than rewriting the schema.
+        truncated: bool,
+    },
     /// The response streamed successfully up to a point, then failed.
     ///
     /// Covers a provider's own mid-stream error frame, and calling
@@ -809,6 +828,7 @@ impl ProviderError {
             | Self::ServerError { provider, .. }
             | Self::Api { provider, .. }
             | Self::InvalidResponse { provider, .. }
+            | Self::OutputMismatch { provider, .. }
             | Self::Stream { provider, .. } => provider,
         }
     }
@@ -872,6 +892,19 @@ impl fmt::Display for ProviderError {
             } => write!(f, "{provider} returned HTTP {status}: {body}"),
             Self::InvalidResponse { provider, message } => {
                 write!(f, "invalid {provider} response: {message}")
+            }
+            Self::OutputMismatch {
+                provider,
+                message,
+                truncated,
+                ..
+            } => {
+                let cause = if *truncated {
+                    ", and the answer was cut short"
+                } else {
+                    ""
+                };
+                write!(f, "{provider} output did not match: {message}{cause}")
             }
             Self::Stream { provider, message } => {
                 write!(f, "{provider} stream failed: {message}")

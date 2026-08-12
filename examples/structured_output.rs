@@ -1,9 +1,9 @@
 //! Asking for JSON and getting a Rust value back.
 //!
 //! `ResponseFormat::JsonSchema` constrains the model's output to a shape you
-//! declare, so the answer can be deserialized instead of parsed out of prose.
-//! Freyja hands you the JSON as text; turning it into a type is `serde_json`'s
-//! job, and this example does both halves.
+//! declare, and `Client::generate_as` hands back that shape rather than a
+//! string. The schema is still written by hand and must be kept in step with
+//! the struct: deriving one from the type is not implemented.
 //!
 //! ```sh
 //! cargo run --example structured_output
@@ -67,28 +67,37 @@ async fn main() {
             strict: true,
         });
 
-    match client.generate(&request).await {
-        Ok(response) => {
-            // The answer is still text on the wire. Freyja does not deserialize
-            // it for you, because it has no idea what type you wanted.
-            let raw = response.output_text();
-            println!("raw JSON:\n{raw}\n");
-
-            match serde_json::from_str::<Recommendation>(&raw) {
-                Ok(recommendation) => {
-                    println!("name:     {}", recommendation.name);
-                    println!("purpose:  {}", recommendation.purpose);
-                    println!(
-                        "maturity: {}",
-                        recommendation.maturity.as_deref().unwrap_or("(not given)")
-                    );
-                }
-                // Worth handling rather than unwrapping: a schema is a
-                // constraint on the model, not a guarantee from the transport.
-                // A truncated answer is still valid text and invalid JSON.
-                Err(error) => eprintln!("the answer did not match the struct: {error}"),
-            }
+    // `generate_as` sends the request and deserializes for you. The manual
+    // route still works -- `generate` then `output_text` then `from_str` -- and
+    // is what you want when the raw text matters as much as the value.
+    match client.generate_as::<Recommendation>(&request).await {
+        Ok(recommendation) => {
+            println!("name:     {}", recommendation.name);
+            println!("purpose:  {}", recommendation.purpose);
+            println!(
+                "maturity: {}",
+                recommendation.maturity.as_deref().unwrap_or("(not given)")
+            );
         }
+
+        // Worth handling rather than unwrapping: a schema constrains the model,
+        // it does not guarantee anything. The error keeps the text so you can
+        // see what actually came back, and separates the common cause from the
+        // rest -- a cut-off answer is still valid text and invalid JSON, and
+        // wants a bigger cap rather than a different schema.
+        Err(ProviderError::OutputMismatch {
+            message,
+            text,
+            truncated,
+            ..
+        }) => {
+            if truncated {
+                eprintln!("the answer was cut short by max_tokens");
+            }
+            eprintln!("did not match the struct: {message}");
+            eprintln!("what came back: {text}");
+        }
+
         Err(error) => eprintln!("{} failed: {error}", error.provider()),
     }
 

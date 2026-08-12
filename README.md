@@ -90,7 +90,7 @@ Then [providers](docs/providers/README.md), the [API reference](docs/README.md#r
 
 ## Status
 
-Phase 0 is complete and Phase 1 is nearly done: the neutral core is stable, four wire dialects are implemented, tool calling works end to end, every dialect streams, failures are classified by cause, and a request can be checked before it is sent. Derive-based structured output is the Phase 1 work that remains.
+Phase 0 is complete and Phase 1 is nearly done: the neutral core is stable, four wire dialects are implemented, tool calling works end to end, every dialect streams, failures are classified by cause, a request can be checked before it is sent, and an answer can be deserialized straight into your own type. Deriving the schema from that type is the Phase 1 work that remains.
 
 | Area | State |
 |---|---|
@@ -103,7 +103,7 @@ Phase 0 is complete and Phase 1 is nearly done: the neutral core is stable, four
 | Pre-flight checks | `client.check(&request)`, no network call |
 | Not implemented | Automatic tool dispatch, orchestration |
 
-`cargo test`: 114 unit tests, 4 integration tests, and 13 doctests. `cargo clippy --all-targets -- -D warnings` clean. [Features](docs/features.md) has the honest boundary, including which capabilities each provider refuses.
+`cargo test`: 114 unit tests, 8 integration tests, and 14 doctests. `cargo clippy --all-targets -- -D warnings` clean. [Features](docs/features.md) has the honest boundary, including which capabilities each provider refuses.
 
 ## Roadmap
 
@@ -111,7 +111,7 @@ The goal: everything you need to build an AI agent in Rust, with no vendor lock-
 
 **Phase 0, stabilize the core.** Complete. Portable defaults, tool round trips, opaque reasoning state, pooled HTTP, live verification on every provider.
 
-**Phase 1, production-grade provider layer.** Four dialects, the dialect/endpoint split, streaming, typed errors, and pre-flight checking are done. Remaining: derive-based structured output.
+**Phase 1, production-grade provider layer.** Four dialects, the dialect/endpoint split, streaming, typed errors, pre-flight checking, and typed responses are done. Remaining: deriving a JSON schema from a Rust type, which Phase 2's `#[tool]` macro needs as well and should be built once for both.
 
 **Phase 2, the agent.** A `Tool` trait and registry, a `#[tool]` macro deriving schemas from function signatures, an `Agent` type, and a bounded loop with per-tool timeouts and approval hooks.
 

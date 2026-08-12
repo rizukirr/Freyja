@@ -533,6 +533,75 @@ impl Client {
         }
     }
 
+    /// Sends a request and deserializes the answer into `T`.
+    ///
+    /// The companion to [`ResponseFormat::JsonSchema`]: you constrain the
+    /// model's output to a shape, and this hands back that shape instead of a
+    /// string you parse yourself.
+    ///
+    /// ```no_run
+    /// # async fn run(client: freyja::Client) -> Result<(), freyja::ProviderError> {
+    /// use freyja::{GenerateRequest, Message, ResponseFormat, Role};
+    /// use serde::Deserialize;
+    ///
+    /// #[derive(Deserialize)]
+    /// struct Recommendation {
+    ///     name: String,
+    ///     purpose: String,
+    /// }
+    ///
+    /// let request = GenerateRequest::new()
+    ///     .message(Message::text(Role::User, "Recommend one Rust crate for JSON."))
+    ///     .response_format(ResponseFormat::JsonSchema {
+    ///         name: "recommendation".into(),
+    ///         schema: serde_json::json!({
+    ///             "type": "object",
+    ///             "properties": {
+    ///                 "name": {"type": "string"},
+    ///                 "purpose": {"type": "string"}
+    ///             },
+    ///             "required": ["name", "purpose"],
+    ///             "additionalProperties": false
+    ///         }),
+    ///         strict: true,
+    ///     });
+    ///
+    /// let recommendation: Recommendation = client.generate_as(&request).await?;
+    /// println!("{}", recommendation.name);
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// The schema is still written by hand, and must be kept in step with `T`
+    /// yourself. Deriving one from the type is not implemented.
+    ///
+    /// # Errors
+    ///
+    /// Everything [`generate`](Self::generate) can raise, plus
+    /// [`ProviderError::OutputMismatch`] when the call succeeded and the answer
+    /// was not the shape you asked for. That error keeps the model's text so it
+    /// can be logged or shown, and flags the truncation case separately —
+    /// a cut-off JSON object is the most common reason this fails, and the fix
+    /// is a larger [`GenerateRequest::max_tokens`] rather than a different
+    /// schema.
+    pub async fn generate_as<T: serde::de::DeserializeOwned>(
+        &self,
+        request: &GenerateRequest,
+    ) -> Result<T, ProviderError> {
+        let response = self.generate(request).await?;
+        let text = response.output_text();
+
+        serde_json::from_str(&text).map_err(|error| ProviderError::OutputMismatch {
+            provider: self.config.name.clone(),
+            message: error.to_string(),
+            // Checked rather than inferred from the parse error: a truncated
+            // answer and a wrong-shaped one both fail here, and only the
+            // response itself can tell them apart.
+            truncated: response.status == ResponseStatus::Incomplete,
+            text,
+        })
+    }
+
     /// Opens a streaming generation.
     ///
     /// Returns once the provider has accepted the request, so a non-success
