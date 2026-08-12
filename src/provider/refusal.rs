@@ -16,8 +16,16 @@
 //! archaeology exercise. The counts are asserted in tests: verifying a refusal
 //! or adding one both fail until this file is updated to match.
 //!
-//! What a refusal is *not* allowed to be is a guess about a model. If the wire
-//! format has a field, the value goes to the vendor and the vendor answers.
+//! The rule that follows, and the one this table exists to hold Freyja to:
+//! **refuse only when the wire format has no field for it.** If the field
+//! exists, whatever the endpoint then does with it is the endpoint's answer to
+//! give. Two refusals were dropped for failing that test rather than for being
+//! false — Gemini rejects `labels` and three `thinking_level` values, but both
+//! fields exist, so both now go to the wire.
+//!
+//! Refusing them was cheaper by a round trip and wrong in the direction that
+//! costs more. A refusal is silent and permanent; a rejection is loud and stops
+//! the day the vendor changes its mind.
 
 #[cfg(test)]
 use super::ProviderDialect;
@@ -36,20 +44,12 @@ pub(crate) fn unsupported(config: &ProviderConfig, capability: &'static str) -> 
 
 /// Continuing a conversation by id rather than by replaying the transcript.
 pub(crate) const CONVERSATION_CONTINUATION: &str = "server-side conversation continuation";
-/// Free-form labels or trace ids attached to the request.
-pub(crate) const REQUEST_METADATA: &str = "request metadata";
 /// Asking for any valid JSON, with no schema to constrain it.
 pub(crate) const SCHEMALESS_JSON: &str = "schema-less JSON response format";
 /// Anything but text in a system or developer turn.
 pub(crate) const NON_TEXT_SYSTEM: &str = "non-text content in system/developer messages";
 /// An image attached to a turn that is not the user's.
 pub(crate) const IMAGES_OUTSIDE_USER: &str = "images outside user messages";
-/// Reasoning effort at a level this dialect's own scale has no word for.
-pub(crate) const EFFORT_NONE: &str = "reasoning effort 'none'";
-/// See [`EFFORT_NONE`].
-pub(crate) const EFFORT_XHIGH: &str = "reasoning effort 'xhigh'";
-/// See [`EFFORT_NONE`].
-pub(crate) const EFFORT_MAX: &str = "reasoning effort 'max'";
 
 /// How well a refusal is known to be true.
 ///
@@ -116,39 +116,11 @@ pub(crate) const REFUSALS: &[Refusal] = &[
     },
     Refusal {
         dialect: ProviderDialect::Gemini,
-        capability: REQUEST_METADATA,
-        evidence: Evidence::Probed,
-        note: "`labels` is rejected outright -- \"not available on the Gemini API but \
-               it is available on the Gemini Enterprise Agent Platform\" -- and \
-               `metadata`, `generation_config.labels`, and \
-               `generation_config.metadata` are all `Unknown parameter`.",
-    },
-    Refusal {
-        dialect: ProviderDialect::Gemini,
         capability: NON_TEXT_SYSTEM,
         evidence: Evidence::Structural,
         note: "`system_instruction` is a bare string and nothing else: an array or \
                object gives `The value is invalid for 'system_instruction'. \
                Expected string`. There is no richer shape to put an image in.",
-    },
-    Refusal {
-        dialect: ProviderDialect::Gemini,
-        capability: EFFORT_NONE,
-        evidence: Evidence::Probed,
-        note: "`'none' is not supported for 'thinking_level'. Supported values: \
-               'minimal', 'low', 'medium', 'high'.`",
-    },
-    Refusal {
-        dialect: ProviderDialect::Gemini,
-        capability: EFFORT_XHIGH,
-        evidence: Evidence::Probed,
-        note: "Rejected by name, as EFFORT_NONE.",
-    },
-    Refusal {
-        dialect: ProviderDialect::Gemini,
-        capability: EFFORT_MAX,
-        evidence: Evidence::Probed,
-        note: "Rejected by name, as EFFORT_NONE.",
     },
     Refusal {
         dialect: ProviderDialect::Anthropic,
@@ -206,11 +178,11 @@ mod tests {
                 .count()
         };
 
-        assert_eq!(count(Evidence::Probed), 6, "endpoint asked, said no");
+        assert_eq!(count(Evidence::Probed), 2, "endpoint asked, said no");
         assert_eq!(count(Evidence::Structural), 3, "no field could exist");
         assert_eq!(count(Evidence::Unverified), 3, "nobody has checked");
         assert_eq!(count(Evidence::Refuted), 0, "known wrong, still shipping");
-        assert_eq!(REFUSALS.len(), 12);
+        assert_eq!(REFUSALS.len(), 8);
     }
 
     /// A dialect refusing the same capability twice means two code paths

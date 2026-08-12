@@ -14,7 +14,7 @@ Three presets, for the three first-party vendors whose endpoints Freyja is willi
 | Provider | Key variable | Default model | Notes |
 |---|---|---|---|
 | [OpenAI](openai.md) | `OPENAI_API_KEY` | `gpt-5.6-sol` | Responses API, the most complete mapping |
-| [Gemini](gemini.md) | `GEMINI_API_KEY` | `gemini-3.5-flash` | Refuses `metadata`, and three `reasoning_effort` levels |
+| [Gemini](gemini.md) | `GEMINI_API_KEY` | `gemini-3.5-flash` | Declines `metadata` and three `reasoning_effort` levels, at the endpoint rather than locally |
 | [Anthropic](anthropic.md) | `ANTHROPIC_API_KEY` | `claude-opus-5` | Requires `max_tokens`, defaulted for you |
 
 ```rust
@@ -71,10 +71,8 @@ Portability has a price, and it is worth knowing which fields cost you.
 
 | If you use | You lose |
 |---|---|
-| `reasoning_effort` at `None`, `Xhigh`, or `Max` | Gemini |
 | `previous_response_id` | Anthropic, and every `OpenAiChat` endpoint |
 | `response_format` as free JSON | Anthropic |
-| `metadata` | Gemini |
 
 Set none of them and your request runs anywhere. Each is refused before the network, so you find out at once rather than getting an answer that ignored you.
 

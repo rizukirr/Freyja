@@ -26,39 +26,36 @@ This backend is less complete than OpenAI. Read the gaps below before relying on
 | System and developer turns | yes | Hoisted into `system_instruction` |
 | `max_tokens` | yes | Sent as `generation_config.max_output_tokens` |
 | `temperature`, `top_p` | yes | Nested inside `generation_config` |
-| `reasoning_effort` | partly | `Low`, `Medium`, `High` only, as `generation_config.thinking_level`, see below |
+| `reasoning_effort` | yes | Sent as `generation_config.thinking_level`; three of the six levels are rejected by the endpoint, see below |
 | `response_format` | yes | The schema *is* `response_format`, see below |
 | Tool declarations | yes | |
 | `tool_choice` | yes | Sent as `generation_config.tool_choice`, see below |
 | Tool round trip | yes | Verified live, requires thought-signature replay |
 | `previous_response_id` | yes | Sent as `previous_interaction_id` |
-| `metadata` | **no** | Rejected with `UnsupportedCapability`, see below |
+| `metadata` | yes | Sent as `labels`, which the public endpoint declines, see below |
 | Usage reporting | yes | Field names normalized |
 | Refusals | no | Not carried as a distinct block |
 | Streaming | yes | `stream: true` **and** `?alt=sse` on the URL, which is what selects SSE. Verified live for text |
 
-## Reasoning effort is nested, and partial
+## Reasoning effort is nested, and half of it is rejected
 
-This API takes reasoning effort as `generation_config.thinking_level`, alongside the sampling controls, and accepts four values. Three of the six portable levels map straight across; the other three have no word here and are refused locally, because the endpoint rejects them by name.
+This API takes reasoning effort as `generation_config.thinking_level`, alongside the sampling controls. All six portable levels are sent, lowercase; the endpoint accepts three of them.
 
-| `ReasoningEffort` | `thinking_level` |
-|---|---|
-| `Low` | `"low"` |
-| `Medium` | `"medium"` |
-| `High` | `"high"` |
-| `None` | refused |
-| `Xhigh` | refused |
-| `Max` | refused |
+| `ReasoningEffort` | `thinking_level` | Endpoint |
+|---|---|---|
+| `Low` / `Medium` / `High` | `"low"` / `"medium"` / `"high"` | accepted, verified live |
+| `None` / `Xhigh` / `Max` | `"none"` / `"xhigh"` / `"max"` | `BadRequest`, verified live |
 
 ```
-Gemini does not support reasoning effort 'max'
+The value 'max' is not supported for 'generation_config.thinking_level'.
+Supported values: 'minimal', 'low', 'medium', 'high'.
 ```
 
-Verified against the live endpoint in both directions: the three that map returned answers, and the three that do not are rejected by the API with `'none' is not supported ... Supported values: 'minimal', 'low', 'medium', 'high'`.
+**Freyja used to refuse those three itself, and does not any more.** The field exists, so which values it likes is a fact about this deployment on this day, not about the wire format — and the endpoint says it better, naming the values that do work. Refusing was cheaper by a round trip and wrong in the direction that costs more: a refusal is silent and permanent, a rejection is loud and stops the day the vendor changes its mind.
 
-Gemini's own `minimal` has no portable level to map from and is unreachable. It is the only level any of the three vendors accepts, so there is nothing portable to name it with.
+Gemini's `minimal` has no portable level to map from and is unreachable. It is the only level any of the three vendors accepts, so there is nothing portable to name it with; reach it through the escape hatch if you need it.
 
-Freyja refused this field outright until the endpoint was actually asked. The refusal was written from the wire format's top level, where `thinking_level` does not exist — the same mistake that sent `max_output_tokens`, `temperature`, and `top_p` loose. Nesting fixed those three and missed this one.
+Before any of that, Freyja refused the whole field. The refusal was written from the wire format's top level, where `thinking_level` does not exist — the same mistake that sent `max_output_tokens`, `temperature`, and `top_p` loose. Nesting fixed those three and missed this one.
 
 ## Tool choice nests too, and takes two shapes
 
@@ -79,27 +76,18 @@ This was the second refusal written from the top level of the request, where the
 
 It does not establish behavior. No completion came back for these four: the free tier's daily request budget was spent on the probing that found the field. So **`Named` forcing that specific tool is inferred from the shape's own semantics, not observed.** If it turns out `allowed_tools` merely permits rather than compels, this row is what needs revisiting.
 
-## One capability is rejected outright
+## Metadata is sent, and this endpoint declines it
 
-```rust
-// Fails before any network call.
-GenerateRequest::new().metadata(serde_json::json!({"trace": "abc"}));
-```
-
-```
-Gemini does not support request metadata
-```
-
-Freyja refuses rather than dropping the field, because a silently ignored field returns an answer that looks fine and is not what you asked for.
-
-This one is not a gap in the wire format: the API has a `labels` field for exactly this purpose, and then declines to accept it.
+`metadata` maps onto `labels`, and the public API answers:
 
 ```
 The parameter 'labels' is not available on the Gemini API
 but it is available on the Gemini Enterprise Agent Platform.
 ```
 
-Freyja sent `labels` anyway until that was tried, so any request carrying `metadata` failed at the vendor after a round trip. It is refused locally now, which costs nothing and is caught by `Client::check`. If Google's Enterprise platform ever needs supporting, it is a different endpoint from the one this dialect targets and can be revisited then.
+So a request carrying `metadata` costs a round trip to be told no. Freyja refused it locally for a while to save that round trip, and that refusal has been withdrawn on the same grounds as the effort levels above: **`labels` is a field this format has.** A deployment gating it is the deployment's business, and the message above says where it does work — which is more than a refusal from Freyja could.
+
+It also means `Client::custom(ProviderDialect::Gemini, …)` pointed at the Enterprise platform gets a working `metadata` rather than a refusal from a library that decided on its behalf.
 
 This is why `GenerateRequest::new()` sets no defaults. An earlier version defaulted `tool_choice` and `reasoning_effort`; both were refused at the time, so every default constructed request failed against Gemini. Both refusals turned out to be wrong, which is its own argument for setting only what you asked for.
 
@@ -151,7 +139,7 @@ A bare number is also rejected as a `result`, so Freyja sends a JSON object thro
 | `response_format` | `response_format`, carrying the schema itself |
 | `tools` | `tools`, each with `"type": "function"` |
 | `previous_response_id` | `previous_interaction_id` |
-| `metadata` | not sent; refused before the network |
+| `metadata` | `labels` |
 
 ### Inbound
 
@@ -222,7 +210,6 @@ A text turn has been run against the live endpoint, `?alt=sse` and all: deltas a
 
 | Condition | Error |
 |---|---|
-| `reasoning_effort` set to `None`, `Xhigh`, or `Max` | `UnsupportedCapability` |
 | Non text content in a system or developer turn | `UnsupportedCapability` |
 | An image on a `Role::Tool` turn | `InvalidRequest` |
 | Text content on a `Role::Tool` turn | `InvalidRequest` |

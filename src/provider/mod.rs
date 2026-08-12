@@ -977,22 +977,22 @@ mod tests {
             "schema-less JSON response format"
         );
 
-        // Gemini is the same shape: it takes reasoning effort, and refuses the
-        // three levels its `thinking_level` has no word for.
+        // And the counter-example, which is the more important half. Gemini
+        // rejects `thinking_level: max` and rejects `labels` outright, and
+        // `check` passes both: the fields exist, so what the endpoint does with
+        // them is the endpoint's answer to give. `check` reports what the
+        // format can carry, never what the deployment will accept.
         let gemini = offline(ProviderDialect::Gemini);
 
-        assert!(
-            gemini
-                .check(&ask().reasoning_effort(ReasoningEffort::High))
-                .is_ok(),
-        );
-        assert_eq!(
-            refusal(
-                ProviderDialect::Gemini,
-                &ask().reasoning_effort(ReasoningEffort::Max)
-            ),
-            "reasoning effort 'max'"
-        );
+        for request in [
+            ask().reasoning_effort(ReasoningEffort::Max),
+            ask().metadata(serde_json::json!({"trace": "abc"})),
+        ] {
+            assert!(
+                gemini.check(&request).is_ok(),
+                "a value the endpoint refuses is not a capability Freyja lacks",
+            );
+        }
     }
 
     #[test]
