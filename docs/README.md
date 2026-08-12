@@ -50,6 +50,7 @@ For working on Freyja itself rather than with it.
 | | |
 |---|---|
 | [Architecture](internals/architecture.md) | How the crate is laid out and why |
+| [Capability model](internals/capability-model.md) | What Freyja may decide on a vendor's behalf, and why it is almost nothing |
 | [Adding a dialect](internals/adding-a-dialect.md) | Implementing a new wire format |
 
 ## Conventions

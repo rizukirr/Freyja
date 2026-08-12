@@ -63,6 +63,8 @@ When a provider cannot express a capability, it returns `ProviderError::Unsuppor
 
 Dropping is worse than failing. A request with `tool_choice: Required` that silently becomes `Auto` still returns a plausible answer, and nothing in the response says the constraint was ignored. A refusal is loud, and loud is debuggable.
 
+That cuts both ways, and the limit is strict: Freyja may refuse only when the wire format has **no field** for something. A value a model dislikes, or a field a deployment gates, is the vendor's answer to give. Seven of the first fifteen refusals broke that rule. [Capability model](capability-model.md) is the full reasoning, and `src/provider/refusal.rs` is the table that now enforces it.
+
 ### No invented defaults
 
 `GenerateRequest::new()` sets nothing. `None` means "the provider decides".
