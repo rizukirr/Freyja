@@ -5,9 +5,10 @@ use crate::provider::*;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-/// Sampling controls, which this API nests rather than taking at the top
-/// level. Sending them loose is rejected outright: the endpoint validates the
-/// parameter names it is given and answers `Unknown parameter 'temperature'`.
+/// Sampling and reasoning controls, which this API nests rather than taking at
+/// the top level. Sending them loose is rejected outright: the endpoint
+/// validates the parameter names it is given and answers `Unknown parameter
+/// 'temperature'`.
 #[derive(Serialize)]
 struct GenerationConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -16,6 +17,27 @@ struct GenerationConfig {
     temperature: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     top_p: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    thinking_level: Option<&'static str>,
+}
+
+/// Maps a portable effort level onto this API's `thinking_level`, or names the
+/// capability to refuse it under.
+///
+/// The endpoint takes `minimal`, `low`, `medium`, and `high`. It rejects
+/// anything else by name — `'none' is not supported ... Supported values:
+/// 'minimal', 'low', 'medium', 'high'` — so the three portable levels it has no
+/// word for are refused here rather than over the wire. Its `minimal` has no
+/// portable level to map from, and is unreachable.
+fn thinking_level(effort: ReasoningEffort) -> Result<&'static str, &'static str> {
+    match effort {
+        ReasoningEffort::Low => Ok("low"),
+        ReasoningEffort::Medium => Ok("medium"),
+        ReasoningEffort::High => Ok("high"),
+        ReasoningEffort::None => Err("reasoning effort 'none'"),
+        ReasoningEffort::Xhigh => Err("reasoning effort 'xhigh'"),
+        ReasoningEffort::Max => Err("reasoning effort 'max'"),
+    }
 }
 
 #[derive(Serialize)]
@@ -42,12 +64,16 @@ impl Request {
         value: &GenerateRequest,
         config: &ProviderConfig,
     ) -> Result<Self, ProviderError> {
-        if value.reasoning_effort.is_some() {
-            return Err(ProviderError::UnsupportedCapability {
-                provider: config.name.clone(),
-                capability: "portable reasoning effort levels",
-            });
-        }
+        let thinking_level = value
+            .reasoning_effort
+            .map(|effort| {
+                thinking_level(effort).map_err(|capability| ProviderError::UnsupportedCapability {
+                    provider: config.name.clone(),
+                    capability,
+                })
+            })
+            .transpose()?;
+
         if value.tool_choice.is_some() {
             return Err(ProviderError::UnsupportedCapability {
                 provider: config.name.clone(),
@@ -195,15 +221,17 @@ impl Request {
             model: config.model_for(value)?,
             input,
             system_instruction: (!system.is_empty()).then(|| system.join("\n\n")),
-            // Omitted entirely when the caller set none of the three, rather
+            // Omitted entirely when the caller set none of the four, rather
             // than sent as an empty object.
             generation_config: (value.max_tokens.is_some()
                 || value.temperature.is_some()
-                || value.top_p.is_some())
+                || value.top_p.is_some()
+                || thinking_level.is_some())
             .then_some(GenerationConfig {
                 max_output_tokens: value.max_tokens,
                 temperature: value.temperature,
                 top_p: value.top_p,
+                thinking_level,
             }),
             response_format,
             tools: value
@@ -549,6 +577,41 @@ mod tests {
     }
 
     #[test]
+    fn reasoning_effort_is_nested_as_thinking_level() {
+        for (effort, expected) in [
+            (ReasoningEffort::Low, "low"),
+            (ReasoningEffort::Medium, "medium"),
+            (ReasoningEffort::High, "high"),
+        ] {
+            let request = GenerateRequest::new()
+                .message(Message::text(Role::User, "Hi"))
+                .reasoning_effort(effort);
+
+            let json = serde_json::to_value(Request::build(&request, &config()).unwrap()).unwrap();
+
+            assert_eq!(json["generation_config"]["thinking_level"], expected);
+            // The same trap the sampling controls fell into: loose at the top
+            // level the endpoint answers `Unknown parameter`.
+            assert!(json.get("thinking_level").is_none());
+            assert!(json.get("reasoning_effort").is_none());
+        }
+    }
+
+    #[test]
+    fn reasoning_effort_alone_still_builds_a_generation_config() {
+        // It is the fourth field to nest there, and the gate that omits an
+        // empty object has to know about it.
+        let request = GenerateRequest::new()
+            .message(Message::text(Role::User, "Hi"))
+            .reasoning_effort(ReasoningEffort::Low);
+
+        let json = serde_json::to_value(Request::build(&request, &config()).unwrap()).unwrap();
+
+        assert_eq!(json["generation_config"]["thinking_level"], "low");
+        assert!(json["generation_config"].get("temperature").is_none());
+    }
+
+    #[test]
     fn no_sampling_controls_means_no_generation_config() {
         // An empty object would be sent otherwise, which says something the
         // caller did not.
@@ -829,9 +892,21 @@ mod tests {
     #[test]
     fn rejects_capabilities_that_cannot_be_translated() {
         let unsupported = [
+            // The three effort levels this API has no word for. Verified
+            // against the live endpoint, which answers `'none' is not
+            // supported ... Supported values: 'minimal', 'low', 'medium',
+            // 'high'`.
             (
-                GenerateRequest::new().reasoning_effort(ReasoningEffort::High),
-                "portable reasoning effort levels",
+                GenerateRequest::new().reasoning_effort(ReasoningEffort::None),
+                "reasoning effort 'none'",
+            ),
+            (
+                GenerateRequest::new().reasoning_effort(ReasoningEffort::Xhigh),
+                "reasoning effort 'xhigh'",
+            ),
+            (
+                GenerateRequest::new().reasoning_effort(ReasoningEffort::Max),
+                "reasoning effort 'max'",
             ),
             (
                 GenerateRequest::new().tool_choice(ToolChoice::Required),

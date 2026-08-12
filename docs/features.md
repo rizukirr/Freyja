@@ -77,7 +77,7 @@ Capability coverage is not uniform, and Freyja refuses rather than pretending.
 | Capability | OpenAI | Gemini | Anthropic | Chat Completions |
 |---|---|---|---|---|
 | `tool_choice` | Yes | **No** | Yes | Yes |
-| `reasoning_effort` | Yes | **No** | Yes | Yes |
+| `reasoning_effort` | Yes | Some levels | Yes | Yes |
 | `response_format` | Yes | Yes | Schema only | Yes |
 | `previous_response_id` | Yes | Yes | **No** | **No** |
 | `metadata` | Yes | **No** | Yes | Yes |
@@ -85,6 +85,8 @@ Capability coverage is not uniform, and Freyja refuses rather than pretending.
 A **No** means `UnsupportedCapability` before any network call, so you find out immediately rather than getting an answer that ignored you. Each provider page has the full table.
 
 A **Yes** means Freyja can express it, not that every model will accept every value. Only the dialect is known here; the endpoint and the model are not. `reasoning_effort` is the clearest case — OpenAI's Responses API takes `Max` and its Chat Completions API does not, on the same model, and both arrive as the vendor's own `BadRequest` rather than as a refusal from Freyja.
+
+**Some levels** is the middle case: the dialect carries the field but not every value of it. Gemini takes `Low`, `Medium`, and `High` as `generation_config.thinking_level`, and refuses `None`, `Xhigh`, and `Max` locally, because the endpoint rejects them by name. See [Gemini](providers/gemini.md#reasoning-effort-is-nested-and-partial).
 
 ## Verification status
 
@@ -101,13 +103,13 @@ Beyond text and tool calling, coverage is uneven and worth reading closely.
 
 | Capability | Live coverage |
 |---|---|
-| Reasoning effort | OpenAI, both dialects, every level |
+| Reasoning effort | OpenAI, both dialects, every level; Gemini, all six levels |
 | Chat Completions token cap | Both spellings |
 | Structured output | OpenAI and Gemini: nested struct, enum, `Option`, `Vec`, through `generate_as` |
 | Streaming, text | All four dialects — deltas, usage on `Done`, and `into_response` parity |
 | Streaming, tool calls | **None.** The assembler joining argument fragments is fixture-only |
 | Images | **None** |
-| Reasoning effort on Gemini or Anthropic | **None** |
+| Reasoning effort on Anthropic | **None** |
 | Structured output on Anthropic | **None** |
 
 Two entries deserve their asterisks. The Anthropic dialect's live runs go through a compatible endpoint rather than Anthropic's own service, which covers the wire format and not the vendor. And streamed *tool calls* are the part of streaming most likely to differ between vendors, since that is where fragments are joined — so the one path with no live coverage is also the one that would benefit most.

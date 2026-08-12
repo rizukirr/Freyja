@@ -59,7 +59,7 @@ let request = GenerateRequest::new()
 
 Every optional field left as `None` is omitted from the wire request entirely, so the vendor applies its own default.
 
-This was learned painfully. An earlier version defaulted `tool_choice` to `Auto` and `reasoning_effort` to `Medium`, both fields Gemini rejects outright, so every default-constructed request failed against Gemini before it reached the network. A value that looks harmless on one provider is a 400 on another.
+This was learned painfully. An earlier version defaulted `tool_choice` to `Auto`, a field Gemini cannot express, so every default-constructed request failed against Gemini before it reached the network. A value that looks harmless on one provider is a 400 on another.
 
 **The consequence for you:** set only what you actually care about. Every field you set is one more thing that can be refused somewhere.
 

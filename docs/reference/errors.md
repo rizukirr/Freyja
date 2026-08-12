@@ -66,15 +66,15 @@ None of these retries anything. See [Retries](#retries).
 The request asked for something this provider cannot express. Freyja refuses rather than silently dropping the field, because a quietly ignored `tool_choice` produces a plausible looking answer that is wrong in a way you cannot see.
 
 ```
-Gemini does not support portable reasoning effort levels
+Gemini does not support portable tool choice
 ```
 
 Raised before any network call. Current cases:
 
 | Provider | Capability |
 |---|---|
-| Gemini | `portable reasoning effort levels` |
 | Gemini | `portable tool choice` |
+| Gemini | `reasoning effort 'none'`, `'xhigh'`, `'max'` |
 | Gemini | `request metadata` |
 | Anthropic | `server-side conversation continuation` |
 | Anthropic | `schema-less JSON response format` |

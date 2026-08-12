@@ -26,7 +26,7 @@ This backend is less complete than OpenAI. Read the gaps below before relying on
 | System and developer turns | yes | Hoisted into `system_instruction` |
 | `max_tokens` | yes | Sent as `generation_config.max_output_tokens` |
 | `temperature`, `top_p` | yes | Nested inside `generation_config` |
-| `reasoning_effort` | **no** | Rejected with `UnsupportedCapability` |
+| `reasoning_effort` | partly | `Low`, `Medium`, `High` only, as `generation_config.thinking_level`, see below |
 | `response_format` | yes | The schema *is* `response_format`, see below |
 | Tool declarations | yes | |
 | `tool_choice` | **no** | Rejected with `UnsupportedCapability` |
@@ -37,24 +37,45 @@ This backend is less complete than OpenAI. Read the gaps below before relying on
 | Refusals | no | Not carried as a distinct block |
 | Streaming | yes | `stream: true` **and** `?alt=sse` on the URL, which is what selects SSE. Verified live for text |
 
-## Three capabilities are rejected outright
+## Reasoning effort is nested, and partial
+
+This API takes reasoning effort as `generation_config.thinking_level`, alongside the sampling controls, and accepts four values. Three of the six portable levels map straight across; the other three have no word here and are refused locally, because the endpoint rejects them by name.
+
+| `ReasoningEffort` | `thinking_level` |
+|---|---|
+| `Low` | `"low"` |
+| `Medium` | `"medium"` |
+| `High` | `"high"` |
+| `None` | refused |
+| `Xhigh` | refused |
+| `Max` | refused |
+
+```
+Gemini does not support reasoning effort 'max'
+```
+
+Verified against the live endpoint in both directions: the three that map returned answers, and the three that do not are rejected by the API with `'none' is not supported ... Supported values: 'minimal', 'low', 'medium', 'high'`.
+
+Gemini's own `minimal` has no portable level to map from and is unreachable. It is the only level any of the three vendors accepts, so there is nothing portable to name it with.
+
+Freyja refused this field outright until the endpoint was actually asked. The refusal was written from the wire format's top level, where `thinking_level` does not exist — the same mistake that sent `max_output_tokens`, `temperature`, and `top_p` loose. Nesting fixed those three and missed this one.
+
+## Two capabilities are rejected outright
 
 ```rust
-// All three fail before any network call.
-GenerateRequest::new().reasoning_effort(ReasoningEffort::High);
+// Both fail before any network call.
 GenerateRequest::new().tool_choice(ToolChoice::Required);
 GenerateRequest::new().metadata(serde_json::json!({"trace": "abc"}));
 ```
 
 ```
-Gemini does not support portable reasoning effort levels
 Gemini does not support portable tool choice
 Gemini does not support request metadata
 ```
 
 Freyja refuses rather than dropping the field, because a silently ignored `tool_choice: Required` returns an answer that looks fine and is not what you asked for.
 
-The first two are limits of the wire format. The third is not: this API has a `labels` field for exactly this purpose, and then declines to accept it.
+The first is a limit of the wire format. The second is not: this API has a `labels` field for exactly this purpose, and then declines to accept it.
 
 ```
 The parameter 'labels' is not available on the Gemini API
@@ -63,7 +84,7 @@ but it is available on the Gemini Enterprise Agent Platform.
 
 Freyja sent `labels` anyway until that was tried, so any request carrying `metadata` failed at the vendor after a round trip. It is refused locally now, which costs nothing and is caught by `Client::check`. If Google's Enterprise platform ever needs supporting, it is a different endpoint from the one this dialect targets and can be revisited then.
 
-This is why `GenerateRequest::new()` sets no defaults. An earlier version defaulted the first two fields, so every default constructed request failed against Gemini. If you need reasoning effort or tool choice, use OpenAI or Anthropic.
+This is why `GenerateRequest::new()` sets no defaults. An earlier version defaulted `tool_choice` and `reasoning_effort`, so every default constructed request failed against Gemini. If you need tool choice, use OpenAI or Anthropic.
 
 ## Input uses a step list, not turns
 
@@ -184,7 +205,7 @@ A text turn has been run against the live endpoint, `?alt=sse` and all: deltas a
 
 | Condition | Error |
 |---|---|
-| `reasoning_effort` set | `UnsupportedCapability` |
+| `reasoning_effort` set to `None`, `Xhigh`, or `Max` | `UnsupportedCapability` |
 | `tool_choice` set | `UnsupportedCapability` |
 | Non text content in a system or developer turn | `UnsupportedCapability` |
 | An image on a non user turn | `UnsupportedCapability` |

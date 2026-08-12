@@ -94,9 +94,18 @@ pub enum ReasoningEffort {
 }
 ```
 
-Serialized lowercase. Not every provider accepts every level: Gemini rejects this field entirely today, and Anthropic maps `None` onto disabled thinking rather than an effort level. See [Gemini](../providers/gemini.md) and [Anthropic](../providers/anthropic.md).
+Serialized lowercase. Not every provider accepts every level:
 
-There was a `Minimal` here until it was removed. No endpoint Freyja can reach accepted it: OpenAI answers `Unsupported value: 'minimal'` on both of its dialects, Anthropic has no equivalent tier, and Gemini refuses the field outright. A variant nothing accepts is a portable name for nothing.
+| Level | OpenAI Responses | OpenAI Chat | Gemini | Anthropic |
+|---|---|---|---|---|
+| `None` | yes | yes | refused | disables thinking |
+| `Low`, `Medium`, `High` | yes | yes | yes | yes |
+| `Xhigh` | yes | yes | refused | yes |
+| `Max` | yes | vendor 400 | refused | yes |
+
+Gemini carries it as `generation_config.thinking_level`, Anthropic as `output_config.effort`. Only three of the four columns agree on all six values, which is why `new()` leaves the field unset. See [Gemini](../providers/gemini.md#reasoning-effort-is-nested-and-partial) and [Anthropic](../providers/anthropic.md).
+
+There was a `Minimal` here until it was removed, on the grounds that nothing accepted it. That was wrong: Gemini's `thinking_level` takes `minimal`, and the probe missed it because the dialect refused the whole field before sending anything. The variant stays removed for now — restoring it means refusing it on the other three dialects, which is a separate change — so Gemini's `minimal` is currently unreachable.
 
 The levels are not uniform even within one vendor. OpenAI's Responses API accepts `Max` and its Chat Completions API does not, on the same model — which is why Freyja passes the value through and lets the endpoint answer rather than keeping a table of who takes what.
 

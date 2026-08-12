@@ -47,14 +47,15 @@ async fn main() {
     //
     //   OpenAI     takes both
     //   Anthropic  has effort levels, but no schema-less JSON mode
-    //   Gemini     has JSON modes, but no portable effort scale
+    //   Gemini     has JSON modes, and effort levels -- but only three of the
+    //              six, so `Max` here is refused where `High` would not be
     //
     // Freyja refuses rather than dropping the field, so you learn this from an
     // error before the network call instead of from an answer that quietly
     // ignored you. `tool_choice` behaves the same way on Gemini.
     let demanding = portable
         .clone()
-        .reasoning_effort(ReasoningEffort::High)
+        .reasoning_effort(ReasoningEffort::Max)
         .response_format(ResponseFormat::JsonObject);
 
     println!("\n== the same request, plus a capability not everyone has ==");

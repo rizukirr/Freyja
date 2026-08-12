@@ -933,13 +933,6 @@ mod tests {
         assert_eq!(
             refusal(
                 ProviderDialect::Gemini,
-                &ask().reasoning_effort(ReasoningEffort::High)
-            ),
-            "portable reasoning effort levels"
-        );
-        assert_eq!(
-            refusal(
-                ProviderDialect::Gemini,
                 &ask().tool_choice(ToolChoice::Required)
             ),
             "portable tool choice"
@@ -983,6 +976,23 @@ mod tests {
                 &ask().response_format(ResponseFormat::JsonObject)
             ),
             "schema-less JSON response format"
+        );
+
+        // Gemini is the same shape: it takes reasoning effort, and refuses the
+        // three levels its `thinking_level` has no word for.
+        let gemini = offline(ProviderDialect::Gemini);
+
+        assert!(
+            gemini
+                .check(&ask().reasoning_effort(ReasoningEffort::High))
+                .is_ok(),
+        );
+        assert_eq!(
+            refusal(
+                ProviderDialect::Gemini,
+                &ask().reasoning_effort(ReasoningEffort::Max)
+            ),
+            "reasoning effort 'max'"
         );
     }
 
