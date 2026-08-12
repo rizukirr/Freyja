@@ -33,8 +33,7 @@ That query parameter is what actually selects SSE framing on this API; `"stream"
   "generation_config": { "max_output_tokens": 512, "temperature": 0.2, "top_p": 0.9 },
   "response_format": { "type": "object", "properties": {}, "required": [] },
   "tools": [ { "type": "function", "name": "add", "description": "...", "parameters": {} } ],
-  "previous_interaction_id": "v1_...",
-  "labels": {}
+  "previous_interaction_id": "v1_..."
 }
 ```
 
@@ -58,7 +57,7 @@ Supported values: 'boolean', 'video', 'audio', 'integer', 'number', 'image',
 
 So a JSON-schema request puts the schema straight into the field, and `name` and `strict` have nowhere to go — dropped, as they are on Anthropic. `ResponseFormat::JsonObject` becomes `{"type": "object"}`.
 
-**`labels` is rejected outright** on this endpoint: *"The parameter 'labels' is not available on the Gemini API but it is available on the Gemini Enterprise Agent Platform."* Freyja still maps `metadata` onto it, so a request carrying metadata fails here. Leave `metadata` unset against the Gemini API.
+**`labels` is missing from the body above on purpose.** Freyja maps `metadata` onto it, but this endpoint rejects the parameter: *"The parameter 'labels' is not available on the Gemini API but it is available on the Gemini Enterprise Agent Platform."* Since every body on this page is a request that works, one carrying `labels` does not belong here. Leave `metadata` unset against the Gemini API.
 
 ## Input takes two shapes
 

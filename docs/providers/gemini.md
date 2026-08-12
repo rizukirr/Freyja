@@ -32,10 +32,21 @@ This backend is less complete than OpenAI. Read the gaps below before relying on
 | `tool_choice` | **no** | Rejected with `UnsupportedCapability` |
 | Tool round trip | yes | Verified live, requires thought-signature replay |
 | `previous_response_id` | yes | Sent as `previous_interaction_id` |
-| `metadata` | **no** | Mapped onto `labels`, which this endpoint rejects |
+| `metadata` | **broken** | Sent as `labels`, which this endpoint rejects. Not a local refusal, see below |
 | Usage reporting | yes | Field names normalized |
 | Refusals | no | Not carried as a distinct block |
 | Streaming | yes | `stream: true` **and** `?alt=sse` on the URL, which is what selects SSE. **Never run live**, see below |
+
+## `metadata` reaches the vendor and fails there
+
+Unlike the two below, this one is not refused locally. Freyja maps `metadata` onto the API's `labels`, and the endpoint answers:
+
+```
+The parameter 'labels' is not available on the Gemini API
+but it is available on the Gemini Enterprise Agent Platform.
+```
+
+So a request carrying `metadata` costs a round trip and comes back as `BadRequest`, rather than being caught by `Client::check`. That is the honest position for now: the parameter *is* valid on a Gemini Enterprise endpoint, which the same dialect can reach, so refusing it in the dialect would break a configuration that works. Leave `metadata` unset against `generativelanguage.googleapis.com`.
 
 ## Two capabilities are rejected outright
 
