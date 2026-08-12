@@ -78,10 +78,10 @@ Raised before any network call. Current cases:
 | Anthropic | `server-side conversation continuation` |
 | Anthropic | `schema-less JSON response format` |
 | OpenAI Chat Completions | `server-side conversation continuation` |
-| all | `images outside user messages` |
+| OpenAI Responses, Anthropic | `images outside user messages` |
 | all except OpenAI Chat Completions | `non-text content in system/developer messages` |
 
-The last row is uneven because OpenAI Chat Completions keeps system turns as ordinary messages rather than hoisting them into a text-only field, so it has nothing to refuse.
+Both rows are uneven, and neither unevenness was designed. OpenAI Chat Completions keeps system turns as ordinary messages rather than hoisting them into a text-only field, so it has nothing to refuse. The image row was once every dialect, until probing found Chat Completions takes an image on any role and Gemini takes one on a `model_output` step. The Anthropic entry is the last that has never been tested.
 
 Recovery means removing the field or switching providers. Retrying is pointless.
 

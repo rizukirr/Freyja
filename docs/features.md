@@ -108,7 +108,7 @@ Beyond text and tool calling, coverage is uneven and worth reading closely.
 | Structured output | OpenAI and Gemini: nested struct, enum, `Option`, `Vec`, through `generate_as` |
 | Streaming, text | All four dialects — deltas, usage on `Done`, and `into_response` parity |
 | Streaming, tool calls | **None.** The assembler joining argument fragments is fixture-only |
-| Images | **None** |
+| Images | An `image_url` part accepted live on OpenAI Chat Completions, on every role. Not exercised on the other three |
 | Reasoning effort on Anthropic | **None** |
 | Structured output on Anthropic | **None** |
 

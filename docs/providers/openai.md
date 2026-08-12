@@ -115,7 +115,7 @@ Images use `input_image` with an `image_url` field, and are only accepted on use
 | Condition | Error |
 |---|---|
 | Non text content in a system or developer turn | `UnsupportedCapability` |
-| An image on a non user turn | `UnsupportedCapability` |
+| An image on a non user turn | `UnsupportedCapability`, verified: an assistant turn takes `output_text` and `refusal` only |
 | Text content on a `Role::Tool` turn | `InvalidRequest` |
 
 ## Structured output
