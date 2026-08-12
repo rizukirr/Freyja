@@ -88,7 +88,21 @@ let client = Client::without_key(config);
 | `api_key_env` | no | Only needed for `Client::from_env` |
 | `default_model` | no | Used when a request does not name a model |
 | `extra_headers` | no | Attribution or routing hints some gateways want |
+| `extra_body` | no | Body fields this endpoint wants on every request, see below |
 | `token_limit_field` | defaulted | `OpenAiChat` only: which field carries the output cap |
+
+## Extra body fields
+
+Some endpoints want a field on every request that the neutral model has no name for — a safety configuration, a routing hint, a tier. `body` is the companion to `header`, one layer down:
+
+```rust
+let config = ProviderConfig::new(ProviderDialect::Gemini, "Gemini", base_url)
+    .body(json!({"safety_settings": [{"category": "HARM_CATEGORY_HARASSMENT"}]}));
+```
+
+It is deep-merged into the wire body, so it adds to what the dialect built rather than replacing it. A request's own [`extra_for`](../reference/requests.md#extra_for) overrides it, which is the right way round: the endpoint sets a standing default, the call overrides it.
+
+Use `body` for a property of the deployment and `extra_for` for anything that varies per call.
 
 ## Auth
 

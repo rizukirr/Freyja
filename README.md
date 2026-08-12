@@ -102,6 +102,7 @@ Phases 0 and 1 are complete: the neutral core is stable, four wire dialects are 
 | Errors | Classified by cause, with `is_retryable()` and `Retry-After` |
 | Pre-flight checks | `client.check(&request)`, no network call |
 | Structured output | `strict_schema()` plus `generate_as::<T>()` |
+| Vendor-only fields | `extra_for()`, without forking |
 | Not implemented | Automatic tool dispatch, orchestration |
 
 `cargo test`: 128 unit tests, 8 integration tests, and 15 doctests. `cargo clippy --all-targets -- -D warnings` clean. [Features](docs/features.md) has the honest boundary, including which capabilities each provider refuses.

@@ -159,7 +159,33 @@ Anthropic and OpenAI Chat Completions both reject this field with `UnsupportedCa
 
 Arbitrary JSON forwarded to the provider, for labels and trace identifiers. Sent as `metadata` to OpenAI and Anthropic. Freyja does not read it.
 
-Gemini refuses it with `UnsupportedCapability`, before the network. Its Interactions API has a `labels` field for exactly this and then declines to accept it, so the alternative was a round trip to be told no. See [Gemini](../providers/gemini.md#three-capabilities-are-rejected-outright).
+Gemini sends it as `labels`, and the public Interactions API declines the field — see [Gemini](../providers/gemini.md#metadata-is-sent-and-this-endpoint-declines-it). The rejection is the endpoint's, not Freyja's.
+
+### `extra_for`
+
+The escape hatch, for capabilities the neutral model does not name.
+
+```rust
+use freyja::{GenerateRequest, ProviderDialect};
+use serde_json::json;
+
+let request = GenerateRequest::new()
+    .extra_for(ProviderDialect::Gemini, json!({"generation_config": {"seed": 42}}));
+```
+
+A field earns a place in `GenerateRequest` by meaning the same thing on more than one dialect. Gemini's `seed` and `safety_settings`, Anthropic's memory tool, and OpenAI's `context_management` do not, so they are not modelled — and this is how to reach them without forking.
+
+**The merge is deep.** Nested objects merge key by key, so the example above adds `seed` to the `generation_config` Freyja already built rather than replacing it. Anything that is not an object replaces what was there, including arrays: an override of `tools` is a replacement, never an append.
+
+**It is scoped to a dialect, and that is what keeps the request portable.** The same `GenerateRequest` still runs against OpenAI, which never sees the field. An application that switches vendors at runtime does not have to strip its extras first.
+
+**Nothing here is checked.** `Client::check` reports what the wire format can carry; this is by definition outside what Freyja knows about the format, so a wrong key comes back from the endpoint:
+
+```
+Gemini rejected the request: {"error":{"message":"Unknown parameter 'not_a_real_parameter'."}}
+```
+
+Calls accumulate, and a later one wins a collision. For fields an endpoint always wants rather than one call, use [`ProviderConfig::body`](../providers/custom.md#extra-body-fields) instead; a request's own extras override it.
 
 ## `strict_schema`
 

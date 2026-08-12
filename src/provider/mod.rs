@@ -25,6 +25,7 @@ pub use presets::ProviderType;
 pub use stream::{EventStream, StreamEvent};
 
 use serde::Serialize;
+use serde_json::Value;
 use std::fmt;
 use std::sync::Arc;
 use std::time::Duration;
@@ -170,6 +171,16 @@ pub struct ProviderConfig {
     pub default_model: Option<String>,
     /// Extra headers, for gateways that want attribution or routing hints.
     pub extra_headers: Vec<(String, String)>,
+    /// Extra body fields, for what this endpoint wants on every request.
+    ///
+    /// The companion to `extra_headers`, one layer down. Deep-merged into the
+    /// wire body the way [`GenerateRequest::extra_for`] is, and applied first,
+    /// so a request can still override what the endpoint sets here.
+    ///
+    /// Use this for a property of the deployment — a safety configuration, a
+    /// routing hint, a tier — and `extra_for` for anything that varies per
+    /// call.
+    pub extra_body: serde_json::Map<String, Value>,
     /// Which field carries [`GenerateRequest::max_tokens`] on this endpoint.
     ///
     /// Read only by the [`ProviderDialect::OpenAiChat`] dialect, and defaulted
@@ -194,6 +205,7 @@ impl ProviderConfig {
             api_key_env: None,
             default_model: None,
             extra_headers: Vec::new(),
+            extra_body: serde_json::Map::new(),
             token_limit_field: TokenLimitField::MaxTokens,
         }
     }
@@ -219,6 +231,35 @@ impl ProviderConfig {
     /// Adds an extra header sent with every request.
     pub fn header(mut self, name: impl Into<String>, value: impl Into<String>) -> Self {
         self.extra_headers.push((name.into(), value.into()));
+        self
+    }
+
+    /// Adds body fields sent with every request to this endpoint.
+    ///
+    /// For a property of the deployment rather than of the call — a safety
+    /// configuration, a routing hint, a tier. Deep-merged into the wire body,
+    /// and a request's own [`GenerateRequest::extra_for`] overrides it.
+    ///
+    /// ```
+    /// use freyja::{ProviderConfig, ProviderDialect};
+    /// use serde_json::json;
+    ///
+    /// let config = ProviderConfig::new(
+    ///     ProviderDialect::Gemini,
+    ///     "Gemini",
+    ///     "https://generativelanguage.googleapis.com/v1beta",
+    /// )
+    /// .body(json!({"safety_settings": [{"category": "HARM_CATEGORY_HARASSMENT"}]}));
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// If `fields` is not a JSON object.
+    pub fn body(mut self, fields: Value) -> Self {
+        let Value::Object(fields) = fields else {
+            panic!("body expects a JSON object, got {fields}");
+        };
+        model::merge_into(&mut self.extra_body, &fields);
         self
     }
 
@@ -643,7 +684,7 @@ impl Client {
                         .build(request, &self.config)?
                         .streaming();
                     (
-                        to_value(&body, &self.config)?,
+                        to_value(&body, request, &self.config)?,
                         Box::new(openai_responses::Decoder),
                     )
                 }
@@ -652,7 +693,7 @@ impl Client {
                         .build(request, &self.config)?
                         .streaming();
                     (
-                        to_value(&body, &self.config)?,
+                        to_value(&body, request, &self.config)?,
                         Box::new(openai_chat::Decoder),
                     )
                 }
@@ -661,7 +702,7 @@ impl Client {
                         .build(request, &self.config)?
                         .streaming();
                     (
-                        to_value(&body, &self.config)?,
+                        to_value(&body, request, &self.config)?,
                         Box::new(gemini::Decoder::default()),
                     )
                 }
@@ -670,7 +711,7 @@ impl Client {
                         .build(request, &self.config)?
                         .streaming();
                     (
-                        to_value(&body, &self.config)?,
+                        to_value(&body, request, &self.config)?,
                         Box::new(anthropic::Decoder::default()),
                     )
                 }
@@ -710,7 +751,8 @@ impl Client {
         request: &GenerateRequest,
     ) -> Result<GenerateResponse, ProviderError> {
         let wire = provider.build(request, &self.config)?;
-        let response = self.post(self.config.url(), &wire).await?;
+        let body = to_value(&wire, request, &self.config)?;
+        let response = self.post(self.config.url(), &body).await?;
 
         let status = response.status();
         let retry_after = parse_retry_after(response.headers());
@@ -784,16 +826,46 @@ fn default_http() -> reqwest::Client {
         .unwrap_or_default()
 }
 
-/// Erases a dialect's request type so `stream` can pick a decoder and a body in
-/// one `match` without four near-identical arms after it.
+/// Serializes a dialect's request and merges the escape hatches into it.
+///
+/// Erasing the request type is also what lets `stream` pick a decoder and a
+/// body in one `match` without four near-identical arms after it.
+///
+/// Precedence runs from general to specific: what the dialect built, then
+/// [`ProviderConfig::extra_body`], then [`GenerateRequest::extra_for`] entries
+/// for this dialect in the order they were added. Freyja's own fields are the
+/// weakest, because a caller reaching for an escape hatch has said what they
+/// want more plainly than the neutral model could.
 fn to_value<T: Serialize>(
     wire: &T,
+    request: &GenerateRequest,
     config: &ProviderConfig,
-) -> Result<serde_json::Value, ProviderError> {
-    serde_json::to_value(wire).map_err(|error| ProviderError::InvalidRequest {
+) -> Result<Value, ProviderError> {
+    let invalid = |error: serde_json::Error| ProviderError::InvalidRequest {
         provider: config.name.clone(),
         message: error.to_string(),
-    })
+    };
+
+    let mut body = match serde_json::to_value(wire).map_err(invalid)? {
+        Value::Object(body) => body,
+        // Unreachable: every dialect's request type is a struct. Reported
+        // rather than unwrapped so a future one that is not says so.
+        other => {
+            return Err(ProviderError::InvalidRequest {
+                provider: config.name.clone(),
+                message: format!("request body must be a JSON object, built {other}"),
+            });
+        }
+    };
+
+    model::merge_into(&mut body, &config.extra_body);
+    for (dialect, fields) in &request.extra {
+        if *dialect == config.dialect {
+            model::merge_into(&mut body, fields);
+        }
+    }
+
+    Ok(Value::Object(body))
 }
 
 #[cfg(test)]
@@ -914,6 +986,103 @@ mod tests {
         GenerateRequest::new()
             .model("m")
             .message(Message::text(Role::User, "Hi"))
+    }
+
+    /// The body a dialect would post, escape hatches merged in.
+    fn body_for(config: &ProviderConfig, request: &GenerateRequest) -> Value {
+        let wire = gemini::GeminiProvider.build(request, config).unwrap();
+        to_value(&wire, request, config).unwrap()
+    }
+
+    fn gemini_config() -> ProviderConfig {
+        ProviderConfig::new(ProviderDialect::Gemini, "Gemini", "https://x.test/v1")
+    }
+
+    #[test]
+    fn extra_fields_merge_into_a_nested_object_without_clearing_it() {
+        // The whole reason the merge is deep. `generation_config` already has
+        // Freyja's cap in it, and adding a seed must not take the cap with it.
+        let request = ask().max_tokens(64).extra_for(
+            ProviderDialect::Gemini,
+            serde_json::json!({"generation_config": {"seed": 42}}),
+        );
+
+        let config = &body_for(&gemini_config(), &request)["generation_config"];
+
+        assert_eq!(config["max_output_tokens"], 64);
+        assert_eq!(config["seed"], 42);
+    }
+
+    #[test]
+    fn extra_fields_are_ignored_by_every_other_dialect() {
+        // What keeps a request portable. The same one still runs against
+        // OpenAI, which never sees a field meant for Gemini.
+        let request = ask().extra_for(
+            ProviderDialect::Gemini,
+            serde_json::json!({"generation_config": {"seed": 42}}),
+        );
+
+        let openai =
+            ProviderConfig::new(ProviderDialect::OpenAiChat, "OpenAI", "https://x.test/v1");
+        let wire = openai_chat::OpenAiChatProvider
+            .build(&request, &openai)
+            .unwrap();
+        let body = to_value(&wire, &request, &openai).unwrap();
+
+        assert!(body.get("generation_config").is_none());
+        assert!(
+            openai_chat::OpenAiChatProvider
+                .build(&request, &openai)
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn a_request_hatch_beats_an_endpoint_one_and_both_beat_the_dialect() {
+        // General to specific: what the dialect built, then the endpoint's
+        // standing fields, then this call's.
+        let config = gemini_config().body(serde_json::json!({
+            "generation_config": {"seed": 1, "candidate_count": 2},
+            "model": "from-the-endpoint",
+        }));
+        let request = ask().extra_for(
+            ProviderDialect::Gemini,
+            serde_json::json!({"generation_config": {"seed": 99}}),
+        );
+
+        let body = body_for(&config, &request);
+
+        assert_eq!(body["generation_config"]["seed"], 99, "the call wins");
+        assert_eq!(
+            body["generation_config"]["candidate_count"], 2,
+            "and does not clear what it did not mention"
+        );
+        assert_eq!(
+            body["model"], "from-the-endpoint",
+            "a hatch outranks the dialect"
+        );
+    }
+
+    #[test]
+    fn later_extra_calls_win_over_earlier_ones() {
+        let request = ask()
+            .extra_for(ProviderDialect::Gemini, serde_json::json!({"seed": 1}))
+            .extra_for(ProviderDialect::Gemini, serde_json::json!({"seed": 2}));
+
+        assert_eq!(body_for(&gemini_config(), &request)["seed"], 2);
+    }
+
+    #[test]
+    fn check_says_nothing_about_extra_fields() {
+        // It reports what the format can carry, and this is by definition
+        // outside what Freyja knows about the format. A wrong key is the
+        // endpoint's to reject.
+        let request = ask().extra_for(
+            ProviderDialect::Gemini,
+            serde_json::json!({"not_a_real_parameter": true}),
+        );
+
+        assert!(offline(ProviderDialect::Gemini).check(&request).is_ok());
     }
 
     /// The capability a check refused, or a panic naming what happened instead.

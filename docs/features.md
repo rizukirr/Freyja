@@ -13,11 +13,12 @@ What Freyja does today, and what it does not. The second list matters as much as
 | System instructions | Yes, placed correctly per provider automatically |
 | Model selection | Yes, or leave it unset and take the endpoint's default |
 | Sampling controls | `max_tokens`, `temperature`, `top_p` |
-| Reasoning effort | Where the provider supports it, refused where it does not |
+| Reasoning effort | Yes, on every dialect; a level a vendor lacks is that vendor's rejection |
 | Asking before sending | `Client::check`, no network call and no key used |
 | Structured output | JSON schema, and free JSON where the provider offers it |
 | Typed responses | `generate_as::<T>()` deserializes for you |
 | Strict-mode schemas | `strict_schema()` rewrites a schema into the subset OpenAI accepts |
+| Vendor-only fields | `extra_for()`, scoped to a dialect so the request stays portable |
 | Token accounting | Yes, normalized across providers |
 | Streaming | Yes, on every dialect, see [Streaming](reference/streaming.md) |
 
