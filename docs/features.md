@@ -77,16 +77,16 @@ Capability coverage is not uniform, and Freyja refuses rather than pretending.
 | Capability | OpenAI | Gemini | Anthropic | Chat Completions |
 |---|---|---|---|---|
 | `tool_choice` | Yes | Yes | Yes | Yes |
-| `reasoning_effort` | Yes | Some levels | Yes | Yes |
+| `reasoning_effort` | Yes | Yes | Yes | Yes |
 | `response_format` | Yes | Yes | Schema only | Yes |
 | `previous_response_id` | Yes | Yes | **No** | **No** |
-| `metadata` | Yes | **No** | Yes | Yes |
+| `metadata` | Yes | Yes | Yes | Yes |
 
 A **No** means `UnsupportedCapability` before any network call, so you find out immediately rather than getting an answer that ignored you. Each provider page has the full table.
 
 A **Yes** means Freyja can express it, not that every model will accept every value. Only the dialect is known here; the endpoint and the model are not. `reasoning_effort` is the clearest case — OpenAI's Responses API takes `Max` and its Chat Completions API does not, on the same model, and both arrive as the vendor's own `BadRequest` rather than as a refusal from Freyja.
 
-**Some levels** is the middle case: the dialect carries the field but not every value of it. Gemini takes `Low`, `Medium`, and `High` as `generation_config.thinking_level`, and refuses `None`, `Xhigh`, and `Max` locally, because the endpoint rejects them by name. See [Gemini](providers/gemini.md#reasoning-effort-is-nested-and-partial).
+The table has no middle column for "carries it but the endpoint says no", deliberately. Gemini rejects three `thinking_level` values and rejects `labels` outright; both fields exist, so both requests are sent and the endpoint answers. Freyja refuses a field only when the format has nowhere to put it — anything narrower is a claim about a deployment on a given day. See [Gemini](providers/gemini.md#reasoning-effort-is-nested-and-half-of-it-is-rejected).
 
 ## Verification status
 

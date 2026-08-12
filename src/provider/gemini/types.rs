@@ -17,8 +17,13 @@ struct GenerationConfig {
     temperature: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     top_p: Option<f32>,
+    /// Reasoning effort. Serializes lowercase, so all six portable levels have
+    /// a spelling; the endpoint accepts `minimal`, `low`, `medium`, and `high`
+    /// and answers `'none' is not supported ... Supported values: 'minimal',
+    /// 'low', 'medium', 'high'` for the rest. Freyja used to refuse those three
+    /// itself, which was a claim about a value rather than about the format.
     #[serde(skip_serializing_if = "Option::is_none")]
-    thinking_level: Option<&'static str>,
+    thinking_level: Option<ReasoningEffort>,
     #[serde(skip_serializing_if = "Option::is_none")]
     tool_choice: Option<Value>,
 }
@@ -47,25 +52,6 @@ fn tool_choice(choice: &ToolChoice) -> Value {
     }
 }
 
-/// Maps a portable effort level onto this API's `thinking_level`, or names the
-/// capability to refuse it under.
-///
-/// The endpoint takes `minimal`, `low`, `medium`, and `high`. It rejects
-/// anything else by name — `'none' is not supported ... Supported values:
-/// 'minimal', 'low', 'medium', 'high'` — so the three portable levels it has no
-/// word for are refused here rather than over the wire. Its `minimal` has no
-/// portable level to map from, and is unreachable.
-fn thinking_level(effort: ReasoningEffort) -> Result<&'static str, &'static str> {
-    match effort {
-        ReasoningEffort::Low => Ok("low"),
-        ReasoningEffort::Medium => Ok("medium"),
-        ReasoningEffort::High => Ok("high"),
-        ReasoningEffort::None => Err(refusal::EFFORT_NONE),
-        ReasoningEffort::Xhigh => Err(refusal::EFFORT_XHIGH),
-        ReasoningEffort::Max => Err(refusal::EFFORT_MAX),
-    }
-}
-
 #[derive(Serialize)]
 pub struct Request {
     model: String,
@@ -78,6 +64,12 @@ pub struct Request {
     response_format: Option<Value>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     tools: Vec<Value>,
+    /// Request metadata. This endpoint answers "The parameter 'labels' is not
+    /// available on the Gemini API but it is available on the Gemini Enterprise
+    /// Agent Platform" — a deployment gating a field it has, not a format
+    /// missing one, so it is sent and the endpoint answers.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    labels: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     previous_interaction_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -90,23 +82,7 @@ impl Request {
         value: &GenerateRequest,
         config: &ProviderConfig,
     ) -> Result<Self, ProviderError> {
-        let thinking_level = value
-            .reasoning_effort
-            .map(|effort| {
-                thinking_level(effort)
-                    .map_err(|capability| refusal::unsupported(config, capability))
-            })
-            .transpose()?;
-
         let tool_choice = value.tool_choice.as_ref().map(tool_choice);
-
-        // This API carries request metadata on `labels`, and then refuses it:
-        // "The parameter 'labels' is not available on the Gemini API but it is
-        // available on the Gemini Enterprise Agent Platform." Sending it costs
-        // a round trip to be told no, so it is refused here instead.
-        if value.metadata.is_some() {
-            return Err(refusal::unsupported(config, refusal::REQUEST_METADATA));
-        }
 
         let mut system = Vec::new();
         let mut steps: Vec<Value> = Vec::new();
@@ -245,13 +221,13 @@ impl Request {
             generation_config: (value.max_tokens.is_some()
                 || value.temperature.is_some()
                 || value.top_p.is_some()
-                || thinking_level.is_some()
+                || value.reasoning_effort.is_some()
                 || tool_choice.is_some())
             .then_some(GenerationConfig {
                 max_output_tokens: value.max_tokens,
                 temperature: value.temperature,
                 top_p: value.top_p,
-                thinking_level,
+                thinking_level: value.reasoning_effort,
                 tool_choice,
             }),
             response_format,
@@ -267,6 +243,7 @@ impl Request {
                     })
                 })
                 .collect(),
+            labels: value.metadata.clone(),
             previous_interaction_id: value.previous_response_id.clone(),
             stream: None,
         })
@@ -981,48 +958,47 @@ mod tests {
     }
 
     #[test]
-    fn rejects_capabilities_that_cannot_be_translated() {
-        let unsupported = [
-            // The three effort levels this API has no word for. Verified
-            // against the live endpoint, which answers `'none' is not
-            // supported ... Supported values: 'minimal', 'low', 'medium',
-            // 'high'`.
-            (
-                GenerateRequest::new().reasoning_effort(ReasoningEffort::None),
-                "reasoning effort 'none'",
-            ),
-            (
-                GenerateRequest::new().reasoning_effort(ReasoningEffort::Xhigh),
-                "reasoning effort 'xhigh'",
-            ),
-            (
-                GenerateRequest::new().reasoning_effort(ReasoningEffort::Max),
-                "reasoning effort 'max'",
-            ),
-            // Carried on `labels`, which this endpoint refuses by name. Caught
-            // here so it costs nothing rather than a round trip.
-            (
-                GenerateRequest::new().metadata(serde_json::json!({"trace": "abc"})),
-                "request metadata",
-            ),
-        ];
+    fn every_effort_level_reaches_the_wire() {
+        // Including the three this endpoint rejects. `thinking_level` exists,
+        // so which values it likes is the endpoint's answer to give -- Freyja
+        // refusing them was a claim about a value, not about the format.
+        for (effort, expected) in [
+            (ReasoningEffort::None, "none"),
+            (ReasoningEffort::Low, "low"),
+            (ReasoningEffort::Medium, "medium"),
+            (ReasoningEffort::High, "high"),
+            (ReasoningEffort::Xhigh, "xhigh"),
+            (ReasoningEffort::Max, "max"),
+        ] {
+            let request = GenerateRequest::new()
+                .message(Message::text(Role::User, "Hi"))
+                .reasoning_effort(effort);
 
-        for (request, expected) in unsupported {
-            // `.err()` because the success type is not `Debug`, and a panic
-            // message has to be able to say what came back instead.
-            match Request::build(&request, &config()).err() {
-                Some(ProviderError::UnsupportedCapability { capability, .. }) => {
-                    assert_eq!(capability, expected);
-                }
-                other => panic!("expected a refusal naming {expected}, got {other:?}"),
-            }
+            let json = serde_json::to_value(Request::build(&request, &config()).unwrap()).unwrap();
+
+            assert_eq!(json["generation_config"]["thinking_level"], expected);
         }
     }
 
     #[test]
-    fn nothing_carries_metadata_onto_the_wire() {
-        // The field is gone from the request type, not merely left unset, so a
-        // future edit cannot quietly start populating it again.
+    fn metadata_reaches_the_wire_as_labels() {
+        // This endpoint answers "not available on the Gemini API but it is
+        // available on the Gemini Enterprise Agent Platform" -- a deployment
+        // gating a field it has, which is the endpoint's business and not a
+        // gap in the format.
+        let request = GenerateRequest::new()
+            .message(Message::text(Role::User, "Hi"))
+            .metadata(serde_json::json!({"trace": "abc"}));
+
+        let json = serde_json::to_value(Request::build(&request, &config()).unwrap()).unwrap();
+
+        assert_eq!(json["labels"]["trace"], "abc");
+    }
+
+    #[test]
+    fn no_metadata_means_no_labels_key() {
+        // Omitted rather than sent as null, so a request that asked for nothing
+        // does not carry an empty one.
         let request = GenerateRequest::new().message(Message::text(Role::User, "Hi"));
 
         let json = serde_json::to_value(Request::build(&request, &config()).unwrap()).unwrap();

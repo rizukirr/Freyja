@@ -36,6 +36,7 @@ That query parameter is what actually selects SSE framing on this API; `"stream"
   },
   "response_format": { "type": "object", "properties": {}, "required": [] },
   "tools": [ { "type": "function", "name": "add", "description": "...", "parameters": {} } ],
+  "labels": { "trace": "abc" },
   "previous_interaction_id": "v1_..."
 }
 ```
@@ -57,7 +58,7 @@ The value 'none' is not supported for 'thinking_level'.
 Supported values: 'minimal', 'low', 'medium', 'high'.
 ```
 
-Freyja maps `Low`, `Medium`, and `High` onto it and refuses the other three portable levels locally. `minimal` is unreachable, having no portable level to map from.
+Freyja sends all six portable levels, lowercase, and the endpoint rejects three of them. It does not refuse them itself: the field exists, so which values it takes is this deployment's answer to give. `minimal` is unreachable, having no portable level to map from.
 
 **`response_format` is the schema**, not a wrapper around one. Its `type` takes JSON Schema type names, and says so when given anything else:
 
@@ -69,7 +70,7 @@ Supported values: 'boolean', 'video', 'audio', 'integer', 'number', 'image',
 
 So a JSON-schema request puts the schema straight into the field, and `name` and `strict` have nowhere to go — dropped, as they are on Anthropic. `ResponseFormat::JsonObject` becomes `{"type": "object"}`.
 
-**`labels` is absent because Freyja no longer sends it.** The neutral `metadata` field used to map onto it, and this endpoint rejects the parameter: *"The parameter 'labels' is not available on the Gemini API but it is available on the Gemini Enterprise Agent Platform."* A request carrying `metadata` is now refused before the network with `UnsupportedCapability`.
+**`labels` carries the neutral `metadata` field**, and the public endpoint declines it: *"The parameter 'labels' is not available on the Gemini API but it is available on the Gemini Enterprise Agent Platform."* Freyja sends it anyway. The field is part of this format; a deployment gating it is the deployment's business, and its message names where the field does work.
 
 ## Input takes two shapes
 
@@ -316,4 +317,4 @@ The exception is `Request contains an invalid argument`, a generic protobuf-leve
 
 ## What Freyja does not send
 
-`metadata` is refused with `UnsupportedCapability` before the request is built, along with `reasoning_effort` at `None`, `Xhigh`, or `Max`. See [Gemini](../../providers/gemini.md).
+Nothing, on this dialect. Every neutral field has somewhere to go here, so nothing is refused before the request is built — `metadata` and three `reasoning_effort` levels reach the endpoint and are declined there. See [Gemini](../../providers/gemini.md).
