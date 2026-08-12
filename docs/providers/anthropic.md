@@ -35,7 +35,7 @@ Verified against the live endpoint: a full tool round trip completes, prompt to 
 | `metadata` | yes | Forwarded unchanged |
 | Usage reporting | yes | Total computed, cached tokens folded in |
 | Refusals | partly | Surfaced as `ResponseStatus::Other("refusal")` |
-| Streaming | yes | `stream: true`, decoded from `message_start` / `content_block_*` / `message_delta`. **Never run live**, see below |
+| Streaming | yes | `stream: true`, decoded from `message_start` / `content_block_*` / `message_delta`. Dialect verified live for text, against a compatible endpoint |
 
 ## The one place Freyja invents a value
 
@@ -247,13 +247,16 @@ What it does not cover, and what is therefore still only as good as the offline 
 | | Status |
 |---|---|
 | Text generation and tool calling | verified live |
-| Streaming | **not** exercised live, on this or any dialect |
+| Streaming, text | verified live, but against a compatible endpoint rather than Anthropic |
+| Streaming, tool calls | **not** exercised live, on this or any dialect |
 | Thinking block replay | **not** exercised, the run returned none |
 | Images, both URL and data URI | not exercised |
 | `response_format`, `reasoning_effort`, `tool_choice` | not exercised |
 | Refusal and `pause_turn` handling | not exercised, and hard to trigger deliberately |
 
-Streaming has never run against a live API, here or on any other dialect. The `message_start` / `content_block_*` / `message_delta` event shapes come from Anthropic's documentation and are tested against recorded fixtures, with `streamed_response_matches_generate` asserting that a drained stream matches what `generate` builds from the same turn. That is an offline parity test, not evidence the endpoint sends what Freyja expects. See [Streaming](../reference/streaming.md).
+A text turn has been streamed live through this dialect, but against a Claude-compatible endpoint rather than Anthropic's own service — so the wire format is covered and the vendor is not. Deltas arrived, usage landed on `Done`, and `into_response` rebuilt the same text.
+
+Streamed tool calls have not been run anywhere. The `message_start` / `content_block_*` / `message_delta` event shapes come from Anthropic's documentation and are tested against recorded fixtures, with `streamed_response_matches_generate` asserting that a drained stream matches what `generate` builds from the same turn. That is an offline parity test, not evidence the endpoint sends what Freyja expects. See [Streaming](../reference/streaming.md).
 
 The thinking gap is the other one worth knowing about, since it is the failure mode that cost the most on Gemini. The replay path is shared with Gemini and covered by `preserves_thinking_blocks_in_place`, but a signed Anthropic block has never made a round trip.
 

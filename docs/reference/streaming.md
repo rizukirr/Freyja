@@ -189,4 +189,4 @@ All four dialects stream, and the neutral event sequence is the same on each. Wh
 
 Freyja sets all of that for you. The per-provider pages have the detail.
 
-None of the four has been exercised against a live API yet. The frame shapes come from each vendor's documentation and are tested against recorded fixtures, with a test per dialect asserting that a drained stream matches what `generate` builds from the same turn. See [Features](../features.md#verification-status).
+All four have been exercised against a live endpoint for a **text** turn: deltas arrive, usage lands on `Done`, and `into_response` rebuilds exactly the text the deltas carried. Streamed **tool calls** have not — that is the path where argument fragments are joined, and it remains covered by recorded fixtures only, with a test per dialect asserting that a drained stream matches what `generate` builds from the same turn. See [Features](../features.md#verification-status).

@@ -97,7 +97,7 @@ Phase 0 is complete and Phase 1 is nearly done: the neutral core is stable, four
 | Built-in providers | OpenAI, Gemini, Anthropic, all verified against live APIs |
 | Other endpoints | DeepSeek, Groq, OpenRouter, Ollama and friends via `Client::custom` |
 | Tool calling | Full round trip, verified live on four endpoints |
-| Streaming | All four dialects, tested offline only — not yet run against a live API |
+| Streaming | All four dialects, text verified live; tool calls offline only |
 | Dependencies | Three: `reqwest`, `serde`, `serde_json` |
 | Errors | Classified by cause, with `is_retryable()` and `Retry-After` |
 | Pre-flight checks | `client.check(&request)`, no network call |
