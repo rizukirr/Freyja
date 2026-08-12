@@ -95,6 +95,19 @@ Freyja distinguishes "the tests pass" from "a real vendor accepted it", because 
 | Anthropic | Yes |
 | A Chat Completions endpoint (DeepSeek) | Yes |
 
-Beyond text and tool calling, coverage is uneven and worth reading closely. Reasoning effort has been exercised live on OpenAI, on both dialects and across every level, and so has the Chat Completions token cap in both its spellings. Structured output has been run live on OpenAI and on Gemini, with a nested struct, an enum, an `Option`, and a `Vec`, deserialized through `generate_as`. Images and streaming have not been run against a live API on any provider; reasoning effort has not been on Gemini or Anthropic; and structured output has not been on Anthropic.
+Beyond text and tool calling, coverage is uneven and worth reading closely.
+
+| Capability | Live coverage |
+|---|---|
+| Reasoning effort | OpenAI, both dialects, every level |
+| Chat Completions token cap | Both spellings |
+| Structured output | OpenAI and Gemini: nested struct, enum, `Option`, `Vec`, through `generate_as` |
+| Streaming, text | All four dialects — deltas, usage on `Done`, and `into_response` parity |
+| Streaming, tool calls | **None.** The assembler joining argument fragments is fixture-only |
+| Images | **None** |
+| Reasoning effort on Gemini or Anthropic | **None** |
+| Structured output on Anthropic | **None** |
+
+Two entries deserve their asterisks. The Anthropic dialect's live runs go through a compatible endpoint rather than Anthropic's own service, which covers the wire format and not the vendor. And streamed *tool calls* are the part of streaming most likely to differ between vendors, since that is where fragments are joined — so the one path with no live coverage is also the one that would benefit most.
 
 That unevenness is not incidental. Sending Gemini a `temperature` was rejected outright until it was tried, and the offline tests had asserted the wrong shape for as long as they existed. Each dialect's streaming frames are taken from the vendor's own documentation and tested against recorded fixtures, including a test per dialect asserting that a drained stream matches what `generate` builds from the same turn.

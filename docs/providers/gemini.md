@@ -35,7 +35,7 @@ This backend is less complete than OpenAI. Read the gaps below before relying on
 | `metadata` | **broken** | Sent as `labels`, which this endpoint rejects. Not a local refusal, see below |
 | Usage reporting | yes | Field names normalized |
 | Refusals | no | Not carried as a distinct block |
-| Streaming | yes | `stream: true` **and** `?alt=sse` on the URL, which is what selects SSE. **Never run live**, see below |
+| Streaming | yes | `stream: true` **and** `?alt=sse` on the URL, which is what selects SSE. Verified live for text |
 
 ## `metadata` reaches the vendor and fails there
 
@@ -178,7 +178,7 @@ Gemini is the only dialect here where `stream: true` in the body is not enough. 
 
 Frames repeat their event name inside the payload as `event_type`, so the SSE event line is redundant and Freyja reads the body. Steps arrive as `step.start` / `step.delta` / `step.stop`, with the interaction's terminal frame carrying id, model, status, and usage. Thought signatures stream in as deltas and are merged back into the step before it surfaces, so what you replay is what the API sent.
 
-None of that has been run against the live endpoint, on Gemini or on any other dialect. The frame shapes come from Google's documentation and are tested against recorded fixtures, with `streamed_response_matches_generate` asserting that a drained stream matches what `generate` builds from the same turn. That is an offline parity test, so treat the live tool round trip above as covering `generate` only. See [Streaming](../reference/streaming.md).
+A text turn has been run against the live endpoint, `?alt=sse` and all: deltas arrived, usage landed on `Done`, and `into_response` rebuilt the same text. Streamed tool calls have not been. Their frame shapes come from Google's documentation and are tested against recorded fixtures, with `streamed_response_matches_generate` asserting that a drained stream matches what `generate` builds from the same turn — an offline parity test, so treat the live tool round trip above as covering `generate` only. See [Streaming](../reference/streaming.md).
 
 ## Rejected before the network
 

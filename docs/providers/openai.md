@@ -34,7 +34,7 @@ This is the most complete of the four dialect mappings. It is not the only one e
 | `metadata` | yes | Sent as `metadata` |
 | Usage reporting | yes | |
 | Refusals | yes | Parsed as `OutputContent::Refusal` |
-| Streaming | yes | `stream: true`, decoded from the API's semantic SSE events. **Never run live**, see below |
+| Streaming | yes | `stream: true`, decoded from the API's semantic SSE events. Verified live for text |
 
 Nothing in the neutral model currently returns `UnsupportedCapability` on OpenAI except misplaced content, covered below.
 
@@ -165,12 +165,13 @@ What it does not cover, and what is therefore still only as good as the offline 
 | | Status |
 |---|---|
 | Text generation and tool calling | verified live |
-| Streaming | **not** exercised live, on this or any dialect |
+| Streaming, text | verified live |
+| Streaming, tool calls | **not** exercised live, on this or any dialect |
 | Images, both URL and data URI | not exercised |
 | `response_format`, `reasoning_effort`, `tool_choice` | not exercised |
 | `previous_response_id` and reasoning item replay | not exercised |
 
-Streaming is the gap worth naming. The semantic SSE event names and their payloads come from OpenAI's documentation and are tested against recorded fixtures, with `streamed_response_matches_generate` asserting that a drained stream matches what `generate` builds from the same turn. That is a parity test, not a live one. See [Streaming](../reference/streaming.md).
+Streaming is verified live for text: a turn against this endpoint produced deltas, carried usage on `Done`, and rebuilt the same text through `into_response`. Streamed tool calls are not. The semantic SSE event names and their payloads come from OpenAI's documentation and are tested against recorded fixtures, with `streamed_response_matches_generate` asserting that a drained stream matches what `generate` builds from the same turn — a parity test, and the only cover the tool-call path has. See [Streaming](../reference/streaming.md).
 
 To re-check after changes, point `examples/tool_loop.rs` at the endpoint and run it:
 

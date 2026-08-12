@@ -226,7 +226,7 @@ There is still no HTTP mocking library, but transport is no longer untested. Two
 
 Below that, `Body::Recorded` and `stream::drain_for_test` push recorded bytes through the real `SseBuffer`, the real decoder, and the real assembler with no HTTP at all. That is what makes the parity tests cheap enough to write one per dialect, and it exists because `reqwest::Response` cannot be constructed from recorded bytes.
 
-**Streaming works on all four dialects but has never been run against a live API.** Frame shapes come from vendor documentation and recorded fixtures, so the tests prove the decoders handle the frames we recorded, not that the vendors send those frames.
+**Text streaming is verified live on all four dialects; streamed tool calls are not.** A text turn has been driven end to end against OpenAI, Gemini, a Chat Completions endpoint, and an Anthropic-compatible one, checking that deltas arrive, that usage lands on `Done`, and that `into_response` rebuilds the same text. The tool-call path — the assembler joining argument fragments — is still covered only by recorded fixtures, so those tests prove the decoders handle the frames we recorded, not that the vendors send those frames.
 
 ## Adding a provider
 

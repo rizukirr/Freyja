@@ -63,7 +63,7 @@ All four dialects stream, through the same `Client::stream` call and the same `S
 | `OpenAiChat` | Sends `stream_options: {"include_usage": true}`, without which the stream reports no tokens |
 | `OpenAiChat` | Has no end-of-call frame, so `StreamEvent::ToolCall` arrives only when the body closes |
 
-None of the four has been run against a live API. The frame shapes come from vendor documentation and are tested against recorded fixtures. Full detail in [Streaming](../reference/streaming.md).
+All four have been run against a live endpoint for a text turn. Streamed tool calls have not, and remain covered by recorded fixtures taken from vendor documentation. Full detail in [Streaming](../reference/streaming.md).
 
 ## Choosing between them
 

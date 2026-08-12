@@ -49,7 +49,7 @@ The reason is maintenance honesty rather than effort. A preset is a standing pro
 | `metadata` | yes | Forwarded unchanged |
 | Usage reporting | yes | Field names normalized |
 | Refusals | yes | From the message's `refusal` field |
-| Streaming | yes | `stream: true`, plus `stream_options.include_usage` so token counts still arrive. **Never run live**, see below |
+| Streaming | yes | `stream: true`, plus `stream_options.include_usage` so token counts still arrive. Verified live for text |
 
 ## System turns are not hoisted
 
@@ -211,9 +211,12 @@ What it does not cover:
 | | Status |
 |---|---|
 | Text generation and tool calling | verified live, on DeepSeek only |
-| Streaming | **not** exercised live, on this or any dialect |
+| Streaming, text | verified live against DeepSeek |
+| Streaming, tool calls | **not** exercised live, on this or any dialect |
 | Images, `response_format`, `reasoning_effort` | not exercised, on any endpoint |
 
 What one endpoint cannot tell you is how the others behave. "Compatible" is a spectrum, and Groq, Together, OpenRouter, and Ollama are each unverified here.
 
-Streaming has never run against a live API on any dialect. The frame shapes, `stream_options.include_usage`, and the `[DONE]` sentinel come from the vendor documentation and are tested against recorded fixtures, with `streamed_response_matches_generate` asserting that a drained stream matches what `generate` builds from the same turn. That is an offline parity test. The risk is highest here, because "compatible" endpoints diverge most in their streaming frames.
+A text turn has been streamed live through this dialect against DeepSeek: 191 deltas, usage on `Done` via `stream_options.include_usage`, and `into_response` rebuilding the same text. That is one compatible endpoint out of many, and the risk stays highest here, because "compatible" endpoints diverge most in their streaming frames.
+
+Streamed tool calls have not been run anywhere. The frame shapes and the `[DONE]` sentinel come from vendor documentation and are tested against recorded fixtures, with `streamed_response_matches_generate` asserting that a drained stream matches what `generate` builds from the same turn — an offline parity test.
