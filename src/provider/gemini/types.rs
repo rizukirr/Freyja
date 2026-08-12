@@ -159,9 +159,17 @@ impl Request {
                         }
                         pending.push(serde_json::json!({"type": "text", "text": text}));
                     }
+                    // A `model_output` step takes typed content just as
+                    // `user_input` does, and the endpoint validates an image in
+                    // one exactly as it does the other. A tool turn is still
+                    // refused, for the same reason its text is: the step it
+                    // becomes carries a result and nothing else.
                     InputContent::ImageUrl(url) => {
-                        if message.role != Role::User {
-                            return Err(refusal::unsupported(config, refusal::IMAGES_OUTSIDE_USER));
+                        if message.role == Role::Tool {
+                            return Err(ProviderError::InvalidRequest {
+                                provider: config.name.clone(),
+                                message: "tool messages may only contain tool results".into(),
+                            });
                         }
                         pending.push(serde_json::json!({"type": "image", "uri": url}));
                     }
@@ -607,6 +615,45 @@ mod tests {
             // level the endpoint answers `Unknown parameter`.
             assert!(json.get("thinking_level").is_none());
             assert!(json.get("reasoning_effort").is_none());
+        }
+    }
+
+    #[test]
+    fn an_image_rides_a_model_output_step_as_well_as_a_user_one() {
+        // Refused here until the endpoint was asked, which validated an image
+        // in a model_output step exactly as it does one in user_input.
+        let request = GenerateRequest::new()
+            .message(Message::text(Role::User, "Draw a cat"))
+            .message(Message::new(
+                Role::Assistant,
+                vec![InputContent::ImageUrl("https://e.test/cat.png".into())],
+            ));
+
+        let json = serde_json::to_value(Request::build(&request, &config()).unwrap()).unwrap();
+
+        assert_eq!(json["input"][1]["type"], "model_output");
+        assert_eq!(json["input"][1]["content"][0]["type"], "image");
+        assert_eq!(
+            json["input"][1]["content"][0]["uri"],
+            "https://e.test/cat.png"
+        );
+    }
+
+    #[test]
+    fn a_tool_turn_still_takes_nothing_but_results() {
+        // Not a capability limit and not a refusal: the step a tool turn
+        // becomes carries a result, so an image in one is a caller mistake,
+        // exactly as text in one already was.
+        let request = GenerateRequest::new().message(Message::new(
+            Role::Tool,
+            vec![InputContent::ImageUrl("https://e.test/a.png".into())],
+        ));
+
+        match Request::build(&request, &config()).err() {
+            Some(ProviderError::InvalidRequest { message, .. }) => {
+                assert_eq!(message, "tool messages may only contain tool results");
+            }
+            other => panic!("expected InvalidRequest, got {other:?}"),
         }
     }
 

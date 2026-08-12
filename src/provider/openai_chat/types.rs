@@ -150,10 +150,11 @@ impl Request {
                             text: value.clone(),
                         });
                     }
+                    // Every role takes one. Verified live: an image part on an
+                    // assistant turn and on a tool turn both returned
+                    // completions, as did one in a system turn. Freyja refused
+                    // all three until they were tried.
                     InputContent::ImageUrl(url) => {
-                        if message.role != Role::User {
-                            return Err(refusal::unsupported(config, refusal::IMAGES_OUTSIDE_USER));
-                        }
                         parts.push(PartWire::Image {
                             image_url: ImageUrlWire { url: url.clone() },
                         });
@@ -183,6 +184,13 @@ impl Request {
                         }
                         tool_call_id = Some(call_id.clone());
                         text.push(output.clone());
+                        // Into both, because the two are alternative renderings
+                        // of the same turn and an image elsewhere in it decides
+                        // which one is sent. Pushing only to `text` would drop
+                        // this output whenever the parts form won.
+                        parts.push(PartWire::Text {
+                            text: output.clone(),
+                        });
                     }
                     // No standard place for opaque reasoning state in this
                     // format, and no replay requirement either, so it is left
@@ -605,6 +613,51 @@ mod tests {
             content[1]["image_url"]["url"],
             "https://example.com/cat.png"
         );
+    }
+
+    #[test]
+    fn every_role_carries_an_image() {
+        // Refused here until the endpoint was asked. An image part on an
+        // assistant turn and on a tool turn both came back with completions,
+        // as did one in a system turn.
+        for role in [Role::System, Role::Assistant, Role::Tool, Role::User] {
+            let request = GenerateRequest::new().message(Message::new(
+                role,
+                vec![InputContent::ImageUrl("https://e.test/a.png".into())],
+            ));
+
+            let json = serde_json::to_value(Request::build(&request, &config()).unwrap()).unwrap();
+
+            assert_eq!(
+                json["messages"][0]["content"][0]["type"], "image_url",
+                "{role:?} should carry an image"
+            );
+        }
+    }
+
+    #[test]
+    fn a_tool_result_survives_an_image_in_the_same_turn() {
+        // The turn has two renderings and an image decides which one is sent,
+        // so the result has to be in both. Reaching only the string form would
+        // drop the tool's answer the moment an image joined it.
+        let request = GenerateRequest::new().message(Message::new(
+            Role::Tool,
+            vec![
+                InputContent::ToolResult {
+                    call_id: "call_1".into(),
+                    output: "42".into(),
+                },
+                InputContent::ImageUrl("https://e.test/a.png".into()),
+            ],
+        ));
+
+        let json = serde_json::to_value(Request::build(&request, &config()).unwrap()).unwrap();
+        let content = &json["messages"][0]["content"];
+
+        assert_eq!(json["messages"][0]["tool_call_id"], "call_1");
+        assert_eq!(content[0]["type"], "text");
+        assert_eq!(content[0]["text"], "42");
+        assert_eq!(content[1]["type"], "image_url");
     }
 
     #[test]

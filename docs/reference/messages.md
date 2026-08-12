@@ -125,7 +125,16 @@ Data URIs work the same way, which is how you send local files:
 InputContent::ImageUrl(format!("data:image/png;base64,{encoded}"))
 ```
 
-Images are only accepted on `Role::User`. On any other role Freyja returns `UnsupportedCapability` with the capability `"images outside user messages"`.
+Which roles may carry an image depends on the dialect, and the answer came from asking the endpoints rather than from reading them:
+
+| Dialect | Roles that take an image |
+|---|---|
+| OpenAI Chat Completions | any — user, system, assistant, and tool all verified live |
+| Gemini | user and assistant; a tool turn is `InvalidRequest`, as its text already was |
+| OpenAI Responses | user only — an assistant turn takes `output_text` and `refusal` and nothing else |
+| Anthropic | user only, **unverified** — the refusal predates any probe and no key has been available to settle it |
+
+Where a dialect will not carry one, Freyja returns `UnsupportedCapability` with the capability `"images outside user messages"`.
 
 ## Validation done before the network
 

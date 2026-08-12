@@ -219,7 +219,7 @@ Unlike Gemini, `has_tool_calls()` and `status` agree here: a response with tool 
 | `previous_response_id` set | `UnsupportedCapability` |
 | `response_format` is `JsonObject` | `UnsupportedCapability` |
 | Non text content in a system or developer turn | `UnsupportedCapability` |
-| An image on a non user turn | `UnsupportedCapability` |
+| An image on a non user turn | `UnsupportedCapability`, **unverified**: no key has been available to test it |
 | Tool arguments that are not a JSON object | `InvalidRequest` |
 | A malformed image data URI | `InvalidRequest` |
 

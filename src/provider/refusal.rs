@@ -96,16 +96,16 @@ pub(crate) const REFUSALS: &[Refusal] = &[
     Refusal {
         dialect: ProviderDialect::OpenAiResponses,
         capability: NON_TEXT_SYSTEM,
-        evidence: Evidence::Unverified,
-        note: "An `instructions` string is what the dialect maps system turns onto, \
-               so there is likely nowhere for an image to go. Never sent.",
+        evidence: Evidence::Probed,
+        note: "`Invalid value: 'input_image'. Supported values are: 'input_text'.` \
+               for both the system and developer roles.",
     },
     Refusal {
         dialect: ProviderDialect::OpenAiResponses,
         capability: IMAGES_OUTSIDE_USER,
-        evidence: Evidence::Unverified,
-        note: "Never sent. The content block exists on this dialect; whether the \
-               endpoint accepts it on an assistant turn is untested.",
+        evidence: Evidence::Probed,
+        note: "An assistant turn takes `output_text` and `refusal` and nothing \
+               else; `input_image` and `output_image` are both rejected by name.",
     },
     Refusal {
         dialect: ProviderDialect::OpenAiChat,
@@ -113,12 +113,6 @@ pub(crate) const REFUSALS: &[Refusal] = &[
         evidence: Evidence::Structural,
         note: "Chat Completions is stateless. There is no response id to continue \
                from and no field to carry one.",
-    },
-    Refusal {
-        dialect: ProviderDialect::OpenAiChat,
-        capability: IMAGES_OUTSIDE_USER,
-        evidence: Evidence::Unverified,
-        note: "Never sent. See the OpenAiResponses row.",
     },
     Refusal {
         dialect: ProviderDialect::Gemini,
@@ -132,17 +126,10 @@ pub(crate) const REFUSALS: &[Refusal] = &[
     Refusal {
         dialect: ProviderDialect::Gemini,
         capability: NON_TEXT_SYSTEM,
-        evidence: Evidence::Unverified,
-        note: "System turns are joined into one `system_instruction` string, so an \
-               image has nowhere to go in the shape Freyja builds. Whether the API \
-               accepts a richer shape is untested.",
-    },
-    Refusal {
-        dialect: ProviderDialect::Gemini,
-        capability: IMAGES_OUTSIDE_USER,
-        evidence: Evidence::Unverified,
-        note: "Never sent. A `model_output` step takes typed content, so an image \
-               may well be accepted there.",
+        evidence: Evidence::Structural,
+        note: "`system_instruction` is a bare string and nothing else: an array or \
+               object gives `The value is invalid for 'system_instruction'. \
+               Expected string`. There is no richer shape to put an image in.",
     },
     Refusal {
         dialect: ProviderDialect::Gemini,
@@ -173,22 +160,30 @@ pub(crate) const REFUSALS: &[Refusal] = &[
         dialect: ProviderDialect::Anthropic,
         capability: NON_TEXT_SYSTEM,
         evidence: Evidence::Unverified,
-        note: "`system` takes an array of blocks on this API, so this may be a \
-               limit of Freyja's mapping rather than of the format. Never sent.",
+        note: "No Anthropic key is available, so this was probed only against DeepSeek's \
+               Anthropic-compatible endpoint, where it was accepted. That is not \
+               enough: a compatible endpoint reimplements the schema, and Anthropic \
+               could restrict roles above deserialization the way OpenAI Responses \
+               does. Needs a first-party key.",
     },
     Refusal {
         dialect: ProviderDialect::Anthropic,
         capability: IMAGES_OUTSIDE_USER,
         evidence: Evidence::Unverified,
-        note: "Never sent. Content blocks are uniform across roles on this API, \
-               which makes the refusal look more like an assumption than a limit.",
+        note: "No Anthropic key is available, so this was probed only against DeepSeek's \
+               Anthropic-compatible endpoint, where it was accepted. That is not \
+               enough: a compatible endpoint reimplements the schema, and Anthropic \
+               could restrict roles above deserialization the way OpenAI Responses \
+               does. Needs a first-party key.",
     },
     Refusal {
         dialect: ProviderDialect::Anthropic,
         capability: SCHEMALESS_JSON,
         evidence: Evidence::Unverified,
-        note: "`output_config.format` is believed to require a schema. Never sent \
-               without one.",
+        note: "DeepSeek's Anthropic-compatible endpoint accepted `output_config`, \
+               and then accepted an invented top-level key too -- it ignores \
+               parameters it does not know, so its answer means nothing here. \
+               Needs a first-party key.",
     },
 ];
 
@@ -211,11 +206,11 @@ mod tests {
                 .count()
         };
 
-        assert_eq!(count(Evidence::Probed), 4, "endpoint asked, said no");
-        assert_eq!(count(Evidence::Structural), 2, "no field could exist");
-        assert_eq!(count(Evidence::Unverified), 8, "nobody has checked");
+        assert_eq!(count(Evidence::Probed), 6, "endpoint asked, said no");
+        assert_eq!(count(Evidence::Structural), 3, "no field could exist");
+        assert_eq!(count(Evidence::Unverified), 3, "nobody has checked");
         assert_eq!(count(Evidence::Refuted), 0, "known wrong, still shipping");
-        assert_eq!(REFUSALS.len(), 14);
+        assert_eq!(REFUSALS.len(), 12);
     }
 
     /// A dialect refusing the same capability twice means two code paths

@@ -22,7 +22,7 @@ This backend is less complete than OpenAI. Read the gaps below before relying on
 | Capability | Supported | Notes |
 |---|---|---|
 | Text generation | yes | |
-| Images in user turns | yes | Sent as `{"type": "image", "uri": ...}` |
+| Images in user and assistant turns | yes | Sent as `{"type": "image", "uri": ...}` in a `user_input` or `model_output` step |
 | System and developer turns | yes | Hoisted into `system_instruction` |
 | `max_tokens` | yes | Sent as `generation_config.max_output_tokens` |
 | `temperature`, `top_p` | yes | Nested inside `generation_config` |
@@ -224,7 +224,7 @@ A text turn has been run against the live endpoint, `?alt=sse` and all: deltas a
 |---|---|
 | `reasoning_effort` set to `None`, `Xhigh`, or `Max` | `UnsupportedCapability` |
 | Non text content in a system or developer turn | `UnsupportedCapability` |
-| An image on a non user turn | `UnsupportedCapability` |
+| An image on a `Role::Tool` turn | `InvalidRequest` |
 | Text content on a `Role::Tool` turn | `InvalidRequest` |
 
 ## Default model

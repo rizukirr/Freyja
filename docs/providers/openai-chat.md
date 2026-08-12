@@ -36,7 +36,7 @@ The reason is maintenance honesty rather than effort. A preset is a standing pro
 | Capability | Supported | Notes |
 |---|---|---|
 | Text generation | yes | |
-| Images in user turns | yes | Sent as `image_url` parts |
+| Images, any role | yes | Sent as `image_url` parts. User, system, assistant, and tool all verified live |
 | System and developer turns | yes | **Not hoisted**, they stay as messages |
 | `max_tokens` | yes | `max_tokens` or `max_completion_tokens`, see below |
 | `temperature`, `top_p` | yes | Forwarded unchanged |
@@ -188,7 +188,6 @@ This dialect also has no end frame beyond `[DONE]`, so a tool call is complete o
 | Condition | Error |
 |---|---|
 | `previous_response_id` set | `UnsupportedCapability` |
-| An image on a non user turn | `UnsupportedCapability` |
 | A tool message answering more than one call | `InvalidRequest` |
 | No model on the request and none on the endpoint | `InvalidRequest` |
 
@@ -213,7 +212,8 @@ What it does not cover:
 | Text generation and tool calling | verified live, on DeepSeek only |
 | Streaming, text | verified live against DeepSeek |
 | Streaming, tool calls | **not** exercised live, on this or any dialect |
-| Images, `response_format`, `reasoning_effort` | not exercised, on any endpoint |
+| Images | an `image_url` part accepted on a user, system, assistant, and tool turn |
+| `response_format`, `reasoning_effort` | not exercised, on any endpoint |
 
 What one endpoint cannot tell you is how the others behave. "Compatible" is a spectrum, and Groq, Together, OpenRouter, and Ollama are each unverified here.
 

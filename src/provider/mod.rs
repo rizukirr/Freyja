@@ -1007,11 +1007,22 @@ mod tests {
             ))
             .message(Message::text(Role::User, "What is this?"));
 
-        for dialect in DIALECTS {
+        // Two of the four, not all four. The rule was written once and applied
+        // everywhere; probing found Chat Completions takes an image on any role
+        // and Gemini takes one on a `model_output` step, which leaves the
+        // refusal true only where an assistant turn is a closed content set.
+        for dialect in [ProviderDialect::OpenAiResponses, ProviderDialect::Anthropic] {
             assert_eq!(
                 refusal(dialect, &misplaced),
                 "images outside user messages",
                 "{dialect:?}"
+            );
+        }
+
+        for dialect in [ProviderDialect::OpenAiChat, ProviderDialect::Gemini] {
+            assert!(
+                offline(dialect).check(&misplaced).is_ok(),
+                "{dialect:?} carries this",
             );
         }
 
