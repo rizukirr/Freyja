@@ -75,6 +75,7 @@ Portability has a price, and it is worth knowing which fields cost you.
 | `reasoning_effort` | Gemini |
 | `previous_response_id` | Anthropic, and every `OpenAiChat` endpoint |
 | `response_format` as free JSON | Anthropic |
+| `metadata` | Gemini |
 
 Set none of them and your request runs anywhere. Each is refused before the network, so you find out at once rather than getting an answer that ignored you.
 

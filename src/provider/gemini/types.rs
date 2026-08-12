@@ -33,8 +33,6 @@ pub struct Request {
     #[serde(skip_serializing_if = "Option::is_none")]
     previous_interaction_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    labels: Option<Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     stream: Option<bool>,
 }
 
@@ -54,6 +52,16 @@ impl Request {
             return Err(ProviderError::UnsupportedCapability {
                 provider: config.name.clone(),
                 capability: "portable tool choice",
+            });
+        }
+        // This API carries request metadata on `labels`, and then refuses it:
+        // "The parameter 'labels' is not available on the Gemini API but it is
+        // available on the Gemini Enterprise Agent Platform." Sending it costs
+        // a round trip to be told no, so it is refused here instead.
+        if value.metadata.is_some() {
+            return Err(ProviderError::UnsupportedCapability {
+                provider: config.name.clone(),
+                capability: "request metadata",
             });
         }
 
@@ -211,7 +219,6 @@ impl Request {
                 })
                 .collect(),
             previous_interaction_id: value.previous_response_id.clone(),
-            labels: value.metadata.clone(),
             stream: None,
         })
     }
@@ -821,12 +828,44 @@ mod tests {
 
     #[test]
     fn rejects_capabilities_that_cannot_be_translated() {
-        let request = GenerateRequest::new().reasoning_effort(ReasoningEffort::High);
+        let unsupported = [
+            (
+                GenerateRequest::new().reasoning_effort(ReasoningEffort::High),
+                "portable reasoning effort levels",
+            ),
+            (
+                GenerateRequest::new().tool_choice(ToolChoice::Required),
+                "portable tool choice",
+            ),
+            // Carried on `labels`, which this endpoint refuses by name. Caught
+            // here so it costs nothing rather than a round trip.
+            (
+                GenerateRequest::new().metadata(serde_json::json!({"trace": "abc"})),
+                "request metadata",
+            ),
+        ];
 
-        assert!(matches!(
-            Request::build(&request, &config()),
-            Err(ProviderError::UnsupportedCapability { .. })
-        ));
+        for (request, expected) in unsupported {
+            // `.err()` because the success type is not `Debug`, and a panic
+            // message has to be able to say what came back instead.
+            match Request::build(&request, &config()).err() {
+                Some(ProviderError::UnsupportedCapability { capability, .. }) => {
+                    assert_eq!(capability, expected);
+                }
+                other => panic!("expected a refusal naming {expected}, got {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn nothing_carries_metadata_onto_the_wire() {
+        // The field is gone from the request type, not merely left unset, so a
+        // future edit cannot quietly start populating it again.
+        let request = GenerateRequest::new().message(Message::text(Role::User, "Hi"));
+
+        let json = serde_json::to_value(Request::build(&request, &config()).unwrap()).unwrap();
+
+        assert!(json.get("labels").is_none());
     }
 
     #[test]

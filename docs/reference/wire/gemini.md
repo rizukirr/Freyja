@@ -57,7 +57,7 @@ Supported values: 'boolean', 'video', 'audio', 'integer', 'number', 'image',
 
 So a JSON-schema request puts the schema straight into the field, and `name` and `strict` have nowhere to go — dropped, as they are on Anthropic. `ResponseFormat::JsonObject` becomes `{"type": "object"}`.
 
-**`labels` is missing from the body above on purpose.** Freyja maps `metadata` onto it, but this endpoint rejects the parameter: *"The parameter 'labels' is not available on the Gemini API but it is available on the Gemini Enterprise Agent Platform."* Since every body on this page is a request that works, one carrying `labels` does not belong here. Leave `metadata` unset against the Gemini API.
+**`labels` is absent because Freyja no longer sends it.** The neutral `metadata` field used to map onto it, and this endpoint rejects the parameter: *"The parameter 'labels' is not available on the Gemini API but it is available on the Gemini Enterprise Agent Platform."* A request carrying `metadata` is now refused before the network with `UnsupportedCapability`.
 
 ## Input takes two shapes
 

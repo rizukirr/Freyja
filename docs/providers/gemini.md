@@ -32,38 +32,38 @@ This backend is less complete than OpenAI. Read the gaps below before relying on
 | `tool_choice` | **no** | Rejected with `UnsupportedCapability` |
 | Tool round trip | yes | Verified live, requires thought-signature replay |
 | `previous_response_id` | yes | Sent as `previous_interaction_id` |
-| `metadata` | **broken** | Sent as `labels`, which this endpoint rejects. Not a local refusal, see below |
+| `metadata` | **no** | Rejected with `UnsupportedCapability`, see below |
 | Usage reporting | yes | Field names normalized |
 | Refusals | no | Not carried as a distinct block |
 | Streaming | yes | `stream: true` **and** `?alt=sse` on the URL, which is what selects SSE. Verified live for text |
 
-## `metadata` reaches the vendor and fails there
+## Three capabilities are rejected outright
 
-Unlike the two below, this one is not refused locally. Freyja maps `metadata` onto the API's `labels`, and the endpoint answers:
+```rust
+// All three fail before any network call.
+GenerateRequest::new().reasoning_effort(ReasoningEffort::High);
+GenerateRequest::new().tool_choice(ToolChoice::Required);
+GenerateRequest::new().metadata(serde_json::json!({"trace": "abc"}));
+```
+
+```
+Gemini does not support portable reasoning effort levels
+Gemini does not support portable tool choice
+Gemini does not support request metadata
+```
+
+Freyja refuses rather than dropping the field, because a silently ignored `tool_choice: Required` returns an answer that looks fine and is not what you asked for.
+
+The first two are limits of the wire format. The third is not: this API has a `labels` field for exactly this purpose, and then declines to accept it.
 
 ```
 The parameter 'labels' is not available on the Gemini API
 but it is available on the Gemini Enterprise Agent Platform.
 ```
 
-So a request carrying `metadata` costs a round trip and comes back as `BadRequest`, rather than being caught by `Client::check`. That is the honest position for now: the parameter *is* valid on a Gemini Enterprise endpoint, which the same dialect can reach, so refusing it in the dialect would break a configuration that works. Leave `metadata` unset against `generativelanguage.googleapis.com`.
+Freyja sent `labels` anyway until that was tried, so any request carrying `metadata` failed at the vendor after a round trip. It is refused locally now, which costs nothing and is caught by `Client::check`. If Google's Enterprise platform ever needs supporting, it is a different endpoint from the one this dialect targets and can be revisited then.
 
-## Two capabilities are rejected outright
-
-```rust
-// Both of these fail before any network call.
-GenerateRequest::new().reasoning_effort(ReasoningEffort::High);
-GenerateRequest::new().tool_choice(ToolChoice::Required);
-```
-
-```
-Gemini does not support portable reasoning effort levels
-Gemini does not support portable tool choice
-```
-
-Freyja refuses rather than dropping the field, because a silently ignored `tool_choice: Required` returns an answer that looks fine and is not what you asked for.
-
-This is why `GenerateRequest::new()` sets no defaults. An earlier version defaulted both fields, so every default constructed request failed against Gemini. If you need either capability, use OpenAI or Anthropic.
+This is why `GenerateRequest::new()` sets no defaults. An earlier version defaulted the first two fields, so every default constructed request failed against Gemini. If you need reasoning effort or tool choice, use OpenAI or Anthropic.
 
 ## Input uses a step list, not turns
 
@@ -113,7 +113,7 @@ A bare number is also rejected as a `result`, so Freyja sends a JSON object thro
 | `response_format` | `response_format`, carrying the schema itself |
 | `tools` | `tools`, each with `"type": "function"` |
 | `previous_response_id` | `previous_interaction_id` |
-| `metadata` | `labels`, **rejected by this endpoint** |
+| `metadata` | not sent; refused before the network |
 
 ### Inbound
 

@@ -146,7 +146,9 @@ Anthropic and OpenAI Chat Completions both reject this field with `UnsupportedCa
 
 ### `metadata`
 
-Arbitrary JSON forwarded to the provider, for labels and trace identifiers. Sent as `metadata` to OpenAI and Anthropic, and as `labels` to Gemini. Freyja does not read it.
+Arbitrary JSON forwarded to the provider, for labels and trace identifiers. Sent as `metadata` to OpenAI and Anthropic. Freyja does not read it.
+
+Gemini refuses it with `UnsupportedCapability`, before the network. Its Interactions API has a `labels` field for exactly this and then declines to accept it, so the alternative was a round trip to be told no. See [Gemini](../providers/gemini.md#three-capabilities-are-rejected-outright).
 
 ## Reusing a request across turns
 
