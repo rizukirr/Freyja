@@ -1,24 +1,28 @@
 //! Asking for JSON and getting a Rust value back.
 //!
 //! `ResponseFormat::JsonSchema` constrains the model's output to a shape you
-//! declare, and `Client::generate_as` hands back that shape rather than a
-//! string. The schema is still written by hand and must be kept in step with
-//! the struct: deriving one from the type is not implemented.
+//! declare, `strict_schema` makes that shape acceptable to the endpoint, and
+//! `Client::generate_as` hands back the answer as your own type. What is still
+//! manual is writing the schema to match the struct: deriving one from a Rust
+//! type is not implemented.
 //!
 //! ```sh
 //! cargo run --example structured_output
 //! ```
 
-use freyja::{Client, GenerateRequest, Message, ProviderError, ProviderType, ResponseFormat, Role};
+use freyja::{
+    Client, GenerateRequest, Message, ProviderError, ProviderType, ResponseFormat, Role,
+    strict_schema,
+};
 use serde::Deserialize;
 use serde_json::json;
 
 /// The shape we want back.
 ///
-/// The schema below has to be written by hand to match it. Deriving one from
-/// this struct is on the roadmap and does not exist yet, so the two can drift:
-/// keep them next to each other, and let the deserialize step catch it when
-/// they do.
+/// The schema below still has to match this by hand. `strict_schema` fixes a
+/// schema up for the endpoint; it cannot write one from a Rust type, so the two
+/// can drift. Keep them next to each other and let the deserialize step catch
+/// it when they do.
 #[derive(Debug, Deserialize)]
 struct Recommendation {
     name: String,
@@ -38,20 +42,23 @@ async fn main() {
         return;
     };
 
-    // Strict mode has requirements beyond ordinary JSON Schema, and they are
-    // the usual reason a first attempt is rejected: every property must appear
-    // in `required`, and `additionalProperties` must be false. An optional
-    // field is spelled as a nullable type, not as an absent requirement.
-    let schema = json!({
+    // Written the way JSON Schema is normally written: `maturity` is optional,
+    // so it is simply absent from `required`, and nothing says
+    // `additionalProperties`.
+    //
+    // Strict mode rejects that outright. `strict_schema` supplies what it wants
+    // -- every property required, `additionalProperties: false` -- and makes
+    // the optional field nullable so it still means what it meant. A schema
+    // from a generator such as `schemars` goes through the same call.
+    let schema = strict_schema(json!({
         "type": "object",
         "properties": {
             "name":     {"type": "string"},
             "purpose":  {"type": "string"},
-            "maturity": {"type": ["string", "null"]}
+            "maturity": {"type": "string"}
         },
-        "required": ["name", "purpose", "maturity"],
-        "additionalProperties": false
-    });
+        "required": ["name", "purpose"]
+    }));
 
     let request = GenerateRequest::new()
         .message(Message::text(
