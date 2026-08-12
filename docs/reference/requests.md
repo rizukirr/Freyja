@@ -130,7 +130,9 @@ let request = GenerateRequest::new()
     });
 ```
 
-You get the result as text from `response.output_text()` and parse it yourself. Typed structured output, where a schema is derived from a Rust type and the response is deserialized for you, is Phase 1 work and does not exist yet.
+[`Client::generate_as`](client.md#generate_as) deserializes the answer into your type. The manual route is still there — `output_text()` and `serde_json::from_str` — and is what you want when the raw text matters as much as the value.
+
+The half that does not exist is the schema. It is written by hand above and must be kept in step with the struct it describes; deriving one from a Rust type is Phase 1 work still outstanding.
 
 ### `tools` and `tool_choice`
 

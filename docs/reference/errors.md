@@ -24,6 +24,9 @@ pub enum ProviderError {
     // The endpoint answered, but the body was unusable.
     InvalidResponse { provider: Arc<str>, message: String },
     Stream          { provider: Arc<str>, message: String },
+
+    // The endpoint answered fine; the content was not what the caller wanted.
+    OutputMismatch  { provider: Arc<str>, message: String, text: String, truncated: bool },
 }
 ```
 
@@ -207,6 +210,30 @@ invalid OpenAI response: missing field `id`; body: {...}
 ```
 
 This means the vendor changed something Freyja models as required. Unknown fields, unknown output types, and unknown status strings are all tolerated already, so this only fires on a genuine break. Retrying will not help. Report it as a bug.
+
+### OutputMismatch
+
+The call succeeded and the model's answer did not match the type [`generate_as`](client.md#generate_as) was asked for. Only that method raises it.
+
+```
+OpenAI output did not match: missing field `purpose` at line 1 column 24
+```
+
+Distinct from `InvalidResponse`, and the distinction matters. `InvalidResponse` is the *vendor's* body being unreadable, which means Freyja has a bug and you should report it. Here the vendor behaved perfectly: a well-formed response arrived whose content is the wrong shape. That is a problem with your schema, your prompt, or your token cap.
+
+It carries two things a bare `serde_json::Error` does not:
+
+`text` is the model's answer, kept because the parse failure destroys the only record of what actually came back. Log it, show it, or salvage what you can from it.
+
+`truncated` says whether the answer was cut short, checked against `ResponseStatus::Incomplete` rather than guessed from the parse error. This is the most common cause and the one most easily misread — half a JSON object produces `EOF while parsing an object`, which reads like a schema problem and is not:
+
+```rust
+Err(ProviderError::OutputMismatch { truncated: true, .. }) => {
+    // Raise max_tokens. The schema is fine.
+}
+```
+
+Not retryable. Model output is nondeterministic, so another attempt might parse by luck, but the request that produced this will keep producing it. Match the variant directly if you want to retry regardless.
 
 ### Stream
 

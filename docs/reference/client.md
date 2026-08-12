@@ -127,6 +127,46 @@ Sends a request and returns the normalized response. The request is borrowed, so
 
 The whole response is buffered before returning. Use `stream` when you want the answer as it arrives.
 
+### `generate_as`
+
+```rust
+pub async fn generate_as<T: DeserializeOwned>(&self, request: &GenerateRequest)
+    -> Result<T, ProviderError>
+```
+
+Sends a request and deserializes the answer into `T`. The companion to `ResponseFormat::JsonSchema`: you constrain the model's output to a shape, and this hands back that shape rather than a string.
+
+```rust
+#[derive(Deserialize)]
+struct Recommendation { name: String, purpose: String }
+
+let recommendation: Recommendation = client.generate_as(&request).await?;
+```
+
+The schema is still yours to write and to keep in step with `T`. Deriving one from the type is not implemented, so nothing stops the two from drifting except the deserialize step failing.
+
+`generate` remains the right call when the raw text matters as much as the value, or when you want the usage figures and the status alongside it.
+
+#### The failure it adds
+
+`OutputMismatch`, and only that one. Everything `generate` can raise passes through untouched — an unreachable endpoint is still a transport error, not a deserialization one.
+
+It exists because "the model's answer was not your shape" is a different problem from every other failure in the enum. The call succeeded. The vendor behaved. What came back is well-formed and not what you asked for, and the fix is the schema, the prompt, or the token cap.
+
+Two things make it more useful than the `serde_json::Error` you would get by hand:
+
+**It keeps the text.** The model's answer is the only record of what actually happened, and it is gone once the parse fails. Log it, show it, or salvage it.
+
+**It separates truncation.** A cut-off answer is still valid text and never valid JSON, and it is the most common way this fails. Freyja checks `ResponseStatus::Incomplete` rather than guessing from the parse error, so a `truncated: true` sends you to `max_tokens` instead of to your schema:
+
+```rust
+Err(ProviderError::OutputMismatch { text, truncated: true, .. }) => {
+    eprintln!("cut short by max_tokens, got: {text}");
+}
+```
+
+`is_retryable()` is `false`. The output is nondeterministic, so another attempt might happen to parse — but the request that produced this one will keep producing it, and treating that as transient hides a real problem. Match the variant directly if you want to retry anyway.
+
 ### `stream`
 
 ```rust
