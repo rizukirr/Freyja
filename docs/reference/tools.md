@@ -73,7 +73,7 @@ Do not use `Required` inside a loop. It forces a call on every round, so the mod
 let request = request.tool_choice(ToolChoice::Required);
 ```
 
-Leave `tool_choice` unset unless you need it. Unset means the provider's own default, which is normally `Auto`, and it keeps the request portable. Gemini currently rejects this field entirely, so setting it rules Gemini out while leaving OpenAI and Anthropic available.
+Leave `tool_choice` unset unless you need it. Unset means the provider's own default, which is normally `Auto`, and it keeps the request portable. All four dialects carry it, each with its own spelling: `Required` is `any` on Gemini and Anthropic, and `required` on the two OpenAI formats.
 
 ## Reading the calls
 

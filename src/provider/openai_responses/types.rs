@@ -109,10 +109,7 @@ impl Request {
                     match content {
                         InputContent::Text(text) => instructions.push(text.clone()),
                         _ => {
-                            return Err(ProviderError::UnsupportedCapability {
-                                provider: config.name.clone(),
-                                capability: "non-text content in system/developer messages",
-                            });
+                            return Err(refusal::unsupported(config, refusal::NON_TEXT_SYSTEM));
                         }
                     }
                 }
@@ -132,10 +129,7 @@ impl Request {
                     }),
                     InputContent::ImageUrl(image_url) => {
                         if message.role != Role::User {
-                            return Err(ProviderError::UnsupportedCapability {
-                                provider: config.name.clone(),
-                                capability: "images outside user messages",
-                            });
+                            return Err(refusal::unsupported(config, refusal::IMAGES_OUTSIDE_USER));
                         }
                         pending.push(InputWire::Image {
                             image_url: image_url.clone(),

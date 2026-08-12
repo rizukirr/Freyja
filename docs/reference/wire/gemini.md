@@ -30,7 +30,10 @@ That query parameter is what actually selects SSE framing on this API; `"stream"
   "model": "gemini-3.5-flash",
   "input": "...",
   "system_instruction": "Be concise",
-  "generation_config": { "max_output_tokens": 512, "temperature": 0.2, "top_p": 0.9 },
+  "generation_config": {
+    "max_output_tokens": 512, "temperature": 0.2, "top_p": 0.9,
+    "thinking_level": "low", "tool_choice": "any"
+  },
   "response_format": { "type": "object", "properties": {}, "required": [] },
   "tools": [ { "type": "function", "name": "add", "description": "...", "parameters": {} } ],
   "previous_interaction_id": "v1_..."
@@ -45,7 +48,16 @@ Note the naming: `system_instruction` rather than a system turn, `max_output_tok
 
 Two shapes here are unlike the other three dialects, and the endpoint enforces both by name rather than ignoring what it does not recognise.
 
-**Sampling controls nest.** `max_output_tokens`, `temperature`, and `top_p` live inside `generation_config`. Sent loose they are rejected — `Unknown parameter 'temperature'` — and so is an unknown key inside the object, which is how you can tell the validation is real rather than tolerant.
+**Sampling, reasoning, and tool controls nest.** `max_output_tokens`, `temperature`, `top_p`, `thinking_level`, and `tool_choice` live inside `generation_config`. Sent loose they are rejected — `Unknown parameter 'temperature'` — and so is an unknown key inside the object, which is how you can tell the validation is real rather than tolerant.
+
+`thinking_level` is where reasoning effort goes, and it takes four values by name:
+
+```
+The value 'none' is not supported for 'thinking_level'.
+Supported values: 'minimal', 'low', 'medium', 'high'.
+```
+
+Freyja maps `Low`, `Medium`, and `High` onto it and refuses the other three portable levels locally. `minimal` is unreachable, having no portable level to map from.
 
 **`response_format` is the schema**, not a wrapper around one. Its `type` takes JSON Schema type names, and says so when given anything else:
 
@@ -304,4 +316,4 @@ The exception is `Request contains an invalid argument`, a generic protobuf-leve
 
 ## What Freyja does not send
 
-`reasoning_effort` and `tool_choice` are refused with `UnsupportedCapability` before the request is built, because no portable mapping onto this API has been established. See [Gemini](../../providers/gemini.md).
+`metadata` is refused with `UnsupportedCapability` before the request is built, along with `reasoning_effort` at `None`, `Xhigh`, or `Max`. See [Gemini](../../providers/gemini.md).

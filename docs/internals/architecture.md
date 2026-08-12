@@ -67,7 +67,7 @@ Dropping is worse than failing. A request with `tool_choice: Required` that sile
 
 `GenerateRequest::new()` sets nothing. `None` means "the provider decides".
 
-This was learned the hard way. An earlier version had `new()` default `tool_choice` to `Auto` and `reasoning_effort` to `Medium`, both fields Gemini rejects, so every default constructed request failed against Gemini before it reached the network. Populating a field the caller never asked for makes the request non portable, which defeats the point of a neutral model.
+This was learned the hard way. An earlier version had `new()` default `tool_choice` to `Auto`, a field Gemini cannot express, so every default constructed request failed against Gemini before it reached the network. Populating a field the caller never asked for makes the request non portable, which defeats the point of a neutral model.
 
 ## Conversion
 

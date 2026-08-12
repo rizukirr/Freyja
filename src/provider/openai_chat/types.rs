@@ -119,10 +119,10 @@ impl Request {
     ) -> Result<Self, ProviderError> {
         // Chat Completions is stateless; the whole transcript goes every time.
         if value.previous_response_id.is_some() {
-            return Err(ProviderError::UnsupportedCapability {
-                provider: config.name.clone(),
-                capability: "server-side conversation continuation",
-            });
+            return Err(refusal::unsupported(
+                config,
+                refusal::CONVERSATION_CONTINUATION,
+            ));
         }
 
         let mut messages = Vec::new();
@@ -152,10 +152,7 @@ impl Request {
                     }
                     InputContent::ImageUrl(url) => {
                         if message.role != Role::User {
-                            return Err(ProviderError::UnsupportedCapability {
-                                provider: config.name.clone(),
-                                capability: "images outside user messages",
-                            });
+                            return Err(refusal::unsupported(config, refusal::IMAGES_OUTSIDE_USER));
                         }
                         parts.push(PartWire::Image {
                             image_url: ImageUrlWire { url: url.clone() },

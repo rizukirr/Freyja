@@ -95,10 +95,10 @@ impl Request {
         // Anthropic keeps no server-side transcript; the full history goes on
         // every request, so there is nothing to continue from.
         if value.previous_response_id.is_some() {
-            return Err(ProviderError::UnsupportedCapability {
-                provider: config.name.clone(),
-                capability: "server-side conversation continuation",
-            });
+            return Err(refusal::unsupported(
+                config,
+                refusal::CONVERSATION_CONTINUATION,
+            ));
         }
 
         let mut system = Vec::new();
@@ -110,10 +110,7 @@ impl Request {
                     match content {
                         InputContent::Text(text) => system.push(text.clone()),
                         _ => {
-                            return Err(ProviderError::UnsupportedCapability {
-                                provider: config.name.clone(),
-                                capability: "non-text content in system/developer messages",
-                            });
+                            return Err(refusal::unsupported(config, refusal::NON_TEXT_SYSTEM));
                         }
                     }
                 }
@@ -139,10 +136,7 @@ impl Request {
                     }
                     InputContent::ImageUrl(url) => {
                         if message.role != Role::User {
-                            return Err(ProviderError::UnsupportedCapability {
-                                provider: config.name.clone(),
-                                capability: "images outside user messages",
-                            });
+                            return Err(refusal::unsupported(config, refusal::IMAGES_OUTSIDE_USER));
                         }
                         content.push(BlockWire::Typed(TypedBlockWire::Image {
                             source: image_source(url, config)?,
@@ -197,10 +191,7 @@ impl Request {
                 // The API's own default.
                 ResponseFormat::Text => {}
                 ResponseFormat::JsonObject => {
-                    return Err(ProviderError::UnsupportedCapability {
-                        provider: config.name.clone(),
-                        capability: "schema-less JSON response format",
-                    });
+                    return Err(refusal::unsupported(config, refusal::SCHEMALESS_JSON));
                 }
                 ResponseFormat::JsonSchema { schema, .. } => {
                     output_config.insert(

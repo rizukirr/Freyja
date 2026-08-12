@@ -16,6 +16,7 @@ pub(crate) mod openai_responses;
 
 mod model;
 mod presets;
+mod refusal;
 pub(crate) mod sse;
 pub(crate) mod stream;
 
@@ -478,8 +479,13 @@ impl Client {
     /// compatible gateway, so a table of it would be confidently wrong within a
     /// month.
     ///
-    /// The converse is solid: an `Err` here is an error `generate` would have
-    /// raised too, before reaching the network.
+    /// An `Err` here is an error `generate` would have raised too, since the
+    /// two run the same conversion. That makes the two agree; it does not make
+    /// either correct. A refusal is a claim that this wire format has nowhere
+    /// to put a field, and a claim can be wrong: Freyja refused
+    /// `reasoning_effort` on Gemini for months, having looked for it at the top
+    /// level of a request that keeps it under `generation_config`. Every
+    /// refusal and the evidence behind it is listed in `src/provider/refusal.rs`.
     ///
     /// # Choosing a provider
     ///
@@ -932,20 +938,6 @@ mod tests {
     fn check_reports_a_field_the_dialect_cannot_express() {
         assert_eq!(
             refusal(
-                ProviderDialect::Gemini,
-                &ask().reasoning_effort(ReasoningEffort::High)
-            ),
-            "portable reasoning effort levels"
-        );
-        assert_eq!(
-            refusal(
-                ProviderDialect::Gemini,
-                &ask().tool_choice(ToolChoice::Required)
-            ),
-            "portable tool choice"
-        );
-        assert_eq!(
-            refusal(
                 ProviderDialect::Anthropic,
                 &ask().previous_response_id("resp_1")
             ),
@@ -983,6 +975,23 @@ mod tests {
                 &ask().response_format(ResponseFormat::JsonObject)
             ),
             "schema-less JSON response format"
+        );
+
+        // Gemini is the same shape: it takes reasoning effort, and refuses the
+        // three levels its `thinking_level` has no word for.
+        let gemini = offline(ProviderDialect::Gemini);
+
+        assert!(
+            gemini
+                .check(&ask().reasoning_effort(ReasoningEffort::High))
+                .is_ok(),
+        );
+        assert_eq!(
+            refusal(
+                ProviderDialect::Gemini,
+                &ask().reasoning_effort(ReasoningEffort::Max)
+            ),
+            "reasoning effort 'max'"
         );
     }
 
