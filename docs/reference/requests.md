@@ -132,7 +132,9 @@ let request = GenerateRequest::new()
 
 [`Client::generate_as`](client.md#generate_as) deserializes the answer into your type. The manual route is still there — `output_text()` and `serde_json::from_str` — and is what you want when the raw text matters as much as the value.
 
-The half that does not exist is the schema. It is written by hand above and must be kept in step with the struct it describes; deriving one from a Rust type is Phase 1 work still outstanding.
+The half that does not exist is *writing* the schema. It is written by hand above and must be kept in step with the struct it describes; deriving one from a Rust type is not implemented.
+
+Making a schema acceptable is handled: [`strict_schema`](#strict_schema) rewrites one into the subset strict mode takes.
 
 ### `tools` and `tool_choice`
 
@@ -149,6 +151,43 @@ Anthropic and OpenAI Chat Completions both reject this field with `UnsupportedCa
 Arbitrary JSON forwarded to the provider, for labels and trace identifiers. Sent as `metadata` to OpenAI and Anthropic. Freyja does not read it.
 
 Gemini refuses it with `UnsupportedCapability`, before the network. Its Interactions API has a `labels` field for exactly this and then declines to accept it, so the alternative was a round trip to be told no. See [Gemini](../providers/gemini.md#three-capabilities-are-rejected-outright).
+
+## `strict_schema`
+
+```rust
+pub fn strict_schema(schema: Value) -> Value
+```
+
+OpenAI's strict mode accepts a *subset* of JSON Schema, and a schema written to spec is rejected rather than trimmed:
+
+```
+Invalid schema for response_format: 'additionalProperties' is required
+to be supplied and to be false.
+```
+
+Freyja does not generate schemas. This takes one you already have — hand-written, `schemars`, anything — and rewrites it into the subset. It is idempotent, so a schema already in the subset passes through unchanged.
+
+### What it changes
+
+| | |
+|---|---|
+| `additionalProperties: false` | Added to every object, nested ones included |
+| `required` | Every property moved into it |
+| Optional properties | Gain `null` in their type first, so "may be absent" becomes "may be null" rather than "must be present" |
+| `oneOf` | Renamed to `anyOf`, which is the only one strict mode permits |
+| `uniqueItems`, `minProperties`, `maxProperties`, `dependentRequired`, `dependentSchemas` | Removed |
+
+Each removal is a keyword strict mode rejects *and* which only narrows a value, so the type survives the round trip.
+
+### What it leaves alone
+
+`allOf`, `not`, `if`/`then`/`else`, `contains`, and `propertyNames` are rejected by strict mode too, and are **not** removed. Dropping them would change which documents the schema describes, and quietly sending a different contract than you wrote is worse than the endpoint refusing. They arrive as `BadRequest` naming the keyword.
+
+It also leaves alone everything strict mode accepts, which is more than it looks: `format`, `pattern`, `enum`, `const`, `minimum`, `maximum`, `minItems`, `maxItems`, `minLength`, `maxLength`, `default`, `examples`, `title`, `description`, `$ref`, `$defs`, `anyOf`, `prefixItems`, `patternProperties`. Those were probed one at a time against the live endpoint, because stripping a constraint the model could have used is a real cost.
+
+### Scope
+
+The rules are OpenAI's. Gemini accepts schemas with or without them, and Anthropic is unverified, so one function serves all three. If a vendor wants something different it gains a dialect parameter.
 
 ## Reusing a request across turns
 

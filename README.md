@@ -90,7 +90,7 @@ Then [providers](docs/providers/README.md), the [API reference](docs/README.md#r
 
 ## Status
 
-Phase 0 is complete and Phase 1 is nearly done: the neutral core is stable, four wire dialects are implemented, tool calling works end to end, every dialect streams, failures are classified by cause, a request can be checked before it is sent, and an answer can be deserialized straight into your own type. Deriving the schema from that type is the Phase 1 work that remains.
+Phases 0 and 1 are complete: the neutral core is stable, four wire dialects are implemented, tool calling works end to end, every dialect streams, failures are classified by cause, a request can be checked before it is sent, a JSON schema can be rewritten into the subset a vendor accepts, and an answer can be deserialized straight into your own type. Next is Phase 2, the agent layer.
 
 | Area | State |
 |---|---|
@@ -101,9 +101,10 @@ Phase 0 is complete and Phase 1 is nearly done: the neutral core is stable, four
 | Dependencies | Three: `reqwest`, `serde`, `serde_json` |
 | Errors | Classified by cause, with `is_retryable()` and `Retry-After` |
 | Pre-flight checks | `client.check(&request)`, no network call |
+| Structured output | `strict_schema()` plus `generate_as::<T>()` |
 | Not implemented | Automatic tool dispatch, orchestration |
 
-`cargo test`: 119 unit tests, 8 integration tests, and 14 doctests. `cargo clippy --all-targets -- -D warnings` clean. [Features](docs/features.md) has the honest boundary, including which capabilities each provider refuses.
+`cargo test`: 128 unit tests, 8 integration tests, and 15 doctests. `cargo clippy --all-targets -- -D warnings` clean. [Features](docs/features.md) has the honest boundary, including which capabilities each provider refuses.
 
 ## Roadmap
 
@@ -111,7 +112,9 @@ The goal: everything you need to build an AI agent in Rust, with no vendor lock-
 
 **Phase 0, stabilize the core.** Complete. Portable defaults, tool round trips, opaque reasoning state, pooled HTTP, live verification on every provider.
 
-**Phase 1, production-grade provider layer.** Four dialects, the dialect/endpoint split, streaming, typed errors, pre-flight checking, and typed responses are done. Remaining: deriving a JSON schema from a Rust type, which Phase 2's `#[tool]` macro needs as well and should be built once for both.
+**Phase 1, production-grade provider layer.** Complete. Four dialects, the dialect/endpoint split, streaming, typed errors, pre-flight checking, typed responses, and strict-mode schema rewriting.
+
+Deriving a JSON schema *from a Rust type* is deliberately not here: `schemars` already does it, and doing it again would mean a proc-macro crate and a derive that has to agree with serde's own attributes. Phase 2's `#[tool]` macro needs the same machinery, so the two get decided together there.
 
 **Phase 2, the agent.** A `Tool` trait and registry, a `#[tool]` macro deriving schemas from function signatures, an `Agent` type, and a bounded loop with per-tool timeouts and approval hooks.
 
