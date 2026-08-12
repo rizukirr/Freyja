@@ -4,8 +4,9 @@
 //! format and converts to and from these types, so application code never has
 //! to name an OpenAI or Gemini struct.
 
+use super::ProviderDialect;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{Map, Value};
 use std::fmt;
 use std::sync::Arc;
 use std::time::Duration;
@@ -50,6 +51,9 @@ pub struct GenerateRequest {
     pub previous_response_id: Option<String>,
     /// Free-form metadata forwarded to the provider (labels, trace ids, …).
     pub metadata: Option<Value>,
+    /// Vendor-specific body fields, each scoped to the dialect that understands
+    /// it. See [`extra_for`](Self::extra_for).
+    pub extra: Vec<(ProviderDialect, Map<String, Value>)>,
 }
 
 impl GenerateRequest {
@@ -139,6 +143,78 @@ impl GenerateRequest {
     pub fn metadata(mut self, metadata: Value) -> Self {
         self.metadata = Some(metadata);
         self
+    }
+
+    /// Adds body fields only `dialect` understands.
+    ///
+    /// The escape hatch for capabilities the neutral model does not name. A
+    /// field earns a place in [`GenerateRequest`] by meaning the same thing on
+    /// more than one dialect; Gemini's `seed` and `safety_settings`,
+    /// Anthropic's memory tool, and OpenAI's `context_management` do not, and
+    /// this is how you reach them without a fork.
+    ///
+    /// The object is deep-merged into the wire body: nested objects merge key
+    /// by key, and anything else replaces what Freyja put there. So a field
+    /// that nests is reachable without a path syntax:
+    ///
+    /// ```
+    /// use freyja::{GenerateRequest, ProviderDialect};
+    /// use serde_json::json;
+    ///
+    /// let request = GenerateRequest::new()
+    ///     .extra_for(ProviderDialect::Gemini, json!({"seed": 42}))
+    ///     .extra_for(
+    ///         ProviderDialect::Gemini,
+    ///         json!({"generation_config": {"thinking_level": "minimal"}}),
+    ///     );
+    /// ```
+    ///
+    /// Freyja's own `generation_config` survives that merge; only
+    /// `thinking_level` is added to it.
+    ///
+    /// # Portability
+    ///
+    /// Scoping to a dialect is what keeps the request portable. The same
+    /// `GenerateRequest` still runs against OpenAI, which never sees these
+    /// fields — so an application that switches vendors at runtime does not
+    /// have to strip them first.
+    ///
+    /// Nothing here is checked. [`Client::check`](crate::Client::check) reports
+    /// what the wire format can carry, and this is by definition outside what
+    /// Freyja knows about the format, so a wrong key is answered by the
+    /// endpoint rather than locally.
+    ///
+    /// Calls accumulate, and a later one wins a collision with an earlier one.
+    ///
+    /// # Panics
+    ///
+    /// If `fields` is not a JSON object. It becomes the top level of a request
+    /// body, which nothing else can be.
+    pub fn extra_for(mut self, dialect: ProviderDialect, fields: Value) -> Self {
+        let Value::Object(fields) = fields else {
+            panic!("extra_for expects a JSON object, got {fields}");
+        };
+        self.extra.push((dialect, fields));
+        self
+    }
+}
+
+/// Deep-merges `overlay` into `base`.
+///
+/// Two objects at the same key merge key by key, so adding one field to a
+/// nested object leaves its siblings alone. Anything else replaces: an array
+/// overwrites an array rather than appending, because appending to a list of
+/// tools or messages is never what an override means.
+pub(crate) fn merge_into(base: &mut Map<String, Value>, overlay: &Map<String, Value>) {
+    for (key, value) in overlay {
+        match (base.get_mut(key), value) {
+            (Some(Value::Object(nested)), Value::Object(incoming)) => {
+                merge_into(nested, incoming);
+            }
+            _ => {
+                base.insert(key.clone(), value.clone());
+            }
+        }
     }
 }
 
