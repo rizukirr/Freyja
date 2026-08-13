@@ -115,6 +115,8 @@ This is the one place where a provider requirement reaches into the neutral mode
 
 A `function_result` must carry `call_id`, `name`, and a `result` that is an object or a string. The neutral `InputContent::ToolResult` only records the call id, so Freyja resolves the name from the matching `ToolCall` earlier in the transcript.
 
+"Earlier" is meant strictly: the transcript is resolved as it is walked, so a result that answers a call appearing *later* in the message list fails here rather than at the endpoint, which rejects that step order anyway.
+
 If no matching call is present, for instance because you are continuing through `previous_response_id` without replaying the call, the request fails locally with `InvalidRequest`:
 
 ```

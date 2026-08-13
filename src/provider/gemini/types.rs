@@ -92,17 +92,13 @@ impl Request {
         let mut steps: Vec<Value> = Vec::new();
 
         // A function_result must carry the name of the tool it answers, but the
-        // neutral model only records the call id, so resolve the name from the
-        // matching tool call earlier in the transcript.
+        // neutral model only records the call id, so the name is resolved from
+        // the matching tool call. Filled as the transcript is walked rather than
+        // in a pass ahead of it: a result may only answer a call that already
+        // happened, and pre-scanning accepted one that answered a call still to
+        // come -- a transcript the endpoint then rejected.
         let mut tool_names: std::collections::HashMap<&str, &str> =
             std::collections::HashMap::new();
-        for message in &value.messages {
-            for part in &message.content {
-                if let InputContent::ToolCall { id, name, .. } = part {
-                    tool_names.insert(id.as_str(), name.as_str());
-                }
-            }
-        }
 
         for message in &value.messages {
             if matches!(message.role, Role::System | Role::Developer) {
@@ -159,6 +155,7 @@ impl Request {
                         arguments,
                     } => {
                         flush(&mut steps, step_type, &mut pending);
+                        tool_names.insert(id.as_str(), name.as_str());
                         steps.push(serde_json::json!({
                             "type": "function_call",
                             "id": id,
@@ -820,6 +817,29 @@ mod tests {
     #[test]
     fn rejects_a_result_with_no_matching_call() {
         let request = GenerateRequest::new().message(Message::tool_result("missing", "42"));
+
+        assert!(matches!(
+            Request::build(&request, &config()),
+            Err(ProviderError::InvalidRequest { .. })
+        ));
+    }
+
+    #[test]
+    fn rejects_a_result_that_answers_a_later_call() {
+        // A result may only answer a call that already happened. Scanning the
+        // whole transcript up front accepted this and sent it, and the endpoint
+        // rejected the step order -- a round trip spent to learn what is
+        // decidable here.
+        let request = GenerateRequest::new()
+            .message(Message::tool_result("call_1", "42"))
+            .message(Message::new(
+                Role::Assistant,
+                vec![InputContent::ToolCall {
+                    id: "call_1".into(),
+                    name: "add".into(),
+                    arguments: "{}".into(),
+                }],
+            ));
 
         assert!(matches!(
             Request::build(&request, &config()),

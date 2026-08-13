@@ -46,7 +46,8 @@ struct PendingThinking {
 /// remember which indices were tool calls and which were thinking blocks.
 #[derive(Default)]
 pub(crate) struct Decoder {
-    tools: HashMap<usize, ()>,
+    /// Indices of tool-call blocks, so `content_block_stop` can end the call.
+    tools: HashSet<usize>,
     /// Indices of text blocks, so `content_block_stop` can close the block.
     /// convert_block emits one `OutputContent::Text` per text block, and
     /// without the boundary two adjacent blocks would coalesce into one part.
@@ -107,7 +108,7 @@ impl StreamDecoder for Decoder {
                 let block = &value["content_block"];
                 match block["type"].as_str() {
                     Some("tool_use") => {
-                        self.tools.insert(index, ());
+                        self.tools.insert(index);
                         out.push(RawDelta::ToolStart {
                             slot: index,
                             id: block["id"].as_str().unwrap_or_default().to_string(),
@@ -167,7 +168,7 @@ impl StreamDecoder for Decoder {
                 }
             }
             "content_block_stop" => {
-                if self.tools.remove(&index).is_some() {
+                if self.tools.remove(&index) {
                     out.push(RawDelta::ToolEnd { slot: index });
                 } else if let Some(pending) = self.thinking.remove(&index) {
                     out.push(RawDelta::ReasoningBlob(serde_json::json!({
@@ -202,9 +203,9 @@ impl StreamDecoder for Decoder {
                         "tool_use" => ResponseStatus::RequiresAction,
                         other => ResponseStatus::Other(other.to_string()),
                     });
-                // Every UsageWire field is `Option` with `#[serde(default)]`
-                // (types.rs:319-329) and the parser unwraps each to 0, so a
-                // usage object missing `output_tokens` still yields usage.
+                // Every field of `UsageWire` in types.rs is an `Option` the
+                // parser unwraps to 0, so a usage object missing
+                // `output_tokens` still yields usage.
                 let usage = value.get("usage").map(|usage| {
                     let output_tokens = usage["output_tokens"].as_u64().unwrap_or(0);
                     Usage {
@@ -228,7 +229,7 @@ impl StreamDecoder for Decoder {
         Ok(())
     }
 
-    /// convert_block re-serializes the parsed `input` object (types.rs:382-385),
+    /// `convert_block` in types.rs re-serializes the parsed `input` object,
     /// which sorts its keys.
     fn normalizes_tool_arguments(&self) -> bool {
         true
