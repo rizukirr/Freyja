@@ -1,8 +1,6 @@
 //! Wire types for the Gemini Interactions API and their conversions to and from
 //! the neutral model.
 
-#[cfg(test)]
-use crate::provider::Message;
 use crate::provider::refusal;
 use crate::provider::{
     GenerateRequest, GenerateResponse, InputContent, OutputContent, ProviderConfig, ProviderError,
@@ -399,9 +397,9 @@ pub(crate) fn parse(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::provider::ProviderType;
     use crate::provider::sse::SseFrame;
     use crate::provider::stream::{RawDelta, StreamDecoder};
+    use crate::provider::{Message, ProviderType};
 
     fn decode_all(frames: &[&str]) -> Vec<RawDelta> {
         let mut decoder = crate::provider::gemini::Decoder::default();

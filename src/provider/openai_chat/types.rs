@@ -10,8 +10,6 @@ use crate::provider::{
     GenerateRequest, GenerateResponse, InputContent, OutputContent, ProviderConfig, ProviderError,
     ReasoningEffort, ResponseFormat, ResponseStatus, Role, TokenLimitField, ToolChoice, Usage,
 };
-#[cfg(test)]
-use crate::provider::{Message, ProviderDialect};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -436,6 +434,7 @@ pub(crate) fn parse(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::provider::{Message, ProviderDialect};
     /// A stand-in endpoint. This dialect ships no preset, because the vendors
     /// speaking it are third party, so the test builds the config the same way
     /// a caller would.

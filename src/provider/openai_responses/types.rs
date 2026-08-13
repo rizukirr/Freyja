@@ -1,8 +1,6 @@
 //! Wire types for the OpenAI Responses API and their conversions to and from
 //! the neutral model.
 
-#[cfg(test)]
-use crate::provider::Message;
 use crate::provider::refusal;
 use crate::provider::{
     GenerateRequest, GenerateResponse, InputContent, OutputContent, ProviderConfig, ProviderError,
@@ -361,7 +359,7 @@ pub(crate) fn parse(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::provider::ProviderType;
+    use crate::provider::{Message, ProviderType};
 
     /// The shipped endpoint for this dialect, so tests cover the real defaults.
     fn config() -> ProviderConfig {
