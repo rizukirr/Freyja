@@ -47,6 +47,8 @@ Dialect modules are `pub(crate)`. Their wire types never escape the crate, so `t
 
 Modules are named after the wire format, not the vendor, because a dialect usually outlives its author. `openai_responses` is OpenAI's own format; the format most vendors actually copy is Chat Completions, which is why `openai_chat` is a separate module serving many of them.
 
+Each dialect's `types.rs` imports by name rather than globbing the provider root. The glob pulled in `Client`, `Provider` and `Auth` alongside the neutral model, so nothing in a dialect's header said that an engine must not reach for the rack. Nothing enforces this — a lint would ban globs rather than rack access, and a guard test would be scaffolding against a violation that has never occurred. It is a reading habit, and the header is where the reading happens.
+
 ## The three design rules
 
 ### The neutral model never bends to a vendor

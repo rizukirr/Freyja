@@ -5,7 +5,11 @@
 //! Fireworks, DeepSeek, OpenRouter, Ollama, vLLM, and others implement it, so
 //! this one mapping reaches all of them through [`ProviderConfig`].
 
-use crate::provider::*;
+use crate::provider::refusal;
+use crate::provider::{
+    GenerateRequest, GenerateResponse, InputContent, OutputContent, ProviderConfig, ProviderError,
+    ReasoningEffort, ResponseFormat, ResponseStatus, Role, TokenLimitField, ToolChoice, Usage,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -430,6 +434,7 @@ pub(crate) fn parse(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::provider::{Message, ProviderDialect};
     /// A stand-in endpoint. This dialect ships no preset, because the vendors
     /// speaking it are third party, so the test builds the config the same way
     /// a caller would.
