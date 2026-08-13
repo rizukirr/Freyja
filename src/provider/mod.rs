@@ -215,8 +215,11 @@ fn is_secret_header(name: &str) -> bool {
 /// [`ProviderConfig::extra_headers`]. A derived `Debug` would print that
 /// verbatim and undo the redaction one field over.
 ///
-/// Names are always shown, and values are withheld only for the names in
-/// [`SECRET_HEADER_MARKERS`], so a routing hint stays as readable as it was.
+/// Names are always shown, and a value is withheld only when its name contains
+/// `auth`, `key`, `token`, `secret`, `cookie`, or `password`, so a routing hint
+/// stays as readable as it was. A heuristic, and stated as one: it cannot know
+/// that `x-acme-passport` is a credential. Put credentials in
+/// [`ProviderConfig::auth`], which is redacted whatever it is called.
 impl fmt::Debug for ProviderConfig {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let headers: Vec<(&str, &str)> = self
