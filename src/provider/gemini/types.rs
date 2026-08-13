@@ -1,7 +1,13 @@
 //! Wire types for the Gemini Interactions API and their conversions to and from
 //! the neutral model.
 
-use crate::provider::*;
+#[cfg(test)]
+use crate::provider::Message;
+use crate::provider::refusal;
+use crate::provider::{
+    GenerateRequest, GenerateResponse, InputContent, OutputContent, ProviderConfig, ProviderError,
+    ReasoningEffort, ResponseFormat, ResponseStatus, Role, ToolChoice, Usage,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
