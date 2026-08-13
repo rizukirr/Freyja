@@ -346,6 +346,32 @@ const STRICT_DROPS: [&str; 5] = [
     "dependentSchemas",
 ];
 
+/// Keywords whose value is a schema, or a list of them.
+///
+/// The rewrite descends only through these and [`SCHEMA_MAP_KEYS`]. Descending
+/// into every value instead would treat `enum` members, `default` values, and
+/// above all *property names* as schemas: a property called `uniqueItems` was
+/// deleted and one called `oneOf` renamed, which is the caller's contract
+/// quietly changed rather than the endpoint's rejection avoided.
+/// `oneOf` is absent because it is renamed to `anyOf` before the descent.
+const SCHEMA_KEYS: [&str; 11] = [
+    "items",
+    "additionalItems",
+    "prefixItems",
+    "contains",
+    "propertyNames",
+    "not",
+    "if",
+    "then",
+    "else",
+    "anyOf",
+    "allOf",
+];
+
+/// Keywords whose value maps names onto schemas. The names are the caller's and
+/// are never rewritten; only the schemas under them are.
+const SCHEMA_MAP_KEYS: [&str; 4] = ["properties", "patternProperties", "$defs", "definitions"];
+
 /// Rewrites a JSON Schema into the subset OpenAI's strict mode accepts.
 ///
 /// Strict mode is narrower than JSON Schema, and a schema written to spec — or
@@ -400,6 +426,10 @@ const STRICT_DROPS: [&str; 5] = [
 ///   `dependentSchemas` are removed. Each is a keyword strict mode rejects
 ///   *and* one that only narrows a value, so the type survives the round trip.
 ///
+/// All of it applies at schema positions only. A *property* named `oneOf` or
+/// `uniqueItems` is a name the caller chose, not a keyword, and is left exactly
+/// as written.
+///
 /// # What it leaves alone
 ///
 /// `allOf`, `not`, `if`/`then`/`else`, `contains`, and `propertyNames` are also
@@ -422,24 +452,55 @@ pub fn strict_schema(schema: Value) -> Value {
 
 /// The recursive half of [`strict_schema`].
 fn strictify(value: &mut Value) {
-    match value {
-        Value::Object(map) => {
-            for key in STRICT_DROPS {
-                map.remove(key);
-            }
-            if let Some(variants) = map.remove("oneOf") {
-                map.insert("anyOf".into(), variants);
-            }
-            if map.get("type").and_then(Value::as_str) == Some("object") {
-                map.insert("additionalProperties".into(), Value::Bool(false));
-                require_every_property(map);
-            }
-            for (_, nested) in map.iter_mut() {
-                strictify(nested);
-            }
+    let Some(map) = value.as_object_mut() else {
+        return;
+    };
+
+    for key in STRICT_DROPS {
+        map.remove(key);
+    }
+    if let Some(variants) = map.remove("oneOf") {
+        map.insert("anyOf".into(), variants);
+    }
+    if describes_an_object(map) {
+        map.insert("additionalProperties".into(), Value::Bool(false));
+        require_every_property(map);
+    }
+
+    // Only schema positions, never arbitrary values: see [`SCHEMA_KEYS`].
+    for key in SCHEMA_KEYS {
+        if let Some(nested) = map.get_mut(key) {
+            strictify_each(nested);
         }
-        Value::Array(items) => items.iter_mut().for_each(strictify),
-        _ => {}
+    }
+    for key in SCHEMA_MAP_KEYS {
+        if let Some(Value::Object(members)) = map.get_mut(key) {
+            members.values_mut().for_each(strictify);
+        }
+    }
+}
+
+/// Applies [`strictify`] to a schema, or to every schema in a list of them.
+///
+/// `items` and the like take either form, and a tuple-form `items` is a list.
+fn strictify_each(value: &mut Value) {
+    match value {
+        Value::Array(schemas) => schemas.iter_mut().for_each(strictify),
+        other => strictify(other),
+    }
+}
+
+/// Whether this schema describes an object, including when it describes an
+/// object *or* null.
+///
+/// The nullable form is what [`make_nullable`] leaves behind on an optional
+/// property, so testing for a bare `"object"` skipped exactly the nested
+/// schemas this function exists to fix.
+fn describes_an_object(map: &Map<String, Value>) -> bool {
+    match map.get("type") {
+        Some(Value::String(name)) => name == "object",
+        Some(Value::Array(names)) => names.iter().any(|name| name.as_str() == Some("object")),
+        _ => false,
     }
 }
 
@@ -1364,6 +1425,81 @@ mod tests {
         assert!(schema["properties"]["a"].get("allOf").is_some());
         assert!(schema["properties"]["b"].get("not").is_some());
         assert!(schema["properties"]["c"].get("contains").is_some());
+    }
+
+    #[test]
+    fn an_optional_nested_object_is_still_strictified() {
+        // `note` is made nullable, which leaves its type an array. Testing that
+        // for a bare "object" skipped it, so the nested schema shipped without
+        // the `additionalProperties` the endpoint requires -- the exact
+        // rejection this function exists to prevent, on the one shape most
+        // likely to carry it.
+        let schema = strict_schema(serde_json::json!({
+            "type": "object",
+            "properties": {
+                "inner": {"type": "object", "properties": {"a": {"type": "string"}}}
+            },
+            "required": []
+        }));
+
+        let inner = &schema["properties"]["inner"];
+        assert_eq!(inner["type"], serde_json::json!(["object", "null"]));
+        assert_eq!(inner["additionalProperties"], false);
+        assert_eq!(inner["required"], serde_json::json!(["a"]));
+    }
+
+    #[test]
+    fn a_property_named_after_a_keyword_is_left_alone() {
+        // Property names are the caller's, not JSON Schema's. Rewriting them
+        // renamed one field and deleted another while `required` went on naming
+        // both, which is a different contract than the caller wrote -- the one
+        // outcome this function documents as worse than a refusal.
+        let schema = strict_schema(serde_json::json!({
+            "type": "object",
+            "properties": {
+                "oneOf": {"type": "string"},
+                "uniqueItems": {"type": "boolean"},
+                "items": {"type": "string"}
+            },
+            "required": ["oneOf", "uniqueItems", "items"]
+        }));
+
+        let properties = &schema["properties"];
+        assert_eq!(properties["oneOf"]["type"], "string");
+        assert_eq!(properties["uniqueItems"]["type"], "boolean");
+        assert_eq!(properties["items"]["type"], "string");
+        assert!(properties.get("anyOf").is_none(), "no name was rewritten");
+        assert_eq!(
+            schema["required"],
+            serde_json::json!(["items", "oneOf", "uniqueItems"]),
+            "every named property still exists to be required"
+        );
+    }
+
+    #[test]
+    fn schemas_reached_only_through_schema_positions() {
+        // A `default` is data. It may look like a schema and must not be
+        // treated as one, or the value handed to the model changes.
+        let schema = strict_schema(serde_json::json!({
+            "type": "object",
+            "properties": {
+                "shape": {
+                    "type": "object",
+                    "properties": {"kind": {"type": "string"}},
+                    "required": ["kind"],
+                    "default": {"type": "object", "kind": "square"}
+                }
+            },
+            "required": ["shape"]
+        }));
+
+        assert_eq!(
+            schema["properties"]["shape"]["default"],
+            serde_json::json!({"type": "object", "kind": "square"}),
+            "a default value is not a schema position"
+        );
+        // The schema around it is still strictified.
+        assert_eq!(schema["properties"]["shape"]["additionalProperties"], false);
     }
 
     #[test]

@@ -214,6 +214,8 @@ Freyja does not generate schemas. This takes one you already have — hand-writt
 
 Each removal is a keyword strict mode rejects *and* which only narrows a value, so the type survives the round trip.
 
+All of it applies at schema positions only. A property *named* `oneOf` or `uniqueItems` is a name you chose, not a keyword, and is left exactly as written — as is anything under `enum`, `const`, or `default`, which are values rather than schemas.
+
 ### What it leaves alone
 
 `allOf`, `not`, `if`/`then`/`else`, `contains`, and `propertyNames` are rejected by strict mode too, and are **not** removed. Dropping them would change which documents the schema describes, and quietly sending a different contract than you wrote is worse than the endpoint refusing. They arrive as `BadRequest` naming the keyword.

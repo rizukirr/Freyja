@@ -167,10 +167,11 @@ mod tests {
 
     /// The evidence behind every refusal Freyja ships, counted.
     ///
-    /// Not a quality bar -- eight unverified refusals is a poor showing, and
-    /// saying so in an assertion is the point. It is a ratchet: probing one of
-    /// them fails this test until the row is updated, and so does adding a new
-    /// refusal without evidence. Neither can happen quietly.
+    /// Not a quality bar -- three of the eight resting on nobody having checked
+    /// is a poor showing, and saying so in an assertion is the point. It is a
+    /// ratchet: probing one of them fails this test until the row is updated,
+    /// and so does adding a new refusal without evidence. Neither can happen
+    /// quietly.
     #[test]
     fn the_evidence_behind_every_refusal_is_accounted_for() {
         let count = |wanted| {

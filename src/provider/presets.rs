@@ -122,7 +122,7 @@ mod tests {
     }
 
     #[test]
-    fn preset_urls_match_the_endpoints_freya_shipped_with() {
+    fn preset_urls_match_the_endpoints_freyja_shipped_with() {
         assert_eq!(
             ProviderType::OpenAi.config().url(),
             "https://api.openai.com/v1/responses"

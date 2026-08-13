@@ -383,7 +383,7 @@ impl From<Response> for GenerateResponse {
             }
         } else {
             extra.insert(
-                "freya_note".into(),
+                "freyja_note".into(),
                 Value::String("no choices returned".into()),
             );
         }
@@ -991,6 +991,40 @@ mod tests {
             )),
             "{deltas:?}"
         );
+    }
+
+    #[test]
+    fn a_mid_stream_error_frame_fails_the_stream() {
+        // There is no `event: error` line in this dialect, so the failure
+        // rides an ordinary data frame. Ignoring it handed the caller a
+        // truncated answer labelled Incomplete and no reason for it.
+        let mut decoder = crate::provider::openai_chat::Decoder;
+        let mut out = Vec::new();
+        let frame = SseFrame {
+            event: None,
+            data: r#"{"error":{"message":"model overloaded","type":"server_error"}}"#.into(),
+        };
+
+        match decoder.decode(&frame, &"groq".into(), &mut out) {
+            Err(ProviderError::Stream { provider, message }) => {
+                assert_eq!(message, "model overloaded");
+                assert_eq!(
+                    &*provider, "groq",
+                    "a compatible endpoint must report its own name, not the dialect"
+                );
+            }
+            other => panic!("expected ProviderError::Stream, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn an_explicit_null_error_is_not_a_failure() {
+        // Several compatible endpoints send `"error": null` on every frame.
+        let deltas = decode_all(&[
+            r#"{"id":"chatcmpl-1","model":"gpt-4o","error":null,"choices":[{"delta":{"content":"hi"}}]}"#,
+        ]);
+
+        assert!(deltas.iter().any(|d| *d == RawDelta::Text("hi".into())));
     }
 
     /// The parser's `UsageWire` marks every subfield `#[serde(default)]`, so a

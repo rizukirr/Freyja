@@ -188,7 +188,7 @@ impl StreamDecoder for Decoder {
             },
             "interaction.completed" | "interaction.failed" | "interaction.incomplete" => {
                 let interaction = &value["interaction"];
-                // Every UsageWire field is `#[serde(default)]` (types.rs:260-267),
+                // Every field of `UsageWire` in types.rs is `#[serde(default)]`,
                 // so the parser reports zeros for a partial usage object rather
                 // than dropping it. Default the same way here.
                 let usage = interaction.get("usage").map(|usage| Usage {
@@ -223,8 +223,8 @@ impl StreamDecoder for Decoder {
         Ok(())
     }
 
-    /// convert_step maps the parsed `arguments` object through `Value::to_string`
-    /// (types.rs:328-331), which sorts its keys.
+    /// `convert_step` in types.rs maps the parsed `arguments` object through
+    /// `Value::to_string`, which sorts its keys.
     fn normalizes_tool_arguments(&self) -> bool {
         true
     }

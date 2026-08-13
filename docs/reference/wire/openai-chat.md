@@ -166,7 +166,7 @@ Output arrives in `choices`, an array, rather than `output` on the Responses API
 
 `provider_metadata` holds the **top-level** fields Freyja does not model, `object` and `created` among them. It is built by flattening the body's unknown top-level keys, so nothing nested survives: `logprobs` sits inside `choices[]` and is discarded, as is everything else in a choice that Freyja does not map. `usage` subfields go the same way, see [Usage](#usage).
 
-One key in `provider_metadata` is Freyja's own rather than the provider's: if the response has no `choices` at all, Freyja inserts `"freya_note": "no choices returned"` so an empty answer is distinguishable from a parse failure.
+One key in `provider_metadata` is Freyja's own rather than the provider's: if the response has no `choices` at all, Freyja inserts `"freyja_note": "no choices returned"` so an empty answer is distinguishable from a parse failure.
 
 ### finish_reason
 
@@ -227,6 +227,7 @@ The response is a sequence of `data:` frames. Unlike the other three dialects th
 | `choices[0].delta.tool_calls[]` | Each entry carries an `index`. An entry with an `id` starts that call, with `function.name`; `function.arguments` fragments accumulate into it |
 | `choices[0].finish_reason` | The terminal status, mapped by the table above |
 | `id`, `model`, `usage` | Read off any frame that has them |
+| `error` | Fails the stream as `ProviderError::Stream`, attributed to the endpoint's name |
 
 The final frame is usually **usage-only**: no choices, just `usage`. That is what `include_usage` buys, and it is where the token counts come from.
 
@@ -254,3 +255,5 @@ See [Streaming](../streaming.md).
 Freyja classifies the status into a named variant and preserves the whole body alongside it, attributed to the endpoint's configured name rather than to the dialect, so a Groq failure reports Groq.
 
 Status codes mostly follow the OpenAI convention, 400 for a bad request, 401 for a bad key, 429 for rate limiting, 5xx for the endpoint's own trouble. Compatible vendors vary here more than anywhere else, and some return 200 with an error body. Read the body when the status alone is not enough.
+
+The same body can also arrive **mid-stream**, once the connection is already open and the status has long since been 200. This dialect has no event names, so it comes as an ordinary `data:` frame with an `error` object where a chunk would be. Freyja fails the stream with `ProviderError::Stream` carrying the message. An explicit `"error": null`, which several compatible endpoints send on every frame, is not a failure and is ignored.

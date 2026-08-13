@@ -151,7 +151,7 @@ pub enum TokenLimitField {
 ///     .default_model("glm-4.6");
 /// assert_eq!(config.auth, Auth::Header("x-api-key"));
 /// ```
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct ProviderConfig {
     /// Which wire format this endpoint speaks.
     pub dialect: ProviderDialect,
@@ -170,6 +170,10 @@ pub struct ProviderConfig {
     /// meaningful on the endpoint serving it.
     pub default_model: Option<String>,
     /// Extra headers, for gateways that want attribution or routing hints.
+    ///
+    /// Reach for [`ProviderConfig::auth`] to carry a credential, not this: the
+    /// API key is redacted everywhere Freyja prints itself, and a header value
+    /// is only redacted when its *name* gives it away. See this type's `Debug`.
     pub extra_headers: Vec<(String, String)>,
     /// Extra body fields, for what this endpoint wants on every request.
     ///
@@ -188,6 +192,58 @@ pub struct ProviderConfig {
     /// ecosystem implements. Point that dialect at OpenAI itself and you want
     /// [`TokenLimitField::MaxCompletionTokens`] instead.
     pub token_limit_field: TokenLimitField,
+}
+
+/// Substrings that mark a header as carrying a secret.
+///
+/// Matched case-insensitively against the header *name*. A heuristic, and named
+/// as one: it cannot know that `x-acme-passport` is a credential.
+const SECRET_HEADER_MARKERS: [&str; 6] = ["auth", "key", "token", "secret", "cookie", "password"];
+
+/// Whether a header's value should be withheld from `Debug`.
+fn is_secret_header(name: &str) -> bool {
+    let name = name.to_ascii_lowercase();
+    SECRET_HEADER_MARKERS
+        .iter()
+        .any(|marker| name.contains(marker))
+}
+
+/// Redacts header values that look like credentials.
+///
+/// [`Client`] takes care of the API key, but it prints its config, and a
+/// gateway needing a second credential has nowhere to put it but
+/// [`ProviderConfig::extra_headers`]. A derived `Debug` would print that
+/// verbatim and undo the redaction one field over.
+///
+/// Names are always shown, and values are withheld only for the names in
+/// [`SECRET_HEADER_MARKERS`], so a routing hint stays as readable as it was.
+impl fmt::Debug for ProviderConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let headers: Vec<(&str, &str)> = self
+            .extra_headers
+            .iter()
+            .map(|(name, value)| {
+                let value = if is_secret_header(name) {
+                    "<redacted>"
+                } else {
+                    value.as_str()
+                };
+                (name.as_str(), value)
+            })
+            .collect();
+
+        f.debug_struct("ProviderConfig")
+            .field("dialect", &self.dialect)
+            .field("name", &self.name)
+            .field("base_url", &self.base_url)
+            .field("auth", &self.auth)
+            .field("api_key_env", &self.api_key_env)
+            .field("default_model", &self.default_model)
+            .field("extra_headers", &headers)
+            .field("extra_body", &self.extra_body)
+            .field("token_limit_field", &self.token_limit_field)
+            .finish()
+    }
 }
 
 impl ProviderConfig {
@@ -229,6 +285,10 @@ impl ProviderConfig {
     }
 
     /// Adds an extra header sent with every request.
+    ///
+    /// For attribution and routing. A credential belongs in
+    /// [`ProviderConfig::auth`], which is redacted unconditionally; a value
+    /// left here is redacted only if its name says what it is.
     pub fn header(mut self, name: impl Into<String>, value: impl Into<String>) -> Self {
         self.extra_headers.push((name.into(), value.into()));
         self
@@ -335,6 +395,50 @@ pub trait Provider: Send + Sync {
     /// Parses a successful response body into the neutral model.
     fn parse(&self, body: &str, config: &ProviderConfig)
     -> Result<GenerateResponse, ProviderError>;
+}
+
+/// Runs `$body` with `$provider` bound to the [`Provider`] for a dialect.
+///
+/// The four arms live here and nowhere else. Written out longhand they appeared
+/// three times — in [`Client::check`], [`Client::generate`], and
+/// [`Client::stream`] — differing only in what each did with the provider, so a
+/// fifth dialect meant finding all three. A `Provider` cannot be returned as
+/// `dyn`, since `build` hands back an associated type, which is why this is a
+/// macro rather than a function.
+macro_rules! with_provider {
+    ($dialect:expr, |$provider:ident| $body:expr) => {
+        match $dialect {
+            ProviderDialect::OpenAiResponses => {
+                let $provider = openai_responses::OpenAiResponsesProvider;
+                $body
+            }
+            ProviderDialect::OpenAiChat => {
+                let $provider = openai_chat::OpenAiChatProvider;
+                $body
+            }
+            ProviderDialect::Gemini => {
+                let $provider = gemini::GeminiProvider;
+                $body
+            }
+            ProviderDialect::Anthropic => {
+                let $provider = anthropic::AnthropicProvider;
+                $body
+            }
+        }
+    };
+}
+
+/// The SSE decoder for a dialect.
+///
+/// Separate from [`with_provider`] because a decoder *is* returnable as `dyn`,
+/// and because `stream` is the only caller that needs one.
+fn decoder_for(dialect: ProviderDialect) -> Box<dyn stream::StreamDecoder> {
+    match dialect {
+        ProviderDialect::OpenAiResponses => Box::new(openai_responses::Decoder),
+        ProviderDialect::OpenAiChat => Box::new(openai_chat::Decoder),
+        ProviderDialect::Gemini => Box::new(gemini::Decoder::default()),
+        ProviderDialect::Anthropic => Box::new(anthropic::Decoder::default()),
+    }
 }
 
 /// The entry point: an endpoint plus its credentials and HTTP client.
@@ -548,20 +652,9 @@ impl Client {
     pub fn check(&self, request: &GenerateRequest) -> Result<(), ProviderError> {
         // `stream` builds through the same call before adding its streaming
         // flag, so one check covers both paths.
-        match self.config.dialect {
-            ProviderDialect::OpenAiResponses => openai_responses::OpenAiResponsesProvider
-                .build(request, &self.config)
-                .map(drop),
-            ProviderDialect::OpenAiChat => openai_chat::OpenAiChatProvider
-                .build(request, &self.config)
-                .map(drop),
-            ProviderDialect::Gemini => gemini::GeminiProvider
-                .build(request, &self.config)
-                .map(drop),
-            ProviderDialect::Anthropic => anthropic::AnthropicProvider
-                .build(request, &self.config)
-                .map(drop),
-        }
+        with_provider!(self.config.dialect, |provider| provider
+            .build(request, &self.config)
+            .map(drop))
     }
 
     /// Sends a request and returns the normalized response.
@@ -569,15 +662,9 @@ impl Client {
         &self,
         request: &GenerateRequest,
     ) -> Result<GenerateResponse, ProviderError> {
-        match self.config.dialect {
-            ProviderDialect::OpenAiResponses => {
-                self.run(openai_responses::OpenAiResponsesProvider, request)
-                    .await
-            }
-            ProviderDialect::OpenAiChat => self.run(openai_chat::OpenAiChatProvider, request).await,
-            ProviderDialect::Gemini => self.run(gemini::GeminiProvider, request).await,
-            ProviderDialect::Anthropic => self.run(anthropic::AnthropicProvider, request).await,
-        }
+        with_provider!(self.config.dialect, |provider| self
+            .run(provider, request)
+            .await)
     }
 
     /// Sends a request and deserializes the answer into `T`.
@@ -677,45 +764,11 @@ impl Client {
     /// # }
     /// ```
     pub async fn stream(&self, request: &GenerateRequest) -> Result<EventStream, ProviderError> {
-        let (wire, decoder): (serde_json::Value, Box<dyn stream::StreamDecoder>) =
-            match self.config.dialect {
-                ProviderDialect::OpenAiResponses => {
-                    let body = openai_responses::OpenAiResponsesProvider
-                        .build(request, &self.config)?
-                        .streaming();
-                    (
-                        to_value(&body, request, &self.config)?,
-                        Box::new(openai_responses::Decoder),
-                    )
-                }
-                ProviderDialect::OpenAiChat => {
-                    let body = openai_chat::OpenAiChatProvider
-                        .build(request, &self.config)?
-                        .streaming();
-                    (
-                        to_value(&body, request, &self.config)?,
-                        Box::new(openai_chat::Decoder),
-                    )
-                }
-                ProviderDialect::Gemini => {
-                    let body = gemini::GeminiProvider
-                        .build(request, &self.config)?
-                        .streaming();
-                    (
-                        to_value(&body, request, &self.config)?,
-                        Box::new(gemini::Decoder::default()),
-                    )
-                }
-                ProviderDialect::Anthropic => {
-                    let body = anthropic::AnthropicProvider
-                        .build(request, &self.config)?
-                        .streaming();
-                    (
-                        to_value(&body, request, &self.config)?,
-                        Box::new(anthropic::Decoder::default()),
-                    )
-                }
-            };
+        let wire = with_provider!(self.config.dialect, |provider| {
+            let body = provider.build(request, &self.config)?.streaming();
+            to_value(&body, request, &self.config)?
+        });
+        let decoder = decoder_for(self.config.dialect);
 
         let response = self.post(self.config.stream_url(), &wire).await?;
 
@@ -819,11 +872,18 @@ fn parse_retry_after(headers: &reqwest::header::HeaderMap) -> Option<Duration> {
         .map(Duration::from_secs)
 }
 
+/// The pooled client [`Client::new`] and its siblings build.
+///
+/// Panics rather than falling back: the only way `build` fails here is a TLS
+/// backend that will not initialize, and `reqwest::Client::default()` panics on
+/// exactly that. Falling back would trade the panic for a client with no
+/// `read_timeout`, quietly breaking the bound [`Client::new`] documents.
+/// [`Client::with_http_client`] is the way past a failure worth surviving.
 fn default_http() -> reqwest::Client {
     reqwest::Client::builder()
         .read_timeout(DEFAULT_TIMEOUT)
         .build()
-        .unwrap_or_default()
+        .expect("the TLS backend could not be initialized")
 }
 
 /// Serializes a dialect's request and merges the escape hatches into it.
@@ -892,7 +952,29 @@ mod tests {
     }
 
     #[test]
-    fn custom_builds_an_endpoint_freya_does_not_ship() {
+    fn debug_redacts_a_credential_left_in_an_extra_header() {
+        // The client redacts its own key, then printed its config verbatim one
+        // field over. A gateway wanting a second credential has nowhere else to
+        // put it, so the redaction has to reach here too.
+        let config = ProviderConfig::new(ProviderDialect::OpenAiChat, "gw", "https://gw.test/v1")
+            .header("x-gateway-token", "tok-secret-value")
+            .header("Authorization", "Bearer sk-second-secret")
+            .header("x-trace-id", "abc123");
+
+        let rendered = format!("{:?}", Client::new(config, "sk-primary"));
+
+        assert!(!rendered.contains("tok-secret-value"), "{rendered}");
+        assert!(!rendered.contains("sk-second-secret"), "{rendered}");
+        assert!(!rendered.contains("sk-primary"), "{rendered}");
+
+        // Names always show, and a routing hint stays readable: redacting
+        // everything would make the field useless for the job it exists for.
+        assert!(rendered.contains("x-gateway-token"), "{rendered}");
+        assert!(rendered.contains("abc123"), "{rendered}");
+    }
+
+    #[test]
+    fn custom_builds_an_endpoint_freyja_does_not_ship() {
         let client = Client::custom(
             ProviderDialect::OpenAiChat,
             "my-gateway",

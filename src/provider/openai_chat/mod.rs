@@ -40,7 +40,7 @@ impl StreamDecoder for Decoder {
     fn decode(
         &mut self,
         frame: &SseFrame,
-        _provider: &std::sync::Arc<str>,
+        provider: &std::sync::Arc<str>,
         out: &mut Vec<RawDelta>,
     ) -> Result<(), crate::provider::ProviderError> {
         // The sentinel is not JSON and carries nothing.
@@ -51,11 +51,28 @@ impl StreamDecoder for Decoder {
             return Ok(());
         };
 
+        // This dialect has no `event:` line to carry a failure, so an error
+        // arrives as an ordinary frame with an `error` object in it. Without
+        // this the frame matches nothing, the body then closes, and the caller
+        // is handed a silently truncated answer reporting `Incomplete` --
+        // on the dialect the widest range of third parties speaks.
+        if let Some(error) = value.get("error").filter(|error| !error.is_null()) {
+            return Err(crate::provider::ProviderError::Stream {
+                // The endpoint's own name, never the dialect: see the
+                // invariant on ProviderError in model.rs.
+                provider: provider.clone(),
+                message: error["message"]
+                    .as_str()
+                    .unwrap_or("unknown streaming error")
+                    .to_string(),
+            });
+        }
+
         let id = value["id"].as_str().map(str::to_string);
         let model = value["model"].as_str().map(str::to_string);
-        // Every UsageWire field is `#[serde(default)]` (types.rs:322-331), so
-        // the parser turns a partial usage object into zeros rather than into
-        // no usage at all. Default the same way instead of collapsing to None.
+        // Every field of `UsageWire` in types.rs is `#[serde(default)]`, so the
+        // parser turns a partial usage object into zeros rather than into no
+        // usage at all. Default the same way instead of collapsing to None.
         let usage = value.get("usage").map(|usage| Usage {
             input_tokens: usage["prompt_tokens"].as_u64().unwrap_or(0),
             output_tokens: usage["completion_tokens"].as_u64().unwrap_or(0),
