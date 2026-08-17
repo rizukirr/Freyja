@@ -134,6 +134,7 @@
 - Move: `src/provider/openai_responses/mod.rs` to `src/dialect/openai_responses/mod.rs`
 - Move: `src/provider/openai_responses/types.rs` to `src/dialect/openai_responses/types.rs`
 - Modify: `src/lib.rs`
+- Modify: `src/model/request.rs`
 - Delete: `src/provider/mod.rs`
 - Delete: `src/provider/presets.rs`
 - Delete: `src/provider/refusal.rs`
