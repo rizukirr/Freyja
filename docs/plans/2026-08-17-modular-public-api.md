@@ -139,14 +139,14 @@
 - Delete: `src/provider/presets.rs`
 - Delete: `src/provider/refusal.rs`
 
-- [ ] Step 1: Move `Auth`, `TokenLimitField`, configuration builders, URL construction, model resolution, secret-header detection, and redacted `Debug` behavior into `src/endpoint/mod.rs`; rename `ProviderConfig` to `EndpointConfig`.
-- [ ] Step 2: Move endpoint presets and their tests into `src/endpoint/presets.rs`; rename `ProviderType` to `EndpointPreset` and preserve the existing endpoint values.
-- [ ] Step 3: Move `ProviderDialect` and its path, authentication, required-header, and streaming-query behavior into `src/dialect/mod.rs`; rename it to `Dialect`.
-- [ ] Step 4: Rename the internal `Provider` trait to private `WireDialect`, keep its associated request type and `build` and `parse` methods, and move dialect dispatch, decoder dispatch, private dialect modules, and the dispatch macro into `src/dialect/mod.rs`.
-- [ ] Step 5: Move refusal evidence and validation into private `src/dialect/refusal.rs`, updating it to use `Dialect`, `EndpointConfig`, and `Error`.
-- [ ] Step 6: Move `Client`, its constructors, request entry points, and redacted `Debug` implementation into `src/client.rs`; make its public signatures use `EndpointConfig`, `EndpointPreset`, `Dialect`, and `Error`.
-- [ ] Step 7: Move shared HTTP execution, authentication application, retry-after parsing, default HTTP-client construction, body merging, and serialization helpers into private `src/transport/mod.rs`; expose only the crate-private functions required by `Client`.
-- [ ] Step 8: Define the public endpoint surface by declaring `Auth`, `EndpointConfig`, and `TokenLimitField` as public in `src/endpoint/mod.rs` and re-exporting the preset:
+- [x] Step 1: Move `Auth`, `TokenLimitField`, configuration builders, URL construction, model resolution, secret-header detection, and redacted `Debug` behavior into `src/endpoint/mod.rs`; rename `ProviderConfig` to `EndpointConfig`.
+- [x] Step 2: Move endpoint presets and their tests into `src/endpoint/presets.rs`; rename `ProviderType` to `EndpointPreset` and preserve the existing endpoint values.
+- [x] Step 3: Move `ProviderDialect` and its path, authentication, required-header, and streaming-query behavior into `src/dialect/mod.rs`; rename it to `Dialect`.
+- [x] Step 4: Rename the internal `Provider` trait to private `WireDialect`, keep its associated request type and `build` and `parse` methods, and move dialect dispatch, decoder dispatch, private dialect modules, and the dispatch macro into `src/dialect/mod.rs`.
+- [x] Step 5: Move refusal evidence and validation into private `src/dialect/refusal.rs`, updating it to use `Dialect`, `EndpointConfig`, and `Error`.
+- [x] Step 6: Move `Client`, its constructors, request entry points, and redacted `Debug` implementation into `src/client.rs`; make its public signatures use `EndpointConfig`, `EndpointPreset`, `Dialect`, and `Error`.
+- [x] Step 7: Move shared HTTP execution, authentication application, retry-after parsing, default HTTP-client construction, body merging, and serialization helpers into private `src/transport/mod.rs`; expose only the crate-private functions required by `Client`.
+- [x] Step 8: Define the public endpoint surface by declaring `Auth`, `EndpointConfig`, and `TokenLimitField` as public in `src/endpoint/mod.rs` and re-exporting the preset:
 
   ```rust
   mod presets;
@@ -154,7 +154,7 @@
   pub use presets::EndpointPreset;
   ```
 
-- [ ] Step 9: Expose `client`, `dialect`, and `endpoint` from `src/lib.rs`, keep `transport` private, and provide root re-exports:
+- [x] Step 9: Expose `client`, `dialect`, and `endpoint` from `src/lib.rs`, keep `transport` private, and provide root re-exports:
 
   ```rust
   mod client;
@@ -167,11 +167,11 @@
   pub use endpoint::{Auth, EndpointConfig, EndpointPreset, TokenLimitField};
   ```
 
-- [ ] Step 10: Update every internal `crate::provider` reference to the owning `model`, `error`, `stream`, `endpoint`, `dialect`, `client`, or `transport` module and remove `src/provider` once empty.
-- [ ] Step 11: Run `cargo fmt --check`.
-- [ ] Step 12: Run `cargo test --lib`.
-- [ ] Step 13: Run `test ! -e src/provider`.
-- [ ] Step 14: Commit with message `refactor: separate client endpoint and dialect`.
+- [x] Step 10: Update every internal `crate::provider` reference to the owning `model`, `error`, `stream`, `endpoint`, `dialect`, `client`, or `transport` module and remove `src/provider` once empty.
+- [x] Step 11: Run `cargo fmt --check`.
+- [x] Step 12: Run `cargo test --lib`.
+- [x] Step 13: Run `test ! -e src/provider`.
+- [x] Step 14: Commit with message `refactor: separate client endpoint and dialect`.
 
 ### Task 4: Split OpenAI Responses wire responsibilities → verify: `cargo test --lib dialect::openai_responses` exits successfully and `src/dialect/openai_responses/types.rs` does not exist
 
