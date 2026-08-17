@@ -1,7 +1,7 @@
 /target
 /.env
 /.vibe-worktrees/
-/docs/plans
-/docs/reviews
-/docs/specs
-/docs/verifications
+# /docs/plans
+# /docs/reviews
+# /docs/specs
+# /docs/verifications
