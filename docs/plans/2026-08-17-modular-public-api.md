@@ -245,6 +245,10 @@
 
 **Files:**
 - Create: `tests/public_api.rs`
+- Modify: `src/client.rs`
+- Modify: `src/endpoint/mod.rs`
+- Modify: `src/stream/assembler.rs`
+- Modify: `src/stream/event.rs`
 - Modify: `tests/streaming_transport.rs`
 - Modify: `tests/typed_output.rs`
 - Modify: `examples/chat.rs`
