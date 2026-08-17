@@ -284,7 +284,7 @@
 - Modify: `docs/reference/wire/openai-chat.md`
 - Modify: `docs/reference/wire/openai.md`
 
-- [ ] Step 1: Update examples, integration tests, crate docs, and reference docs using the exact public rename map:
+- [x] Step 1: Update examples, integration tests, crate docs, and reference docs using the exact public rename map:
 
   ```text
   ProviderDialect -> Dialect
@@ -295,8 +295,8 @@
   error accessor provider() -> endpoint()
   ```
 
-- [ ] Step 2: Rewrite architecture and dialect-extension documentation to describe the new module ownership and private `WireDialect` trait; remove instructions that refer to `src/provider`; qualify the rustdoc links in `src/client.rs` and `src/endpoint/mod.rs` as `crate::EndpointPreset`, `crate::Client::from_env`, and `crate::Client` so the required documentation build resolves them without module-local imports.
-- [ ] Step 3: Add `tests/public_api.rs` with one compile-time test importing representative public types from both supported styles:
+- [x] Step 2: Rewrite architecture and dialect-extension documentation to describe the new module ownership and private `WireDialect` trait; remove instructions that refer to `src/provider`; qualify the rustdoc links in `src/client.rs` and `src/endpoint/mod.rs` as `crate::EndpointPreset`, `crate::Client::from_env`, and `crate::Client` so the required documentation build resolves them without module-local imports.
+- [x] Step 3: Add `tests/public_api.rs` with one compile-time test importing representative public types from both supported styles:
 
   ```rust
   use freyja::{Client, Dialect, EndpointConfig, EndpointPreset, Error, GenerateRequest};
@@ -308,11 +308,11 @@
   ```
 
   Construct or type-check each import so unused-import warnings cannot hide an inaccessible path.
-- [ ] Step 4: Add a migration section to `README.md` that contains the old names only as a direct rename table; all other prose and code use the new vocabulary.
-- [ ] Step 5: Run `cargo fmt --check`.
-- [ ] Step 6: Run `cargo test --all-targets` outside the managed sandbox so loopback integration tests can bind.
-- [ ] Step 7: Run `RUSTDOCFLAGS="-D warnings" cargo doc --no-deps`.
-- [ ] Step 8: Run `cargo clippy --all-targets -- -D warnings`.
-- [ ] Step 9: Run `rg -n 'freyja::provider|ProviderDialect|ProviderConfig|ProviderType|ProviderError' --glob '!docs/specs/**' --glob '!docs/plans/**'`; confirm every match belongs to the explicit migration section.
-- [ ] Step 10: Run `test ! -e src/provider`.
-- [ ] Step 11: Commit with message `docs: migrate to modular public API`.
+- [x] Step 4: Add a migration section to `README.md` that contains the old names only as a direct rename table; all other prose and code use the new vocabulary.
+- [x] Step 5: Run `cargo fmt --check`.
+- [x] Step 6: Run `cargo test --all-targets` outside the managed sandbox so loopback integration tests can bind.
+- [x] Step 7: Run `RUSTDOCFLAGS="-D warnings" cargo doc --no-deps`.
+- [x] Step 8: Run `cargo clippy --all-targets -- -D warnings`.
+- [x] Step 9: Run `rg -n 'freyja::provider|ProviderDialect|ProviderConfig|ProviderType|ProviderError' --glob '!docs/specs/**' --glob '!docs/plans/**'`; confirm every match belongs to the explicit migration section.
+- [x] Step 10: Run `test ! -e src/provider`.
+- [x] Step 11: Commit with message `docs: migrate to modular public API`.
