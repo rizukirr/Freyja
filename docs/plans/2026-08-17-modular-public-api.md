@@ -182,13 +182,13 @@
 - Modify: `src/dialect/openai_responses/mod.rs`
 - Delete: `src/dialect/openai_responses/types.rs`
 
-- [ ] Step 1: Move outbound request wire structures, request construction, streaming selection, transcript flushing, validation, and their tests from `types.rs` into private `request.rs`.
-- [ ] Step 2: Move response wire structures, `GenerateResponse` conversion, status parsing, unknown-item preservation, response parsing, and their tests into private `response.rs`.
-- [ ] Step 3: Move `Decoder`, its `StreamDecoder` implementation, stream-frame parsing, and streaming parity tests from `mod.rs` and `types.rs` into private `stream.rs`.
-- [ ] Step 4: Make `mod.rs` declare `request`, `response`, and `stream`, implement `WireDialect` using `request::Request` and `response::parse`, and expose its decoder only to crate-internal dispatch.
-- [ ] Step 5: Run `cargo fmt --check`.
-- [ ] Step 6: Run `cargo test --lib dialect::openai_responses`.
-- [ ] Step 7: Commit with message `refactor: split OpenAI Responses dialect`.
+- [x] Step 1: Move outbound request wire structures, request construction, streaming selection, transcript flushing, validation, and their tests from `types.rs` into private `request.rs`.
+- [x] Step 2: Move response wire structures, `GenerateResponse` conversion, status parsing, unknown-item preservation, response parsing, and their tests into private `response.rs`.
+- [x] Step 3: Move `Decoder`, its `StreamDecoder` implementation, stream-frame parsing, and streaming parity tests from `mod.rs` and `types.rs` into private `stream.rs`.
+- [x] Step 4: Make `mod.rs` declare `request`, `response`, and `stream`, implement `WireDialect` using `request::Request` and `response::parse`, and expose its decoder only to crate-internal dispatch.
+- [x] Step 5: Run `cargo fmt --check`.
+- [x] Step 6: Run `cargo test --lib dialect::openai_responses`.
+- [x] Step 7: Commit with message `refactor: split OpenAI Responses dialect`.
 
 ### Task 5: Split OpenAI Chat wire responsibilities → verify: `cargo test --lib dialect::openai_chat` exits successfully and `src/dialect/openai_chat/types.rs` does not exist
 
