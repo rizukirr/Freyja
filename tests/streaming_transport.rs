@@ -4,9 +4,7 @@
 //! exercises the HTTP path. These use a real socket so that request building,
 //! headers, auth, the status check, and the byte pump are all covered.
 
-use freyja::{
-    Client, GenerateRequest, Message, ProviderConfig, ProviderDialect, Role, StreamEvent,
-};
+use freyja::{Client, Dialect, EndpointConfig, GenerateRequest, Message, Role, StreamEvent};
 use std::io::{BufRead, BufReader, Write};
 use std::net::TcpListener;
 use std::sync::mpsc;
@@ -60,7 +58,7 @@ async fn streams_text_from_a_live_server() {
     );
 
     let config =
-        ProviderConfig::new(ProviderDialect::OpenAiChat, "local", base).default_model("test-model");
+        EndpointConfig::new(Dialect::OpenAiChat, "local", base).default_model("test-model");
     let client = Client::new(config, "sk-test");
 
     let mut stream = client
@@ -107,7 +105,7 @@ async fn surfaces_an_error_status_before_streaming() {
     );
 
     let config =
-        ProviderConfig::new(ProviderDialect::OpenAiChat, "local", base).default_model("test-model");
+        EndpointConfig::new(Dialect::OpenAiChat, "local", base).default_model("test-model");
     let client = Client::new(config, "sk-test");
 
     // `EventStream` is not `Debug`, so `expect_err` is unavailable here.
@@ -120,18 +118,18 @@ async fn surfaces_an_error_status_before_streaming() {
     };
 
     match &error {
-        freyja::ProviderError::RateLimit {
-            provider,
+        freyja::Error::RateLimit {
+            endpoint,
             retry_after,
             body,
         } => {
-            assert_eq!(&**provider, "local");
+            assert_eq!(&**endpoint, "local");
             // The header is read before `text()` consumes the response, so the
             // endpoint's own pacing survives into the error.
             assert_eq!(*retry_after, Some(std::time::Duration::from_secs(30)));
             assert!(body.contains("slow down"), "{body}");
         }
-        other => panic!("expected ProviderError::RateLimit, got {other:?}"),
+        other => panic!("expected Error::RateLimit, got {other:?}"),
     }
 
     assert_eq!(error.status(), Some(429));
@@ -151,8 +149,7 @@ async fn gemini_requests_sse_by_query_parameter() {
          data: {\"interaction\":{\"id\":\"v1_1\",\"model\":\"gemini-test\",\"status\":\"completed\"},\"event_type\":\"interaction.completed\"}\n\n",
     );
 
-    let config =
-        ProviderConfig::new(ProviderDialect::Gemini, "local", base).default_model("test-model");
+    let config = EndpointConfig::new(Dialect::Gemini, "local", base).default_model("test-model");
     let client = Client::new(config, "key");
 
     let mut stream = client
@@ -188,8 +185,7 @@ async fn generate_does_not_request_sse() {
          {\"id\":\"int_1\",\"model\":\"gemini-test\",\"status\":\"completed\",\"steps\":[]}",
     );
 
-    let config =
-        ProviderConfig::new(ProviderDialect::Gemini, "local", base).default_model("test-model");
+    let config = EndpointConfig::new(Dialect::Gemini, "local", base).default_model("test-model");
     let client = Client::new(config, "key");
 
     let _ = client

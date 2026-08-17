@@ -10,10 +10,23 @@ A provider-neutral LLM client for Rust, and the foundation for building agents o
 > [!WARNING]
 > Under active development and **not ready for production use**. The public API is unstable and will change without notice before `1.0.0`.
 
+## Migration
+
+Update imports and error matching with this rename table:
+
+| Before | After |
+|---|---|
+| `ProviderDialect` | `Dialect` |
+| `ProviderConfig` | `EndpointConfig` |
+| `ProviderType` | `EndpointPreset` |
+| `ProviderError` | `Error` |
+| error field `provider` | error field `endpoint` |
+| `error.provider()` | `error.endpoint()` |
+
 You write one request. Freyja translates it into whatever wire format the model you picked actually speaks, sends it, and translates the answer back. Changing vendor is changing one line.
 
 ```rust
-let client = Client::from_env(ProviderType::OpenAi).expect("OPENAI_API_KEY");
+let client = Client::from_env(EndpointPreset::OpenAi).expect("OPENAI_API_KEY");
 // or Anthropic, or Gemini, or any compatible endpoint. Nothing else changes.
 ```
 
@@ -27,11 +40,11 @@ cargo add tokio --features macros,rt-multi-thread
 ```
 
 ```rust
-use freyja::{Client, GenerateRequest, Message, ProviderType, Role};
+use freyja::{Client, GenerateRequest, Message, EndpointPreset, Role};
 
 #[tokio::main]
 async fn main() {
-    let client = Client::from_env(ProviderType::OpenAi).expect("OPENAI_API_KEY");
+    let client = Client::from_env(EndpointPreset::OpenAi).expect("OPENAI_API_KEY");
 
     let request = GenerateRequest::new()
         .message(Message::text(Role::User, "Name three Rust crates."));
@@ -127,7 +140,7 @@ Deriving a JSON schema *from a Rust type* is deliberately not here: `schemars` a
 
 Out of scope: prompt-template DSLs, a built-in vector database, a web UI or server, and fine-tuning orchestration. Freyja is a library, not a platform.
 
-Also out of scope: **automatic retries**. Backing off means sleeping, and Freyja exposes `async fn` without spawning so the caller picks the runtime; retrying internally would take that choice away to save ten lines. `ProviderError::is_retryable()` and `retry_after()` make the decision cheap instead, and compose with `backon` or `tower::retry`. See [Errors](docs/reference/errors.md#retries).
+Also out of scope: **automatic retries**. Backing off means sleeping, and Freyja exposes `async fn` without spawning so the caller picks the runtime; retrying internally would take that choice away to save ten lines. `Error::is_retryable()` and `retry_after()` make the decision cheap instead, and compose with `backon` or `tower::retry`. See [Errors](docs/reference/errors.md#retries).
 
 ## Development
 

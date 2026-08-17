@@ -8,10 +8,10 @@ Implemented against the Responses API.
 | Auth | `Authorization: Bearer <key>` |
 | Key variable | `OPENAI_API_KEY` |
 | Default model | `gpt-5.6-sol` |
-| Source | `src/provider/openai_responses/` |
+| Source | `src/dialect/openai_responses/` |
 
 ```rust
-let client = Client::from_env(ProviderType::OpenAi).expect("OPENAI_API_KEY");
+let client = Client::from_env(EndpointPreset::OpenAi).expect("OPENAI_API_KEY");
 ```
 
 This is the most complete of the four dialect mappings. It is not the only one exercised end to end any more: Anthropic and Chat Completions both record live tool round trips too. See [Verification status](#verification-status).
@@ -144,7 +144,7 @@ Read the result with `response.output_text()` and parse it yourself.
 
 ## Default model
 
-`gpt-5.6-sol` is used when `model` is unset. It is the preset's `default_model` in `src/provider/presets.rs`, not a property of the dialect, and it will drift as OpenAI ships new models. Set `model` on the request, or `default_model` on the config, for anything you need to stay stable.
+`gpt-5.6-sol` is used when `model` is unset. It is the preset's `default_model` in `src/endpoint/presets.rs`, not a property of the dialect, and it will drift as OpenAI ships new models. Set `model` on the request, or `default_model` on the config, for anything you need to stay stable.
 
 ## Errors
 

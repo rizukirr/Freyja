@@ -61,7 +61,7 @@ impl Client {
     /// not cut short. Use [`Client::with_http_client`] to impose a total cap.
     ///
     /// Accepts anything that converts into a [`EndpointConfig`], including a
-    /// [`EndpointPreset`] preset.
+    /// [`crate::EndpointPreset`] preset.
     pub fn new(config: impl Into<EndpointConfig>, api_key: impl Into<String>) -> Self {
         Self::build(
             config.into(),
@@ -383,10 +383,10 @@ impl Client {
     /// why none of them owns transport code.
     async fn run<P: crate::dialect::WireDialect>(
         &self,
-        provider: P,
+        wire_dialect: P,
         request: &GenerateRequest,
     ) -> Result<GenerateResponse, Error> {
-        let wire = provider.build(request, &self.config)?;
+        let wire = wire_dialect.build(request, &self.config)?;
         let body = crate::transport::to_value(&wire, request, &self.config)?;
         let response = crate::transport::post(
             &self.http,
@@ -413,7 +413,7 @@ impl Client {
             ));
         }
 
-        provider.parse(&body, &self.config)
+        wire_dialect.parse(&body, &self.config)
     }
 }
 

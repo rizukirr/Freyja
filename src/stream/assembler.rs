@@ -2,7 +2,7 @@
 use super::event::EventStream;
 use super::event::StreamEvent;
 use super::sse::SseFrame;
-use crate::error::Error as ProviderError;
+use crate::error::Error;
 use crate::model::{GenerateResponse, OutputContent, ResponseStatus, Usage};
 use serde_json::Value;
 
@@ -55,17 +55,17 @@ pub(crate) enum RawDelta {
 pub(crate) trait StreamDecoder: Send {
     /// Appends everything this frame means to `out`.
     ///
-    /// `provider` is the endpoint's configured name, not the dialect. Any
-    /// [`ProviderError`] this raises must carry it verbatim: a Claude-compatible
+    /// `endpoint` is the endpoint's configured name, not the dialect. Any
+    /// [`Error`] this raises must carry it verbatim: a Claude-compatible
     /// gateway has to report itself and not "anthropic", which is the invariant
-    /// documented on [`ProviderError`] in `model.rs` and which the non-streaming
-    /// path honours through `ProviderConfig::name`.
+    /// documented on [`Error`] and which the non-streaming path honours through
+    /// [`EndpointConfig::name`](crate::EndpointConfig::name).
     fn decode(
         &mut self,
         frame: &SseFrame,
-        provider: &Arc<str>,
+        endpoint: &Arc<str>,
         out: &mut Vec<RawDelta>,
-    ) -> Result<(), ProviderError>;
+    ) -> Result<(), Error>;
 
     /// Whether this dialect's parser re-serializes tool arguments from parsed
     /// JSON rather than passing the raw string through.
@@ -94,7 +94,7 @@ struct PendingCall {
 /// Owns the only mutable state streaming needs: partial tool arguments, and the
 /// completed parts that [`EventStream::into_response`] hands back.
 pub(super) struct Assembler {
-    provider: Arc<str>,
+    endpoint: Arc<str>,
     pending: HashMap<usize, PendingCall>,
     captured: Vec<OutputContent>,
     id: String,
@@ -111,9 +111,9 @@ pub(super) struct Assembler {
 }
 
 impl Assembler {
-    pub(super) fn new(provider: Arc<str>, normalize_arguments: bool) -> Self {
+    pub(super) fn new(endpoint: Arc<str>, normalize_arguments: bool) -> Self {
         Self {
-            provider,
+            endpoint,
             normalize_arguments,
             pending: HashMap::new(),
             captured: Vec::new(),
@@ -263,10 +263,10 @@ impl Assembler {
     }
 
     /// The whole response, once the stream has closed.
-    pub(super) fn into_response(self) -> Result<GenerateResponse, ProviderError> {
+    pub(super) fn into_response(self) -> Result<GenerateResponse, Error> {
         if !self.finished {
-            return Err(ProviderError::Stream {
-                endpoint: self.provider,
+            return Err(Error::Stream {
+                endpoint: self.endpoint,
                 message: "into_response called before the stream was drained".into(),
             });
         }
@@ -285,11 +285,11 @@ impl Assembler {
 /// so a dialect's tests can compare streaming against its own parser.
 #[cfg(test)]
 pub(crate) fn drain_for_test(
-    provider: Arc<str>,
+    endpoint: Arc<str>,
     decoder: Box<dyn StreamDecoder>,
     chunks: Vec<Vec<u8>>,
-) -> Result<GenerateResponse, ProviderError> {
-    let mut stream = EventStream::for_test(provider, decoder, chunks);
+) -> Result<GenerateResponse, Error> {
+    let mut stream = EventStream::for_test(endpoint, decoder, chunks);
     while stream.next_blocking()?.is_some() {}
     stream.into_response()
 }
@@ -566,9 +566,9 @@ mod tests {
         fn decode(
             &mut self,
             frame: &SseFrame,
-            _provider: &Arc<str>,
+            _endpoint: &Arc<str>,
             out: &mut Vec<RawDelta>,
-        ) -> Result<(), ProviderError> {
+        ) -> Result<(), Error> {
             if frame.data == "[DONE]" {
                 out.push(RawDelta::Meta {
                     id: Some("resp_1".into()),
@@ -620,7 +620,7 @@ mod tests {
 
         assert!(matches!(
             Assembler::new("acme".into(), false).into_response(),
-            Err(ProviderError::Stream { .. })
+            Err(Error::Stream { .. })
         ));
 
         assembler.absorb(

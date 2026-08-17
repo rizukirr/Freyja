@@ -166,11 +166,11 @@ Gemini sends it as `labels`, and the public Interactions API declines the field 
 The escape hatch, for capabilities the neutral model does not name.
 
 ```rust
-use freyja::{GenerateRequest, ProviderDialect};
+use freyja::{GenerateRequest, Dialect};
 use serde_json::json;
 
 let request = GenerateRequest::new()
-    .extra_for(ProviderDialect::Gemini, json!({"generation_config": {"seed": 42}}));
+    .extra_for(Dialect::Gemini, json!({"generation_config": {"seed": 42}}));
 ```
 
 A field earns a place in `GenerateRequest` by meaning the same thing on more than one dialect. Gemini's `seed` and `safety_settings`, Anthropic's memory tool, and OpenAI's `context_management` do not, so they are not modelled — and this is how to reach them without forking.
@@ -185,7 +185,7 @@ A field earns a place in `GenerateRequest` by meaning the same thing on more tha
 Gemini rejected the request: {"error":{"message":"Unknown parameter 'not_a_real_parameter'."}}
 ```
 
-Calls accumulate, and a later one wins a collision. For fields an endpoint always wants rather than one call, use [`ProviderConfig::body`](../providers/custom.md#extra-body-fields) instead; a request's own extras override it.
+Calls accumulate, and a later one wins a collision. For fields an endpoint always wants rather than one call, use [`EndpointConfig::body`](../providers/custom.md#extra-body-fields) instead; a request's own extras override it.
 
 ## `strict_schema`
 
