@@ -233,13 +233,13 @@
 - Modify: `src/dialect/gemini/mod.rs`
 - Delete: `src/dialect/gemini/types.rs`
 
-- [ ] Step 1: Move generation configuration, tool-choice mapping, request wire structures, request conversion, transcript flushing, result parsing, streaming selection, validation, and their tests into private `request.rs`.
-- [ ] Step 2: Move response and usage wire structures, step conversion, unknown-step preservation, response parsing, and their tests into private `response.rs`.
-- [ ] Step 3: Move `Step`, streamed-value merging, `Decoder`, its `StreamDecoder` implementation, and streaming parity tests into private `stream.rs`.
-- [ ] Step 4: Make `mod.rs` declare the focused modules, implement `WireDialect` through them, and expose its decoder only to crate-internal dispatch.
-- [ ] Step 5: Run `cargo fmt --check`.
-- [ ] Step 6: Run `cargo test --lib dialect::gemini`.
-- [ ] Step 7: Commit with message `refactor: split Gemini dialect`.
+- [x] Step 1: Move generation configuration, tool-choice mapping, request wire structures, request conversion, transcript flushing, result parsing, streaming selection, validation, and their tests into private `request.rs`.
+- [x] Step 2: Move response and usage wire structures, step conversion, unknown-step preservation, response parsing, and their tests into private `response.rs`.
+- [x] Step 3: Move `Step`, streamed-value merging, `Decoder`, its `StreamDecoder` implementation, and streaming parity tests into private `stream.rs`.
+- [x] Step 4: Make `mod.rs` declare the focused modules, implement `WireDialect` through them, and expose its decoder only to crate-internal dispatch.
+- [x] Step 5: Run `cargo fmt --check`.
+- [x] Step 6: Run `cargo test --lib dialect::gemini`.
+- [x] Step 7: Commit with message `refactor: split Gemini dialect`.
 
 ### Task 8: Migrate consumers and lock the public contract → verify: all repository checks exit successfully and obsolete public names occur only in migration documentation
 
