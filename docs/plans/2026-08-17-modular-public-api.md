@@ -199,13 +199,13 @@
 - Modify: `src/dialect/openai_chat/mod.rs`
 - Delete: `src/dialect/openai_chat/types.rs`
 
-- [ ] Step 1: Move outbound message, image, tool, function, and request wire structures with request conversion, token-limit selection, streaming selection, validation, and their tests into private `request.rs`.
-- [ ] Step 2: Move choice, response message, response tool call, usage, and response wire structures with normalization, finish-reason parsing, response parsing, and their tests into private `response.rs`.
-- [ ] Step 3: Move `Decoder`, its `StreamDecoder` implementation, usage and finish decoding, stream error handling, and streaming parity tests into private `stream.rs`.
-- [ ] Step 4: Make `mod.rs` declare the focused modules, implement `WireDialect` through them, and expose its decoder only to crate-internal dispatch.
-- [ ] Step 5: Run `cargo fmt --check`.
-- [ ] Step 6: Run `cargo test --lib dialect::openai_chat`.
-- [ ] Step 7: Commit with message `refactor: split OpenAI Chat dialect`.
+- [x] Step 1: Move outbound message, image, tool, function, and request wire structures with request conversion, token-limit selection, streaming selection, validation, and their tests into private `request.rs`.
+- [x] Step 2: Move choice, response message, response tool call, usage, and response wire structures with normalization, finish-reason parsing, response parsing, and their tests into private `response.rs`.
+- [x] Step 3: Move `Decoder`, its `StreamDecoder` implementation, usage and finish decoding, stream error handling, and streaming parity tests into private `stream.rs`.
+- [x] Step 4: Make `mod.rs` declare the focused modules, implement `WireDialect` through them, and expose its decoder only to crate-internal dispatch.
+- [x] Step 5: Run `cargo fmt --check`.
+- [x] Step 6: Run `cargo test --lib dialect::openai_chat`.
+- [x] Step 7: Commit with message `refactor: split OpenAI Chat dialect`.
 
 ### Task 6: Split Anthropic wire responsibilities → verify: `cargo test --lib dialect::anthropic` exits successfully and `src/dialect/anthropic/types.rs` does not exist
 
