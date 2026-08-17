@@ -1,12 +1,12 @@
-//! Wire types for the Gemini Interactions API and their conversions to and from
-//! the neutral model.
+//! Outbound wire structures for the Gemini Interactions API.
 
-use crate::provider::refusal;
-use crate::provider::{
-    GenerateRequest, GenerateResponse, InputContent, OutputContent, ProviderConfig, ProviderError,
-    ReasoningEffort, ResponseFormat, ResponseStatus, Role, ToolChoice, Usage,
+use crate::dialect::refusal;
+use crate::endpoint::EndpointConfig;
+use crate::error::Error;
+use crate::model::{
+    GenerateRequest, InputContent, ReasoningEffort, ResponseFormat, Role, ToolChoice,
 };
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use serde_json::Value;
 
 /// Sampling, reasoning, and tool controls, which this API nests rather than
@@ -82,10 +82,7 @@ pub struct Request {
 
 impl Request {
     /// Converts a neutral request into this dialect's wire format.
-    pub(crate) fn build(
-        value: &GenerateRequest,
-        config: &ProviderConfig,
-    ) -> Result<Self, ProviderError> {
+    pub(crate) fn build(value: &GenerateRequest, config: &EndpointConfig) -> Result<Self, Error> {
         let tool_choice = value.tool_choice.as_ref().map(tool_choice);
 
         let mut system = Vec::new();
@@ -128,8 +125,8 @@ impl Request {
                 match part {
                     InputContent::Text(text) => {
                         if message.role == Role::Tool {
-                            return Err(ProviderError::InvalidRequest {
-                                provider: config.name.clone(),
+                            return Err(Error::InvalidRequest {
+                                endpoint: config.name.clone(),
                                 message: "tool messages may only contain tool results".into(),
                             });
                         }
@@ -142,8 +139,8 @@ impl Request {
                     // becomes carries a result and nothing else.
                     InputContent::ImageUrl(url) => {
                         if message.role == Role::Tool {
-                            return Err(ProviderError::InvalidRequest {
-                                provider: config.name.clone(),
+                            return Err(Error::InvalidRequest {
+                                endpoint: config.name.clone(),
                                 message: "tool messages may only contain tool results".into(),
                             });
                         }
@@ -166,8 +163,8 @@ impl Request {
                     InputContent::ToolResult { call_id, output } => {
                         flush(&mut steps, step_type, &mut pending);
                         let Some(name) = tool_names.get(call_id.as_str()) else {
-                            return Err(ProviderError::InvalidRequest {
-                                provider: config.name.clone(),
+                            return Err(Error::InvalidRequest {
+                                endpoint: config.name.clone(),
                                 message: format!(
                                     "no tool call with id '{call_id}' in the transcript; \
                                      Gemini requires the tool name alongside its result"
@@ -285,121 +282,17 @@ fn result_value(raw: &str) -> Value {
     }
 }
 
-#[derive(Deserialize)]
-pub struct Response {
-    id: String,
-    #[serde(default)]
-    model: String,
-    status: String,
-    /// Steps stay as raw values so unrecognized ones, thought signatures above
-    /// all, can be replayed verbatim on the next request.
-    #[serde(default)]
-    steps: Vec<Value>,
-    usage: Option<UsageWire>,
-    #[serde(flatten)]
-    extra: serde_json::Map<String, Value>,
-}
-
-#[derive(Deserialize)]
-struct UsageWire {
-    #[serde(default)]
-    total_input_tokens: u64,
-    #[serde(default)]
-    total_output_tokens: u64,
-    #[serde(default)]
-    total_tokens: u64,
-}
-
-impl From<Response> for GenerateResponse {
-    fn from(value: Response) -> Self {
-        let content = value.steps.into_iter().flat_map(convert_step).collect();
-
-        Self {
-            id: value.id,
-            model: value.model,
-            status: match value.status.as_str() {
-                "completed" => ResponseStatus::Completed,
-                "incomplete" | "budget_exceeded" => ResponseStatus::Incomplete,
-                "requires_action" => ResponseStatus::RequiresAction,
-                "failed" | "cancelled" => ResponseStatus::Failed,
-                _ => ResponseStatus::Other(value.status),
-            },
-            content,
-            usage: value.usage.map(|u| Usage {
-                input_tokens: u.total_input_tokens,
-                output_tokens: u.total_output_tokens,
-                total_tokens: u.total_tokens,
-            }),
-            provider_metadata: Some(Value::Object(value.extra)),
-        }
-    }
-}
-
-/// Converts one response step into neutral output parts.
-///
-/// Anything Freyja does not model becomes [`OutputContent::Reasoning`] rather
-/// than being dropped. Gemini rejects a follow-up request whose thought steps
-/// are missing or rebuilt, so preserving them verbatim is what makes multi-turn
-/// tool calling work at all.
-fn convert_step(step: Value) -> Vec<OutputContent> {
-    match step.get("type").and_then(Value::as_str) {
-        Some("model_output") => step
-            .get("content")
-            .and_then(Value::as_array)
-            .map(|content| {
-                content
-                    .iter()
-                    .filter_map(|part| match part.get("type").and_then(Value::as_str) {
-                        Some("text") => part
-                            .get("text")
-                            .and_then(Value::as_str)
-                            .map(|text| OutputContent::Text(text.to_string())),
-                        _ => None,
-                    })
-                    .collect()
-            })
-            .unwrap_or_default(),
-        Some("function_call") => {
-            let name = step.get("name").and_then(Value::as_str).unwrap_or_default();
-            vec![OutputContent::ToolCall {
-                id: step
-                    .get("id")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default()
-                    .to_string(),
-                name: name.to_string(),
-                arguments: step
-                    .get("arguments")
-                    .map(Value::to_string)
-                    .unwrap_or_else(|| "{}".to_string()),
-            }]
-        }
-        _ => vec![OutputContent::Reasoning { data: step }],
-    }
-}
-
-/// Parses a successful response body, attributing failures to the endpoint.
-pub(crate) fn parse(
-    body: &str,
-    config: &ProviderConfig,
-) -> Result<GenerateResponse, ProviderError> {
-    let wire: Response =
-        serde_json::from_str(body).map_err(|error| ProviderError::InvalidResponse {
-            provider: config.name.clone(),
-            message: format!("{error}; body: {body}"),
-        })?;
-    Ok(wire.into())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::provider::sse::SseFrame;
-    use crate::provider::stream::{RawDelta, StreamDecoder};
-    use crate::provider::{Message, ProviderType};
+    use crate::dialect::gemini::response::{Response, parse};
+    use crate::dialect::sse::SseFrame;
+    use crate::dialect::stream::{RawDelta, StreamDecoder};
+    use crate::model::{GenerateResponse, OutputContent, ResponseStatus, Usage};
+    use crate::{EndpointPreset, Message};
 
     fn decode_all(frames: &[&str]) -> Vec<RawDelta> {
-        let mut decoder = crate::provider::gemini::Decoder::default();
+        let mut decoder = crate::dialect::gemini::Decoder::default();
         let mut out = Vec::new();
         for data in frames {
             // The Interactions API repeats event_type inside the payload, so
@@ -530,8 +423,8 @@ mod tests {
     }
 
     /// The shipped endpoint for this dialect, so tests cover the real defaults.
-    fn config() -> ProviderConfig {
-        ProviderType::Gemini.config()
+    fn config() -> EndpointConfig {
+        EndpointPreset::Gemini.config()
     }
 
     #[test]
@@ -628,7 +521,7 @@ mod tests {
         ));
 
         match Request::build(&request, &config()).err() {
-            Some(ProviderError::InvalidRequest { message, .. }) => {
+            Some(Error::InvalidRequest { message, .. }) => {
                 assert_eq!(message, "tool messages may only contain tool results");
             }
             other => panic!("expected InvalidRequest, got {other:?}"),
@@ -820,7 +713,7 @@ mod tests {
 
         assert!(matches!(
             Request::build(&request, &config()),
-            Err(ProviderError::InvalidRequest { .. })
+            Err(Error::InvalidRequest { .. })
         ));
     }
 
@@ -843,7 +736,7 @@ mod tests {
 
         assert!(matches!(
             Request::build(&request, &config()),
-            Err(ProviderError::InvalidRequest { .. })
+            Err(Error::InvalidRequest { .. })
         ));
     }
 
@@ -943,9 +836,9 @@ mod tests {
             r#"{"interaction":{"id":"v1_abc123","model":"gemini-3.6-flash","status":"requires_action","usage":{"total_input_tokens":11,"total_output_tokens":90,"total_tokens":101}},"event_type":"interaction.completed"}"#,
         ];
 
-        let streamed = crate::provider::stream::drain_for_test(
+        let streamed = crate::dialect::stream::drain_for_test(
             "gemini".into(),
-            Box::new(crate::provider::gemini::Decoder::default()),
+            Box::new(crate::dialect::gemini::Decoder::default()),
             frames
                 .iter()
                 .map(|frame| format!("data: {frame}\n\n").into_bytes())
@@ -1036,7 +929,7 @@ mod tests {
 
         assert!(matches!(
             Request::build(&request, &config()),
-            Err(ProviderError::InvalidRequest { .. })
+            Err(Error::InvalidRequest { .. })
         ));
     }
 }

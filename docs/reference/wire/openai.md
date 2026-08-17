@@ -1,6 +1,6 @@
 # OpenAI wire format
 
-The native JSON of the OpenAI Responses API, as Freyja speaks it. This page exists so you do not have to read OpenAI's documentation to understand what is going over the wire, or to debug a `ProviderError::Api` body.
+The native JSON of the OpenAI Responses API, as Freyja speaks it. This page exists so you do not have to read OpenAI's documentation to understand what is going over the wire, or to debug a `Error::Api` body.
 
 The request shapes and the response payload below were captured from live calls.
 
@@ -235,7 +235,7 @@ The response is SSE with **semantic event names on the `event:` line**, one per 
 | `response.function_call_arguments.delta` | A fragment of the arguments JSON string |
 | `response.function_call_arguments.done` | Replaces the accumulated fragments with the authoritative `arguments` string and closes the call |
 | `response.completed`, `response.incomplete`, `response.failed` | Terminal. Carries the whole `response` object: `id`, `model`, `status`, and `usage` |
-| `error` | Fails the stream as `ProviderError::Stream`, attributed to the endpoint's name |
+| `error` | Fails the stream as `Error::Stream`, attributed to the endpoint's name |
 
 Every other event, and there are many, is ignored.
 

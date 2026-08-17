@@ -7,11 +7,13 @@
 //! cargo run --example tool_loop
 //! ```
 //!
-//! Swap `ProviderType::OpenAi` below for `Gemini` or `Anthropic` to run the
+//! Swap `EndpointPreset::OpenAi` below for `Gemini` or `Anthropic` to run the
 //! same code against a different vendor. Nothing else changes, which is the
 //! point of the neutral model.
 
-use freyja::{Client, GenerateRequest, Message, OutputContent, ProviderType, Role, ToolDefinition};
+use freyja::{
+    Client, EndpointPreset, GenerateRequest, Message, OutputContent, Role, ToolDefinition,
+};
 use serde_json::Value;
 
 /// The single tool this example exposes to the model.
@@ -39,7 +41,7 @@ fn dispatch(name: &str, arguments: &str) -> String {
 async fn main() {
     dotenvy::dotenv().ok();
 
-    let provider = ProviderType::OpenAi;
+    let provider = EndpointPreset::OpenAi;
     let Some(client) = Client::from_env(provider) else {
         eprintln!("{} is missing or empty", provider.api_key_env());
         return;

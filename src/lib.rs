@@ -8,10 +8,10 @@
 //! you want once, and any backend can serve it:
 //!
 //! ```no_run
-//! # async fn run() -> Result<(), freyja::ProviderError> {
-//! use freyja::{Client, GenerateRequest, Message, ProviderType, Role};
+//! # async fn run() -> Result<(), freyja::Error> {
+//! use freyja::{Client, GenerateRequest, Message, EndpointPreset, Role};
 //!
-//! let client = Client::from_env(ProviderType::OpenAi).expect("OPENAI_API_KEY");
+//! let client = Client::from_env(EndpointPreset::OpenAi).expect("OPENAI_API_KEY");
 //! let response = client
 //!     .generate(&GenerateRequest::new().message(Message::text(Role::User, "Hello")))
 //!     .await?;
@@ -26,7 +26,7 @@
 //! - **The neutral model never bends to a vendor.** Each provider owns its wire
 //!   format and converts in both directions.
 //! - **No silent degradation.** A capability a provider cannot express becomes
-//!   [`ProviderError::UnsupportedCapability`], not a quietly dropped field.
+//!   [`Error::UnsupportedCapability`], not a quietly dropped field.
 //! - **No invented defaults.** A `None` field means "the provider decides", so a
 //!   request built for one backend stays portable to another.
 //!
@@ -38,7 +38,7 @@
 //! model's answer into the assistant turn that must precede the result.
 //!
 //! ```no_run
-//! # async fn run(client: freyja::Client, request: freyja::GenerateRequest) -> Result<(), freyja::ProviderError> {
+//! # async fn run(client: freyja::Client, request: freyja::GenerateRequest) -> Result<(), freyja::Error> {
 //! use freyja::Message;
 //!
 //! let mut request = request;
@@ -65,7 +65,7 @@
 //!
 //! ```no_run
 //! # async fn run(client: freyja::Client, request: freyja::GenerateRequest)
-//! #     -> Result<(), freyja::ProviderError> {
+//! #     -> Result<(), freyja::Error> {
 //! use freyja::StreamEvent;
 //!
 //! let mut stream = client.stream(&request).await?;
@@ -88,11 +88,21 @@
 
 #![deny(missing_docs)]
 
-pub mod provider;
+mod client;
+pub mod dialect;
+pub mod endpoint;
+pub mod error;
+pub mod model;
+/// Types and utilities for consuming streaming provider responses.
+pub mod stream;
+mod transport;
 
-pub use provider::{
-    Auth, Client, EventStream, GenerateRequest, GenerateResponse, InputContent, Message,
-    OutputContent, Provider, ProviderConfig, ProviderDialect, ProviderError, ProviderType,
-    ReasoningEffort, ResponseFormat, ResponseStatus, Role, StreamEvent, TokenLimitField,
-    ToolChoice, ToolDefinition, TransportError, Usage, strict_schema,
+pub use client::Client;
+pub use dialect::Dialect;
+pub use endpoint::{Auth, EndpointConfig, EndpointPreset, TokenLimitField};
+pub use error::{Error, TransportError};
+pub use model::{
+    GenerateRequest, GenerateResponse, InputContent, Message, OutputContent, ReasoningEffort,
+    ResponseFormat, ResponseStatus, Role, ToolChoice, ToolDefinition, Usage, strict_schema,
 };
+pub use stream::{EventStream, StreamEvent};

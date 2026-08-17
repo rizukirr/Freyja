@@ -14,18 +14,18 @@ pub(crate) struct SseFrame {
 /// can land in the middle of a multi-byte codepoint. UTF-8 is only interpreted
 /// once a whole frame is in hand.
 #[derive(Default)]
-pub(crate) struct SseBuffer {
+pub(super) struct SseBuffer {
     bytes: Vec<u8>,
 }
 
 impl SseBuffer {
     /// Appends raw bytes from the response body.
-    pub(crate) fn push(&mut self, chunk: &[u8]) {
+    pub(super) fn push(&mut self, chunk: &[u8]) {
         self.bytes.extend_from_slice(chunk);
     }
 
     /// Splits off the next complete frame, or `None` when more bytes are needed.
-    pub(crate) fn next_frame(&mut self) -> Option<SseFrame> {
+    pub(super) fn next_frame(&mut self) -> Option<SseFrame> {
         let (end, next) = separator(&self.bytes)?;
         let raw: Vec<u8> = self.bytes.drain(..next).collect();
         let text = String::from_utf8_lossy(&raw[..end]);

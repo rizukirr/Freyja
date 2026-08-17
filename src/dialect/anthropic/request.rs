@@ -1,12 +1,12 @@
-//! Wire types for the Anthropic Messages API and their conversions to and from
-//! the neutral model.
+//! Outbound wire structures for the Anthropic Messages API.
 
-use crate::provider::refusal;
-use crate::provider::{
-    GenerateRequest, GenerateResponse, InputContent, OutputContent, ProviderConfig, ProviderError,
-    ReasoningEffort, ResponseFormat, ResponseStatus, Role, ToolChoice, Usage,
+use crate::dialect::refusal;
+use crate::endpoint::EndpointConfig;
+use crate::error::Error;
+use crate::model::{
+    GenerateRequest, InputContent, ReasoningEffort, ResponseFormat, Role, ToolChoice,
 };
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use serde_json::Value;
 
 /// Anthropic is the only supported provider that *requires* `max_tokens` on
@@ -92,10 +92,7 @@ struct ToolWire {
 
 impl Request {
     /// Converts a neutral request into this dialect's wire format.
-    pub(crate) fn build(
-        value: &GenerateRequest,
-        config: &ProviderConfig,
-    ) -> Result<Self, ProviderError> {
+    pub(crate) fn build(value: &GenerateRequest, config: &EndpointConfig) -> Result<Self, Error> {
         // Anthropic keeps no server-side transcript; the full history goes on
         // every request, so there is nothing to continue from.
         if value.previous_response_id.is_some() {
@@ -248,14 +245,14 @@ impl Request {
 
 /// Anthropic wants tool arguments as a structured object, so the neutral JSON
 /// string is parsed here. An empty string means "no arguments".
-fn parse_arguments(raw: &str, config: &ProviderConfig) -> Result<Value, ProviderError> {
+fn parse_arguments(raw: &str, config: &EndpointConfig) -> Result<Value, Error> {
     if raw.trim().is_empty() {
         return Ok(Value::Object(serde_json::Map::new()));
     }
     match serde_json::from_str::<Value>(raw) {
         Ok(value @ Value::Object(_)) => Ok(value),
-        _ => Err(ProviderError::InvalidRequest {
-            provider: config.name.clone(),
+        _ => Err(Error::InvalidRequest {
+            endpoint: config.name.clone(),
             message: format!(
                 "tool call arguments must be a JSON object; Anthropic rejects anything else, got '{raw}'"
             ),
@@ -266,13 +263,13 @@ fn parse_arguments(raw: &str, config: &ProviderConfig) -> Result<Value, Provider
 /// Builds an image source block. Anthropic distinguishes remote URLs from
 /// inline base64, so a data URI has to be split into its media type and payload
 /// rather than passed through as a URL.
-fn image_source(url: &str, config: &ProviderConfig) -> Result<Value, ProviderError> {
+fn image_source(url: &str, config: &EndpointConfig) -> Result<Value, Error> {
     let Some(rest) = url.strip_prefix("data:") else {
         return Ok(serde_json::json!({"type": "url", "url": url}));
     };
 
-    let invalid = || ProviderError::InvalidRequest {
-        provider: config.name.clone(),
+    let invalid = || Error::InvalidRequest {
+        endpoint: config.name.clone(),
         message: "image data URIs must be of the form 'data:<media-type>;base64,<data>'".into(),
     };
 
@@ -286,132 +283,16 @@ fn image_source(url: &str, config: &ProviderConfig) -> Result<Value, ProviderErr
     }))
 }
 
-#[derive(Deserialize)]
-pub struct Response {
-    id: String,
-    model: String,
-    #[serde(default)]
-    stop_reason: Option<String>,
-    /// Content blocks stay as raw values so unrecognized ones, `thinking` above
-    /// all, can be replayed verbatim on the next request.
-    #[serde(default)]
-    content: Vec<Value>,
-    usage: Option<UsageWire>,
-    #[serde(flatten)]
-    extra: serde_json::Map<String, Value>,
-}
-
-/// Anthropic reports no total, and `input_tokens` counts only the *uncached*
-/// prompt: cached tokens are billed separately and reported in their own
-/// fields. The neutral `Usage` therefore sums all three for the true prompt
-/// size. The unsummed fields stay available through `provider_metadata`.
-#[derive(Deserialize)]
-struct UsageWire {
-    #[serde(default)]
-    input_tokens: Option<u64>,
-    #[serde(default)]
-    output_tokens: Option<u64>,
-    #[serde(default)]
-    cache_creation_input_tokens: Option<u64>,
-    #[serde(default)]
-    cache_read_input_tokens: Option<u64>,
-}
-
-impl From<Response> for GenerateResponse {
-    fn from(value: Response) -> Self {
-        let content = value.content.into_iter().flat_map(convert_block).collect();
-
-        let usage = value.usage.map(|u| {
-            let input_tokens = u.input_tokens.unwrap_or(0)
-                + u.cache_creation_input_tokens.unwrap_or(0)
-                + u.cache_read_input_tokens.unwrap_or(0);
-            let output_tokens = u.output_tokens.unwrap_or(0);
-            Usage {
-                input_tokens,
-                output_tokens,
-                total_tokens: input_tokens + output_tokens,
-            }
-        });
-
-        Self {
-            id: value.id,
-            model: value.model,
-            status: parse_status(value.stop_reason),
-            content,
-            usage,
-            provider_metadata: Some(Value::Object(value.extra)),
-        }
-    }
-}
-
-/// Converts one content block into neutral output parts.
-///
-/// Anything Freyja does not model becomes [`OutputContent::Reasoning`] rather
-/// than being dropped. `thinking` blocks carry a signature the API validates on
-/// the next request, and a transcript that omits or rebuilds one is rejected.
-fn convert_block(block: Value) -> Vec<OutputContent> {
-    match block.get("type").and_then(Value::as_str) {
-        Some("text") => block
-            .get("text")
-            .and_then(Value::as_str)
-            .map(|text| vec![OutputContent::Text(text.to_string())])
-            .unwrap_or_default(),
-        Some("tool_use") => vec![OutputContent::ToolCall {
-            id: block
-                .get("id")
-                .and_then(Value::as_str)
-                .unwrap_or_default()
-                .to_string(),
-            name: block
-                .get("name")
-                .and_then(Value::as_str)
-                .unwrap_or_default()
-                .to_string(),
-            // Stringified so tool arguments read the same on every provider.
-            arguments: block
-                .get("input")
-                .map(|input| input.to_string())
-                .unwrap_or_else(|| "{}".to_string()),
-        }],
-        _ => vec![OutputContent::Reasoning { data: block }],
-    }
-}
-
-/// Maps `stop_reason` onto the neutral status.
-///
-/// `refusal` and `pause_turn` are preserved rather than flattened: a refusal is
-/// a deliberate non-answer rather than a failure, and a paused turn is resumed
-/// by re-sending the transcript, not by supplying a tool result.
-fn parse_status(stop_reason: Option<String>) -> ResponseStatus {
-    match stop_reason.as_deref() {
-        Some("end_turn" | "stop_sequence") | None => ResponseStatus::Completed,
-        Some("max_tokens") => ResponseStatus::Incomplete,
-        Some("tool_use") => ResponseStatus::RequiresAction,
-        Some(other) => ResponseStatus::Other(other.to_string()),
-    }
-}
-
-/// Parses a successful response body, attributing failures to the endpoint.
-pub(crate) fn parse(
-    body: &str,
-    config: &ProviderConfig,
-) -> Result<GenerateResponse, ProviderError> {
-    let wire: Response =
-        serde_json::from_str(body).map_err(|error| ProviderError::InvalidResponse {
-            provider: config.name.clone(),
-            message: format!("{error}; body: {body}"),
-        })?;
-    Ok(wire.into())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::provider::{Message, ProviderDialect, ProviderType};
+    use crate::dialect::anthropic::response::{Response, parse};
+    use crate::model::{GenerateResponse, ResponseStatus};
+    use crate::{Dialect, EndpointPreset, Message};
 
     /// The shipped endpoint for this dialect, so tests cover the real defaults.
-    fn config() -> ProviderConfig {
-        ProviderType::Anthropic.config()
+    fn config() -> EndpointConfig {
+        EndpointPreset::Anthropic.config()
     }
 
     #[test]
@@ -555,7 +436,7 @@ mod tests {
         for request in unsupported {
             assert!(matches!(
                 Request::build(&request, &config()),
-                Err(ProviderError::UnsupportedCapability { .. })
+                Err(Error::UnsupportedCapability { .. })
             ));
         }
     }
@@ -573,7 +454,7 @@ mod tests {
 
         assert!(matches!(
             Request::build(&request, &config()),
-            Err(ProviderError::InvalidRequest { .. })
+            Err(Error::InvalidRequest { .. })
         ));
     }
 
@@ -635,9 +516,9 @@ mod tests {
         // streamed fragments spell its keys in non-alphabetical order:
         // convert_block re-serializes the parsed input, which sorts them, so
         // the streaming path has to sort too or the two sides disagree.
-        let streamed = crate::provider::stream::drain_for_test(
+        let streamed = crate::dialect::stream::drain_for_test(
             "anthropic".into(),
-            Box::new(crate::provider::anthropic::Decoder::default()),
+            Box::new(crate::dialect::anthropic::Decoder::default()),
             vec![
                 b"event: message_start\ndata: {\"message\":{\"id\":\"msg_1\",\"model\":\"claude-sonnet-4\",\"usage\":{\"input_tokens\":11,\"cache_creation_input_tokens\":100,\"cache_read_input_tokens\":1000,\"output_tokens\":0}}}\n\n".to_vec(),
                 b"event: content_block_start\ndata: {\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n".to_vec(),
@@ -666,8 +547,7 @@ mod tests {
         )
         .expect("drained");
 
-        let config =
-            ProviderConfig::new(ProviderDialect::Anthropic, "anthropic", "https://x.test/v1");
+        let config = EndpointConfig::new(Dialect::Anthropic, "anthropic", "https://x.test/v1");
         let parsed = parse(
             r#"{"id":"msg_1","model":"claude-sonnet-4","stop_reason":"tool_use","content":[{"type":"text","text":"Hello"},{"type":"text","text":"Bye"},{"type":"thinking","thinking":"Considering.","signature":"sig-1"},{"type":"tool_use","id":"toolu_1","name":"get_weather","input":{"unit":"c","location":"NYC"}},{"type":"server_tool_use","id":"srvtoolu_1","name":"web_search","input":{"query":"rust"}}],"usage":{"input_tokens":11,"cache_creation_input_tokens":100,"cache_read_input_tokens":1000,"output_tokens":9}}"#,
             &config,
@@ -774,11 +654,11 @@ mod tests {
         );
     }
 
-    use crate::provider::sse::SseFrame;
-    use crate::provider::stream::{RawDelta, StreamDecoder};
+    use crate::dialect::sse::SseFrame;
+    use crate::dialect::stream::{RawDelta, StreamDecoder};
 
     fn decode_all(frames: &[(&str, &str)]) -> Vec<RawDelta> {
-        let mut decoder = crate::provider::anthropic::Decoder::default();
+        let mut decoder = crate::dialect::anthropic::Decoder::default();
         let mut out = Vec::new();
         for (event, data) in frames {
             let frame = SseFrame {
@@ -958,7 +838,7 @@ mod tests {
 
     #[test]
     fn decodes_streaming_error_frame() {
-        let mut decoder = crate::provider::anthropic::Decoder::default();
+        let mut decoder = crate::dialect::anthropic::Decoder::default();
         let mut out = Vec::new();
         let frame = SseFrame {
             event: Some("error".into()),
@@ -967,13 +847,13 @@ mod tests {
 
         assert!(matches!(
             decoder.decode(&frame, &"test-endpoint".into(), &mut out),
-            Err(ProviderError::Stream { .. })
+            Err(Error::Stream { .. })
         ));
     }
 
     #[test]
     fn a_streaming_error_reports_the_endpoint_not_the_dialect() {
-        let mut decoder = crate::provider::anthropic::Decoder::default();
+        let mut decoder = crate::dialect::anthropic::Decoder::default();
         let mut out = Vec::new();
         let frame = SseFrame {
             event: Some("error".into()),
@@ -985,12 +865,12 @@ mod tests {
             .expect_err("an error frame must fail the stream");
 
         match error {
-            ProviderError::Stream { provider, .. } => assert_eq!(
-                &*provider, "z.ai",
+            Error::Stream { endpoint, .. } => assert_eq!(
+                &*endpoint, "z.ai",
                 "a Claude-compatible gateway must report its own name, not \"anthropic\" \
-                 -- see the invariant documented on ProviderError in model.rs"
+                 -- see the invariant documented on Error in model.rs"
             ),
-            other => panic!("expected ProviderError::Stream, got {other:?}"),
+            other => panic!("expected Error::Stream, got {other:?}"),
         }
     }
 }

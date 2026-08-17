@@ -11,8 +11,7 @@
 //! ```
 
 use freyja::{
-    Client, GenerateRequest, Message, ProviderError, ProviderType, ResponseFormat, Role,
-    strict_schema,
+    Client, EndpointPreset, Error, GenerateRequest, Message, ResponseFormat, Role, strict_schema,
 };
 use serde::Deserialize;
 use serde_json::json;
@@ -36,7 +35,7 @@ struct Recommendation {
 async fn main() {
     dotenvy::dotenv().ok();
 
-    let provider = ProviderType::OpenAi;
+    let provider = EndpointPreset::OpenAi;
     let Some(client) = Client::from_env(provider) else {
         eprintln!("{} is missing or empty", provider.api_key_env());
         return;
@@ -92,7 +91,7 @@ async fn main() {
         // see what actually came back, and separates the common cause from the
         // rest -- a cut-off answer is still valid text and invalid JSON, and
         // wants a bigger cap rather than a different schema.
-        Err(ProviderError::OutputMismatch {
+        Err(Error::OutputMismatch {
             message,
             text,
             truncated,
@@ -105,7 +104,7 @@ async fn main() {
             eprintln!("what came back: {text}");
         }
 
-        Err(error) => eprintln!("{} failed: {error}", error.provider()),
+        Err(error) => eprintln!("{} failed: {error}", error.endpoint()),
     }
 
     demonstrate_schema_less().await;
@@ -130,9 +129,9 @@ async fn demonstrate_schema_less() {
     println!("\n== the same call, schema-less ==");
 
     for provider in [
-        ProviderType::OpenAi,
-        ProviderType::Gemini,
-        ProviderType::Anthropic,
+        EndpointPreset::OpenAi,
+        EndpointPreset::Gemini,
+        EndpointPreset::Anthropic,
     ] {
         let Some(client) = Client::from_env(provider) else {
             continue;
@@ -141,7 +140,7 @@ async fn demonstrate_schema_less() {
 
         match client.generate(&request).await {
             Ok(response) => println!("{name:>9}  {}", response.output_text().trim()),
-            Err(ProviderError::UnsupportedCapability { capability, .. }) => {
+            Err(Error::UnsupportedCapability { capability, .. }) => {
                 println!("{name:>9}  refused: cannot express {capability}");
                 println!("{:>9}  (no request was sent)", "");
             }

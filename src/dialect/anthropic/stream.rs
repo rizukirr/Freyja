@@ -1,36 +1,10 @@
-//! Anthropic backend. Transport lives in [`crate::provider::Client`]; this
-//! module owns only the wire format.
+//! Streaming decoder for the Anthropic Messages API.
 
-mod types;
-
-use crate::provider::sse::SseFrame;
-use crate::provider::stream::{RawDelta, StreamDecoder};
-use crate::provider::{GenerateRequest, GenerateResponse, Provider, ProviderConfig, ProviderError};
-use crate::provider::{ResponseStatus, Usage};
+use crate::error::Error;
+use crate::model::{ResponseStatus, Usage};
+use crate::stream::{RawDelta, SseFrame, StreamDecoder};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
-
-pub(crate) struct AnthropicProvider;
-
-impl Provider for AnthropicProvider {
-    type Request = types::Request;
-
-    fn build(
-        &self,
-        request: &GenerateRequest,
-        config: &ProviderConfig,
-    ) -> Result<Self::Request, ProviderError> {
-        types::Request::build(request, config)
-    }
-
-    fn parse(
-        &self,
-        body: &str,
-        config: &ProviderConfig,
-    ) -> Result<GenerateResponse, ProviderError> {
-        types::parse(body, config)
-    }
-}
 
 /// A thinking block being reassembled, so the replayable blob can be rebuilt
 /// in the same shape the non-streaming parser produces.
@@ -66,7 +40,7 @@ impl StreamDecoder for Decoder {
         frame: &SseFrame,
         provider: &std::sync::Arc<str>,
         out: &mut Vec<RawDelta>,
-    ) -> Result<(), crate::provider::ProviderError> {
+    ) -> Result<(), Error> {
         let Ok(value) = serde_json::from_str::<Value>(&frame.data) else {
             return Ok(());
         };
@@ -77,10 +51,10 @@ impl StreamDecoder for Decoder {
 
         match event {
             "error" => {
-                return Err(crate::provider::ProviderError::Stream {
+                return Err(Error::Stream {
                     // The endpoint's own name, never the dialect: see the
-                    // invariant on ProviderError in model.rs.
-                    provider: provider.clone(),
+                    // invariant on Error in model.rs.
+                    endpoint: provider.clone(),
                     message: value["error"]["message"]
                         .as_str()
                         .unwrap_or("unknown streaming error")
@@ -191,7 +165,7 @@ impl StreamDecoder for Decoder {
                 }
             }
             "message_delta" => {
-                // Mirrors `parse_status` in types.rs. Kept as its own match
+                // Mirrors `parse_status` in response.rs. Kept as its own match
                 // rather than shared with the other dialects: the strings
                 // differ per provider, and every divergence found in review
                 // came from this mapping drifting from the parser's.
@@ -203,7 +177,7 @@ impl StreamDecoder for Decoder {
                         "tool_use" => ResponseStatus::RequiresAction,
                         other => ResponseStatus::Other(other.to_string()),
                     });
-                // Every field of `UsageWire` in types.rs is an `Option` the
+                // Every field of `UsageWire` in response.rs is an `Option` the
                 // parser unwraps to 0, so a usage object missing
                 // `output_tokens` still yields usage.
                 let usage = value.get("usage").map(|usage| {
@@ -229,7 +203,7 @@ impl StreamDecoder for Decoder {
         Ok(())
     }
 
-    /// `convert_block` in types.rs re-serializes the parsed `input` object,
+    /// `convert_block` in response.rs re-serializes the parsed `input` object,
     /// which sorts its keys.
     fn normalizes_tool_arguments(&self) -> bool {
         true

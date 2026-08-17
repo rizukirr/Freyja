@@ -1,32 +1,32 @@
 # Errors
 
-Every fallible call returns `Result<_, ProviderError>`. There is one error type, and its variants fall into three groups: refusals raised before anything left the process, transport failures where no answer came back, and answers the endpoint actually sent.
+Every fallible call returns `Result<_, Error>`. There is one error type, and its variants fall into three groups: refusals raised before anything left the process, transport failures where no answer came back, and answers the endpoint actually sent.
 
 ```rust
 #[non_exhaustive]
-pub enum ProviderError {
+pub enum Error {
     // Refused here, before the request left the process.
-    UnsupportedCapability { provider: Arc<str>, capability: &'static str },
-    InvalidRequest { provider: Arc<str>, message: String },
+    UnsupportedCapability { endpoint: Arc<str>, capability: &'static str },
+    InvalidRequest { endpoint: Arc<str>, message: String },
 
     // The request never completed.
-    Http { provider: Arc<str>, kind: TransportError, message: String },
+    Http { endpoint: Arc<str>, kind: TransportError, message: String },
 
     // The endpoint answered, and the answer was an error.
-    BadRequest    { provider: Arc<str>, body: String },
-    Unauthorized  { provider: Arc<str>, status: u16, body: String },
-    NotFound      { provider: Arc<str>, body: String },
-    RateLimit     { provider: Arc<str>, retry_after: Option<Duration>, body: String },
-    QuotaExceeded { provider: Arc<str>, status: u16, body: String },
-    ServerError   { provider: Arc<str>, status: u16, body: String },
-    Api           { provider: Arc<str>, status: u16, body: String },
+    BadRequest    { endpoint: Arc<str>, body: String },
+    Unauthorized  { endpoint: Arc<str>, status: u16, body: String },
+    NotFound      { endpoint: Arc<str>, body: String },
+    RateLimit     { endpoint: Arc<str>, retry_after: Option<Duration>, body: String },
+    QuotaExceeded { endpoint: Arc<str>, status: u16, body: String },
+    ServerError   { endpoint: Arc<str>, status: u16, body: String },
+    Api           { endpoint: Arc<str>, status: u16, body: String },
 
     // The endpoint answered, but the body was unusable.
-    InvalidResponse { provider: Arc<str>, message: String },
-    Stream          { provider: Arc<str>, message: String },
+    InvalidResponse { endpoint: Arc<str>, message: String },
+    Stream          { endpoint: Arc<str>, message: String },
 
     // The endpoint answered fine; the content was not what the caller wanted.
-    OutputMismatch  { provider: Arc<str>, message: String, text: String, truncated: bool },
+    OutputMismatch  { endpoint: Arc<str>, message: String, text: String, truncated: bool },
 }
 ```
 
@@ -34,7 +34,7 @@ Implements `Debug`, `Display`, and `std::error::Error`, so it works with `?`, `a
 
 The enum is `#[non_exhaustive]`, so a `match` on it needs a catch-all arm. Variants added later will not break your build.
 
-Every variant carries the endpoint's configured name, reachable with `error.provider()`, so an error from a multi-provider application says which backend produced it. It is the endpoint rather than the dialect, so a failure against a Claude-compatible gateway reports that gateway and not "Anthropic".
+Every variant carries the endpoint's configured name, reachable with `error.endpoint()`, so an error from a multi-provider application says which backend produced it. It is the endpoint rather than the dialect, so a failure against a Claude-compatible gateway reports that gateway and not "Anthropic".
 
 ## Why the answers are named rather than numbered
 
@@ -226,7 +226,7 @@ It carries two things a bare `serde_json::Error` does not:
 `truncated` says whether the answer was cut short, checked against `ResponseStatus::Incomplete` rather than guessed from the parse error. This is the most common cause and the one most easily misread — half a JSON object produces `EOF while parsing an object`, which reads like a schema problem and is not:
 
 ```rust
-Err(ProviderError::OutputMismatch { truncated: true, .. }) => {
+Err(Error::OutputMismatch { truncated: true, .. }) => {
     // Raise max_tokens. The schema is fine.
 }
 ```
@@ -254,7 +254,7 @@ A stream that simply stops, with no error frame, is not this variant. It ends no
 Propagate with `?` when the caller decides:
 
 ```rust
-async fn ask(client: &Client, question: &str) -> Result<String, ProviderError> {
+async fn ask(client: &Client, question: &str) -> Result<String, Error> {
     let request = GenerateRequest::new().message(Message::text(Role::User, question));
     Ok(client.generate(&request).await?.output_text())
 }
@@ -266,18 +266,18 @@ Branch on the name when you want to act on the cause:
 match client.generate(&request).await {
     Ok(response) => println!("{}", response.output_text()),
 
-    Err(ProviderError::RateLimit { retry_after, .. }) => {
+    Err(Error::RateLimit { retry_after, .. }) => {
         back_off(retry_after.unwrap_or(Duration::from_secs(1)));
     }
-    Err(ProviderError::QuotaExceeded { .. }) => {
+    Err(Error::QuotaExceeded { .. }) => {
         eprintln!("out of credit — retrying will not help");
     }
-    Err(ProviderError::Unauthorized { .. }) => eprintln!("check the API key"),
-    Err(error @ ProviderError::UnsupportedCapability { .. }) => {
+    Err(Error::Unauthorized { .. }) => eprintln!("check the API key"),
+    Err(error @ Error::UnsupportedCapability { .. }) => {
         eprintln!("not portable: {error}");
     }
 
-    Err(error) => eprintln!("{} failed: {error}", error.provider()),
+    Err(error) => eprintln!("{} failed: {error}", error.endpoint()),
 }
 ```
 
