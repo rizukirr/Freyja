@@ -95,10 +95,10 @@
 - Delete: `src/provider/stream.rs`
 - Delete: `src/provider/sse.rs`
 
-- [ ] Step 1: Move `StreamEvent` and `EventStream` into `src/stream/event.rs` without changing their public fields or methods.
-- [ ] Step 2: Move `RawDelta`, `StreamDecoder`, `Assembler`, pending-call state, recorded-body test support, and their tests into `src/stream/assembler.rs`; expose them only as `pub(crate)` where another internal module needs access.
-- [ ] Step 3: Move `SseFrame`, `SseBuffer`, separator handling, and their tests into private `src/stream/sse.rs`.
-- [ ] Step 4: Define the public stream surface in `src/stream/mod.rs`:
+- [x] Step 1: Move `StreamEvent` and `EventStream` into `src/stream/event.rs` without changing their public fields or methods.
+- [x] Step 2: Move `RawDelta`, `StreamDecoder`, `Assembler`, pending-call state, recorded-body test support, and their tests into `src/stream/assembler.rs`; expose them only as `pub(crate)` where another internal module needs access.
+- [x] Step 3: Move `SseFrame`, `SseBuffer`, separator handling, and their tests into private `src/stream/sse.rs`.
+- [x] Step 4: Define the public stream surface in `src/stream/mod.rs`:
 
   ```rust
   mod assembler;
@@ -110,11 +110,11 @@
   pub(crate) use sse::SseFrame;
   ```
 
-- [ ] Step 5: Update client and dialect decoder imports to use `crate::stream`; keep SSE framing, raw deltas, decoder traits, and assembly private.
-- [ ] Step 6: Re-export `EventStream` and `StreamEvent` from `src/lib.rs`.
-- [ ] Step 7: Run `cargo fmt --check`.
-- [ ] Step 8: Run `cargo test --lib stream`.
-- [ ] Step 9: Commit with message `refactor: extract streaming modules`.
+- [x] Step 5: Update client and dialect decoder imports to use `crate::stream`; keep SSE framing, raw deltas, decoder traits, and assembly private.
+- [x] Step 6: Re-export `EventStream` and `StreamEvent` from `src/lib.rs`.
+- [x] Step 7: Run `cargo fmt --check`.
+- [x] Step 8: Run `cargo test --lib stream`.
+- [x] Step 9: Commit with message `refactor: extract streaming modules`.
 
 ### Task 3: Separate endpoint configuration, dialect dispatch, client, and transport → verify: `cargo test --lib` exits successfully and no `src/provider` path remains
 
