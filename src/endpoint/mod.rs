@@ -63,7 +63,7 @@ pub struct EndpointConfig {
     pub base_url: String,
     /// How to present credentials.
     pub auth: Auth,
-    /// Environment variable holding the key, for [`Client::from_env`].
+    /// Environment variable holding the key, for [`crate::Client::from_env`].
     pub api_key_env: Option<&'static str>,
     /// Model used when [`GenerateRequest::model`] is unset.
     ///
@@ -111,7 +111,7 @@ fn is_secret_header(name: &str) -> bool {
 
 /// Redacts header values that look like credentials.
 ///
-/// [`Client`] takes care of the API key, but it prints its config, and a
+/// [`crate::Client`] takes care of the API key, but it prints its config, and a
 /// gateway needing a second credential has nowhere to put it but
 /// [`EndpointConfig::extra_headers`]. A derived `Debug` would print that
 /// verbatim and undo the redaction one field over.

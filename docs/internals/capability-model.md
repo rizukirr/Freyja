@@ -2,7 +2,7 @@
 
 What Freyja is allowed to decide on a vendor's behalf, and why the answer is "almost nothing".
 
-This is the reasoning behind [`src/provider/refusal.rs`](../../src/provider/refusal.rs), the eleven fields on `GenerateRequest`, and the existence of `extra_for`. [Concepts](../concepts.md) covers the same ground for people *using* Freyja; this page is for people changing it.
+This is the reasoning behind [`src/dialect/refusal.rs`](../../src/dialect/refusal.rs), the eleven fields on `GenerateRequest`, and the existence of `extra_for`. [Concepts](../concepts.md) covers the same ground for people *using* Freyja; this page is for people changing it.
 
 ## The problem
 
@@ -21,7 +21,7 @@ The whole model falls out of noticing that "will this work?" is three different 
    ├──────────────────────────────────────────────────────────────────┤
    │  ENDPOINT      "does this deployment allow `labels`?"            │
    │                changes monthly · the operator knows, and         │
-   │                tells Freyja through ProviderConfig               │
+   │                tells Freyja through EndpointConfig               │
    ├──────────────────────────────────────────────────────────────────┤
    │  WIRE FORMAT   "is there a field for this at all?"               │
    │                changes yearly · provable by construction         │
@@ -131,7 +131,7 @@ Each exists to answer a question that would otherwise be answered by taste.
 | **Neutral model** | one name per capability | what does the caller write? |
 | **Dialect** | a wire format with an ecosystem | should this be a new dialect? |
 | **Endpoint** | a deployment of a dialect | where does non-capability variance go? |
-| **Escape hatch** | `extra_for`, `ProviderConfig::body` | how do I send what is not a capability? |
+| **Escape hatch** | `extra_for`, `EndpointConfig::body` | how do I send what is not a capability? |
 
 A wire format earns a dialect slot when **at least two independent vendors speak it**. Under that test only `OpenAiChat` really earns one — Groq, DeepSeek, Together, OpenRouter, Ollama, vLLM. The other three exist because their vendors matter, not because their formats spread. Worth knowing before proposing a fifth.
 
@@ -153,7 +153,7 @@ A wire format earns a dialect slot when **at least two independent vendors speak
 
 The rack must never translate. A rack that knows all four wire formats grows with every fifth one added, and every dialect change becomes a change to shared code. Translation stays in the engine.
 
-The current rack has **welded slots**: `ProviderDialect` is a closed enum dispatched by `match` at four sites, and `Provider::Request` is an associated type, so the trait is not object-safe and no external crate can supply a dialect. Making the slots real is a genuine architectural change, described in [Architecture](architecture.md). Nothing today is blocked by it.
+The current rack has **welded slots**: `Dialect` is a closed enum dispatched by `match` at four sites. Its internal `WireDialect` implementation has an associated request type, and neither the trait nor the dialect modules are public, so an external crate cannot supply a dialect. Making the slots real is a genuine architectural change, described in [Architecture](architecture.md). Nothing today is blocked by it.
 
 ## Where it happens in the code
 
@@ -161,7 +161,7 @@ The current rack has **welded slots**: `ProviderDialect` is a closed enum dispat
    GenerateRequest
         │
         ▼
-   Provider::build ────────────▶ types::Request::build   ◀── refusals fire here
+   WireDialect::build ─────────▶ request conversion      ◀── refusals fire here
         │                        (per dialect)               and nowhere else
         ▼
    to_value ───────────────────▶ serialize, then merge   ◀── escape hatches
@@ -188,7 +188,7 @@ The `return Err` and the `push` are alternatives. A refusal cannot drift out of 
 
 The law was already the informal principle when seven refusals violated it. Principles do not enforce themselves.
 
-What made it real is [`refusal.rs`](../../src/provider/refusal.rs): every refusal names a constant declared in one file and appears in a table with its evidence.
+What made it real is [`refusal.rs`](../../src/dialect/refusal.rs): every refusal names a constant declared in one file and appears in a table with its evidence.
 
 | Evidence | Meaning |
 |---|---|
@@ -211,6 +211,6 @@ That converts "did anyone verify this?" from archaeology into a table lookup, wh
 
 **Model-level variance.** Freyja knows the wire format and never the model. A table of what `gpt-5.6` accepts would be confidently wrong within a month, so there is no such table and there should not be one.
 
-The consequence is real and worth stating plainly: an application that switches models at runtime still has to catch `BadRequest` and decide for itself what to drop. `ProviderError` classifies the failure and `Client::check` rules out the format-level problems for free, but the last mile belongs to the caller. The model makes that boundary explicit rather than pretending to fix it.
+The consequence is real and worth stating plainly: an application that switches models at runtime still has to catch `BadRequest` and decide for itself what to drop. `Error` classifies the failure and `Client::check` rules out the format-level problems for free, but the last mile belongs to the caller. The model makes that boundary explicit rather than pretending to fix it.
 
 **Cross-vendor reasoning state.** Opaque reasoning blobs are replayed faithfully, which is correct within a vendor and fatal across one. Switching mid-conversation means stripping `InputContent::Reasoning` from the transcript, and Freyja offers no helper for that yet.

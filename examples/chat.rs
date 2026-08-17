@@ -11,7 +11,7 @@
 //! Type a message and press enter. `/reset` starts over, `/history` shows the
 //! transcript, `/exit` quits.
 
-use freyja::{Client, GenerateRequest, Message, ProviderType, ResponseStatus, Role, StreamEvent};
+use freyja::{Client, EndpointPreset, GenerateRequest, Message, ResponseStatus, Role, StreamEvent};
 use std::io::{BufRead, Write};
 
 /// Frames the whole conversation. Freyja puts it wherever the provider expects
@@ -23,7 +23,7 @@ const SYSTEM_PROMPT: &str = "You are a concise assistant. Answer in two sentence
 async fn main() {
     dotenvy::dotenv().ok();
 
-    let provider = ProviderType::OpenAi;
+    let provider = EndpointPreset::OpenAi;
     let Some(client) = Client::from_env(provider) else {
         eprintln!("{} is missing or empty", provider.api_key_env());
         return;
@@ -78,7 +78,7 @@ async fn main() {
             Ok(reply) => request = request.message(reply),
 
             Err(error) => {
-                eprintln!("\n{} failed: {error}", error.provider());
+                eprintln!("\n{} failed: {error}", error.endpoint());
                 if error.is_retryable() {
                     eprintln!("(transient — try again)");
                 }
@@ -96,7 +96,7 @@ async fn main() {
 
 /// Streams one answer, printing it as it arrives, and returns the assistant
 /// turn to append to the transcript.
-async fn say(client: &Client, request: &GenerateRequest) -> Result<Message, freyja::ProviderError> {
+async fn say(client: &Client, request: &GenerateRequest) -> Result<Message, freyja::Error> {
     let mut stream = client.stream(request).await?;
 
     print!("\nbot> ");

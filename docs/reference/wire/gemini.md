@@ -1,6 +1,6 @@
 # Gemini wire format
 
-The native JSON of the Gemini Interactions API, as Freyja speaks it. This page exists so you do not have to read Google's documentation to understand what is going over the wire, or to debug a `ProviderError::Api` body.
+The native JSON of the Gemini Interactions API, as Freyja speaks it. This page exists so you do not have to read Google's documentation to understand what is going over the wire, or to debug a `Error::Api` body.
 
 Everything here was verified against the live endpoint at `Api-Revision: 2026-05-20`. Where behavior was surprising, it is called out.
 

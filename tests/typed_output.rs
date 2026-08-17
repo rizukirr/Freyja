@@ -4,9 +4,7 @@
 //! method is what it does with a whole response: the text, and the status that
 //! says whether the text is finished.
 
-use freyja::{
-    Client, GenerateRequest, Message, ProviderConfig, ProviderDialect, ProviderError, Role,
-};
+use freyja::{Client, Dialect, EndpointConfig, Error, GenerateRequest, Message, Role};
 use serde::Deserialize;
 use std::io::{BufRead, BufReader, Write};
 use std::net::TcpListener;
@@ -65,7 +63,7 @@ fn serve_once(content: &str, finish_reason: &str) -> String {
 
 fn client(base: String) -> Client {
     Client::new(
-        ProviderConfig::new(ProviderDialect::OpenAiChat, "local", base).default_model("test-model"),
+        EndpointConfig::new(Dialect::OpenAiChat, "local", base).default_model("test-model"),
         "sk-test",
     )
 }
@@ -99,13 +97,13 @@ async fn a_wrong_shape_keeps_the_answer_it_could_not_use() {
         .expect_err("the shape is wrong");
 
     match &error {
-        ProviderError::OutputMismatch {
-            provider,
+        Error::OutputMismatch {
+            endpoint,
             text,
             truncated,
             ..
         } => {
-            assert_eq!(&**provider, "local");
+            assert_eq!(&**endpoint, "local");
             assert_eq!(text, r#"{"crate":"serde_json"}"#);
             assert!(
                 !truncated,
@@ -135,7 +133,7 @@ async fn a_truncated_answer_says_so_instead_of_blaming_the_schema() {
         .expect_err("half a JSON object is not JSON");
 
     match &error {
-        ProviderError::OutputMismatch { truncated, .. } => {
+        Error::OutputMismatch { truncated, .. } => {
             assert!(truncated, "finish_reason 'length' means it was cut short");
         }
         other => panic!("expected OutputMismatch, got {other:?}"),
@@ -158,5 +156,5 @@ async fn transport_and_api_failures_pass_straight_through() {
         .await
         .expect_err("nothing is listening");
 
-    assert!(matches!(error, ProviderError::Http { .. }), "got {error:?}");
+    assert!(matches!(error, Error::Http { .. }), "got {error:?}");
 }

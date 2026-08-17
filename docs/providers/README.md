@@ -4,7 +4,7 @@ Freyja reaches a provider in one of two ways. Both use the same code paths, and 
 
 | | Use when | How |
 |---|---|---|
-| **Built-in** | OpenAI, Gemini, Anthropic | `ProviderType::OpenAi` |
+| **Built-in** | OpenAI, Gemini, Anthropic | `EndpointPreset::OpenAi` |
 | **Custom** | Everything else | `Client::custom(dialect, name, url, key)` |
 
 ## Built-in providers
@@ -18,7 +18,7 @@ Three presets, for the three first-party vendors whose endpoints Freyja is willi
 | [Anthropic](anthropic.md) | `ANTHROPIC_API_KEY` | `claude-opus-5` | Requires `max_tokens`, defaulted for you |
 
 ```rust
-let client = Client::from_env(ProviderType::Anthropic).expect("ANTHROPIC_API_KEY");
+let client = Client::from_env(EndpointPreset::Anthropic).expect("ANTHROPIC_API_KEY");
 ```
 
 All three complete a live tool round trip. Read the provider page before relying on a capability; coverage is not uniform, and each page has a table saying exactly what is refused.
@@ -29,7 +29,7 @@ Most hosted inference APIs copy a format Freyja already speaks, so they need no 
 
 ```rust
 let client = Client::custom(
-    ProviderDialect::OpenAiChat,
+    Dialect::OpenAiChat,
     "DeepSeek",
     "https://api.deepseek.com/v1",
     api_key,

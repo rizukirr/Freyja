@@ -9,10 +9,10 @@ Implemented against the Messages API.
 | Extra header | `anthropic-version: 2023-06-01` |
 | Key variable | `ANTHROPIC_API_KEY` |
 | Default model | `claude-opus-5` |
-| Source | `src/provider/anthropic/` |
+| Source | `src/dialect/anthropic/` |
 
 ```rust
-let client = Client::from_env(ProviderType::Anthropic).expect("ANTHROPIC_API_KEY");
+let client = Client::from_env(EndpointPreset::Anthropic).expect("ANTHROPIC_API_KEY");
 ```
 
 Verified against the live endpoint: a full tool round trip completes, prompt to tool call to result to answer. See [Verification status](#verification-status) for what that does and does not cover.
@@ -49,7 +49,7 @@ GenerateRequest::new()
     .max_tokens(1024);
 ```
 
-The constant lives in `src/provider/anthropic/types.rs`.
+The constant lives in `src/dialect/anthropic/request.rs`.
 
 ## Anthropic nests, the others do not
 
@@ -227,7 +227,7 @@ Unlike Gemini, `has_tool_calls()` and `status` agree here: a response with tool 
 
 ## Default model
 
-`claude-opus-5` is used when `model` is unset. It is the preset's `default_model` in `src/provider/presets.rs`, not a property of the dialect. Set `model` on the request, or `default_model` on the config, for anything you need to stay stable.
+`claude-opus-5` is used when `model` is unset. It is the preset's `default_model` in `src/endpoint/presets.rs`, not a property of the dialect. Set `model` on the request, or `default_model` on the config, for anything you need to stay stable.
 
 ## Verification status
 

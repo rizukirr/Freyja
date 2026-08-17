@@ -8,7 +8,7 @@
 //! DEEPSEEK_API_KEY=... cargo run --example custom_endpoint
 //! ```
 
-use freyja::{Auth, Client, GenerateRequest, Message, ProviderConfig, ProviderDialect, Role};
+use freyja::{Auth, Client, Dialect, EndpointConfig, GenerateRequest, Message, Role};
 
 #[tokio::main]
 async fn main() {
@@ -23,7 +23,7 @@ async fn main() {
     // and the key. Auth follows the dialect, so this sends a bearer token
     // without being told to.
     let client = Client::custom(
-        ProviderDialect::OpenAiChat,
+        Dialect::OpenAiChat,
         "DeepSeek",
         "https://api.deepseek.com/v1",
         api_key,
@@ -43,8 +43,8 @@ async fn main() {
     // The builder covers what `custom` does not: a default model so requests
     // need not repeat it, a key variable for `Client::from_env`, extra headers,
     // and an auth style that differs from the dialect's convention.
-    let _configured = ProviderConfig::new(
-        ProviderDialect::Anthropic,
+    let _configured = EndpointConfig::new(
+        Dialect::Anthropic,
         "my-gateway",
         "https://gateway.internal/anthropic/v1",
     )
@@ -54,8 +54,8 @@ async fn main() {
     .auth(Auth::Bearer);
 
     // A local runtime needs no credentials at all.
-    let _local = Client::without_key(ProviderConfig::new(
-        ProviderDialect::OpenAiChat,
+    let _local = Client::without_key(EndpointConfig::new(
+        Dialect::OpenAiChat,
         "ollama",
         "http://localhost:11434/v1",
     ));

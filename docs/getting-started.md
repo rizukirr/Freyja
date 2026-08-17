@@ -27,9 +27,9 @@ Freyja reads credentials from the environment.
 
 | Provider | Variable |
 |---|---|
-| `ProviderType::OpenAi` | `OPENAI_API_KEY` |
-| `ProviderType::Gemini` | `GEMINI_API_KEY` |
-| `ProviderType::Anthropic` | `ANTHROPIC_API_KEY` |
+| `EndpointPreset::OpenAi` | `OPENAI_API_KEY` |
+| `EndpointPreset::Gemini` | `GEMINI_API_KEY` |
+| `EndpointPreset::Anthropic` | `ANTHROPIC_API_KEY` |
 
 ```bash
 # .env
@@ -43,11 +43,11 @@ Add `dotenvy` as a dev-dependency if you want `.env` loaded automatically, as th
 ## Your first call
 
 ```rust
-use freyja::{Client, GenerateRequest, Message, ProviderType, Role};
+use freyja::{Client, GenerateRequest, Message, EndpointPreset, Role};
 
 #[tokio::main]
 async fn main() {
-    let provider = ProviderType::OpenAi;
+    let provider = EndpointPreset::OpenAi;
     let Some(client) = Client::from_env(provider) else {
         eprintln!("{} is missing or empty", provider.api_key_env());
         return;
@@ -72,7 +72,7 @@ Note what the request does *not* set: no model, no temperature, no token cap. Ev
 Change one line:
 
 ```rust
-let provider = ProviderType::Anthropic;
+let provider = EndpointPreset::Anthropic;
 ```
 
 Nothing else moves. Freyja translates the same neutral request into a completely different wire format.
@@ -82,10 +82,10 @@ Portable does not mean identical, though. Each provider refuses a different slic
 ## Reach a provider that is not built in
 
 ```rust
-use freyja::{Client, ProviderDialect};
+use freyja::{Client, Dialect};
 
 let client = Client::custom(
-    ProviderDialect::OpenAiChat,
+    Dialect::OpenAiChat,
     "DeepSeek",
     "https://api.deepseek.com/v1",
     std::env::var("DEEPSEEK_API_KEY").unwrap(),

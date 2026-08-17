@@ -1,6 +1,6 @@
 use super::assembler::{Assembler, StreamDecoder};
 use super::sse::SseBuffer;
-use crate::error::Error as ProviderError;
+use crate::error::Error;
 use crate::model::{GenerateResponse, ResponseStatus, Usage};
 use serde_json::Value;
 use std::sync::Arc;
@@ -115,7 +115,7 @@ impl EventStream {
     ///
     /// Frames carrying nothing a caller can act on — keepalives, comments,
     /// sentinels — are consumed without producing an event.
-    pub async fn next(&mut self) -> Result<Option<StreamEvent>, ProviderError> {
+    pub async fn next(&mut self) -> Result<Option<StreamEvent>, Error> {
         loop {
             if let Some(event) = self.queued.pop_front() {
                 return Ok(Some(event));
@@ -136,7 +136,7 @@ impl EventStream {
     /// The whole response, identical to what [`crate::Client::generate`] would
     /// have returned.
     ///
-    /// Errors with [`ProviderError::Stream`] if [`EventStream::next`] has not
+    /// Errors with [`Error::Stream`] if [`EventStream::next`] has not
     /// yet returned `None`. A response that looks complete but is not, replayed
     /// to a provider, fails in ways that are hard to trace back to here.
     ///
@@ -145,12 +145,12 @@ impl EventStream {
     /// the fields Freyja does not model, while a stream carries the object
     /// whole. Every field a tool loop depends on — id, model, status, content,
     /// usage — does match, and `to_message()` produces the same assistant turn.
-    pub fn into_response(self) -> Result<GenerateResponse, ProviderError> {
+    pub fn into_response(self) -> Result<GenerateResponse, Error> {
         self.assembler.into_response()
     }
 
     /// Decodes one buffered frame, if a complete one is available.
-    fn pump_frame(&mut self) -> Result<bool, ProviderError> {
+    fn pump_frame(&mut self) -> Result<bool, Error> {
         let Some(frame) = self.buffer.next_frame() else {
             return Ok(false);
         };
@@ -169,13 +169,13 @@ impl EventStream {
     }
 
     /// Pulls more bytes. Returns `false` when the body is exhausted.
-    async fn pump_bytes(&mut self) -> Result<bool, ProviderError> {
+    async fn pump_bytes(&mut self) -> Result<bool, Error> {
         match &mut self.body {
             Body::Live(response) => {
                 let chunk = response
                     .chunk()
                     .await
-                    .map_err(|error| ProviderError::transport(self.provider.clone(), &error))?;
+                    .map_err(|error| Error::transport(self.provider.clone(), &error))?;
                 match chunk {
                     Some(bytes) => {
                         self.buffer.push(&bytes);
@@ -218,7 +218,7 @@ impl EventStream {
     /// The recorded body never yields `Pending`, so a no-op waker is enough and
     /// the test suite needs no async runtime of its own.
     #[cfg(test)]
-    pub(super) fn next_blocking(&mut self) -> Result<Option<StreamEvent>, ProviderError> {
+    pub(super) fn next_blocking(&mut self) -> Result<Option<StreamEvent>, Error> {
         use std::future::Future;
         use std::pin::pin;
         use std::task::{Context, Poll, Waker};
