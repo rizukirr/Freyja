@@ -41,8 +41,8 @@
 - Modify: `src/provider/openai_responses/mod.rs`
 - Modify: `src/provider/openai_responses/types.rs`
 
-- [ ] Step 1: Move `GenerateRequest` and its builder into `src/model/request.rs`; move `Message`, `Role`, `InputContent`, and `ReasoningEffort` into `src/model/message.rs`; move `ResponseFormat` and `strict_schema` with its private helpers into `src/model/schema.rs`; move `ToolDefinition` and `ToolChoice` into `src/model/tools.rs`; move `GenerateResponse`, `ResponseStatus`, `OutputContent`, and `Usage` into `src/model/response.rs`.
-- [ ] Step 2: Define the public model surface in `src/model/mod.rs` with explicit modules and re-exports:
+- [x] Step 1: Move `GenerateRequest` and its builder into `src/model/request.rs`; move `Message`, `Role`, `InputContent`, and `ReasoningEffort` into `src/model/message.rs`; move `ResponseFormat` and `strict_schema` with its private helpers into `src/model/schema.rs`; move `ToolDefinition` and `ToolChoice` into `src/model/tools.rs`; move `GenerateResponse`, `ResponseStatus`, `OutputContent`, and `Usage` into `src/model/response.rs`.
+- [x] Step 2: Define the public model surface in `src/model/mod.rs` with explicit modules and re-exports:
 
   ```rust
   mod message;
@@ -58,10 +58,10 @@
   pub use tools::{ToolChoice, ToolDefinition};
   ```
 
-- [ ] Step 3: Move `TransportError` and `ProviderError` with their classification, retry, display, and source implementations into `src/error.rs`; rename `ProviderError` to `Error`, rename error variant fields from `provider` to `endpoint`, and rename the `provider()` accessor to `endpoint()`.
-- [ ] Step 4: Update model and error references throughout `src/provider/` to import from `crate::model` and `crate::error`; preserve every existing variant, raw response body, retry rule, and redaction behavior.
-- [ ] Step 5: Remove `src/provider/model.rs` after its code and tests have moved to their owning files.
-- [ ] Step 6: Expose the modules and ergonomic root imports in `src/lib.rs`:
+- [x] Step 3: Move `TransportError` and `ProviderError` with their classification, retry, display, and source implementations into `src/error.rs`; rename `ProviderError` to `Error`, rename error variant fields from `provider` to `endpoint`, and rename the `provider()` accessor to `endpoint()`.
+- [x] Step 4: Update model and error references throughout `src/provider/` to import from `crate::model` and `crate::error`; preserve every existing variant, raw response body, retry rule, and redaction behavior.
+- [x] Step 5: Remove `src/provider/model.rs` after its code and tests have moved to their owning files.
+- [x] Step 6: Expose the modules and ergonomic root imports in `src/lib.rs`:
 
   ```rust
   pub mod error;
@@ -75,9 +75,9 @@
   };
   ```
 
-- [ ] Step 7: Run `cargo fmt --check`.
-- [ ] Step 8: Run `cargo test --lib`.
-- [ ] Step 9: Commit with message `refactor: extract model and errors`.
+- [x] Step 7: Run `cargo fmt --check`.
+- [x] Step 8: Run `cargo test --lib`.
+- [x] Step 9: Commit with message `refactor: extract model and errors`.
 
 ### Task 2: Extract public streaming and private stream machinery → verify: `cargo test --lib stream` exits successfully and `src/provider/stream.rs` and `src/provider/sse.rs` do not exist
 
