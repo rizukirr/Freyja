@@ -1,5 +1,5 @@
 use super::{Message, ReasoningEffort, ResponseFormat, ToolChoice, ToolDefinition};
-use crate::provider::ProviderDialect;
+use crate::dialect::Dialect;
 use serde_json::{Map, Value};
 
 /// A provider-neutral generation request.
@@ -28,7 +28,7 @@ pub struct GenerateRequest {
     /// Metadata forwarded to the provider.
     pub metadata: Option<Value>,
     /// Dialect-scoped provider-specific fields.
-    pub extra: Vec<(ProviderDialect, Map<String, Value>)>,
+    pub extra: Vec<(Dialect, Map<String, Value>)>,
 }
 
 impl GenerateRequest {
@@ -106,7 +106,7 @@ impl GenerateRequest {
     /// # Panics
     ///
     /// Panics when `fields` is not a JSON object.
-    pub fn extra_for(mut self, dialect: ProviderDialect, fields: Value) -> Self {
+    pub fn extra_for(mut self, dialect: Dialect, fields: Value) -> Self {
         let Value::Object(fields) = fields else {
             panic!("extra_for expects a JSON object, got {fields}");
         };

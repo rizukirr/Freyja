@@ -3,15 +3,15 @@
 //!
 //! This is the format the compatible ecosystem actually speaks. Groq, Together,
 //! Fireworks, DeepSeek, OpenRouter, Ollama, vLLM, and others implement it, so
-//! this one mapping reaches all of them through [`ProviderConfig`].
+//! this one mapping reaches all of them through [`EndpointConfig`].
 
-use crate::error::Error as ProviderError;
+use crate::dialect::refusal;
+use crate::endpoint::{EndpointConfig, TokenLimitField};
+use crate::error::Error;
 use crate::model::{
     GenerateRequest, GenerateResponse, InputContent, OutputContent, ReasoningEffort,
     ResponseFormat, ResponseStatus, Role, ToolChoice, Usage,
 };
-use crate::provider::refusal;
-use crate::provider::{ProviderConfig, TokenLimitField};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -20,7 +20,7 @@ pub struct Request {
     model: String,
     messages: Vec<MessageWire>,
     // Exactly one of these carries the cap, chosen by
-    // `ProviderConfig::token_limit_field`. Newer OpenAI models reject the
+    // `EndpointConfig::token_limit_field`. Newer OpenAI models reject the
     // presence of `max_tokens`, not just its value, so sending both to cover
     // the two spellings fails on the endpoint that needs the new one.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -119,10 +119,7 @@ struct FunctionWire {
 
 impl Request {
     /// Converts a neutral request into this dialect's wire format.
-    pub(crate) fn build(
-        value: &GenerateRequest,
-        config: &ProviderConfig,
-    ) -> Result<Self, ProviderError> {
+    pub(crate) fn build(value: &GenerateRequest, config: &EndpointConfig) -> Result<Self, Error> {
         // Chat Completions is stateless; the whole transcript goes every time.
         if value.previous_response_id.is_some() {
             return Err(refusal::unsupported(
@@ -181,7 +178,7 @@ impl Request {
                         // A tool turn answers exactly one call here, unlike
                         // Anthropic where several results share a user turn.
                         if tool_call_id.is_some() {
-                            return Err(ProviderError::InvalidRequest {
+                            return Err(Error::InvalidRequest {
                                 endpoint: config.name.clone(),
                                 message: "each tool message may answer only one tool call; \
                                           send one message per result"
@@ -421,32 +418,24 @@ fn parse_finish_reason(reason: Option<String>) -> ResponseStatus {
 }
 
 /// Parses a successful response body, attributing failures to the endpoint.
-pub(crate) fn parse(
-    body: &str,
-    config: &ProviderConfig,
-) -> Result<GenerateResponse, ProviderError> {
-    let wire: Response =
-        serde_json::from_str(body).map_err(|error| ProviderError::InvalidResponse {
-            endpoint: config.name.clone(),
-            message: format!("{error}; body: {body}"),
-        })?;
+pub(crate) fn parse(body: &str, config: &EndpointConfig) -> Result<GenerateResponse, Error> {
+    let wire: Response = serde_json::from_str(body).map_err(|error| Error::InvalidResponse {
+        endpoint: config.name.clone(),
+        message: format!("{error}; body: {body}"),
+    })?;
     Ok(wire.into())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::provider::{Message, ProviderDialect};
+    use crate::{Dialect, Message};
     /// A stand-in endpoint. This dialect ships no preset, because the vendors
     /// speaking it are third party, so the test builds the config the same way
     /// a caller would.
-    fn config() -> ProviderConfig {
-        ProviderConfig::new(
-            ProviderDialect::OpenAiChat,
-            "test-endpoint",
-            "https://api.test/v1",
-        )
-        .default_model("test-model")
+    fn config() -> EndpointConfig {
+        EndpointConfig::new(Dialect::OpenAiChat, "test-endpoint", "https://api.test/v1")
+            .default_model("test-model")
     }
 
     #[test]
@@ -467,8 +456,8 @@ mod tests {
 
     #[test]
     fn the_token_cap_defaults_to_the_field_the_ecosystem_implements() {
-        // This dialect is reached only through an explicit ProviderConfig --
-        // ProviderType::OpenAi is the Responses dialect -- so the default
+        // This dialect is reached only through an explicit EndpointConfig --
+        // EndpointPreset::OpenAi is the Responses dialect -- so the default
         // serves the compatible vendors it exists for.
         let request = GenerateRequest::new()
             .message(Message::text(Role::User, "Hi"))
@@ -692,7 +681,7 @@ mod tests {
 
         assert!(matches!(
             Request::build(&request, &config()),
-            Err(ProviderError::UnsupportedCapability { .. })
+            Err(Error::UnsupportedCapability { .. })
         ));
     }
 
@@ -714,7 +703,7 @@ mod tests {
 
         assert!(matches!(
             Request::build(&request, &config()),
-            Err(ProviderError::InvalidRequest { .. })
+            Err(Error::InvalidRequest { .. })
         ));
     }
 
@@ -861,9 +850,9 @@ mod tests {
             "[DONE]",
         ];
 
-        let streamed = crate::provider::stream::drain_for_test(
+        let streamed = crate::dialect::stream::drain_for_test(
             "test-endpoint".into(),
-            Box::new(crate::provider::openai_chat::Decoder),
+            Box::new(crate::dialect::openai_chat::Decoder),
             frames
                 .iter()
                 .map(|frame| format!("data: {frame}\n\n").into_bytes())
@@ -894,11 +883,11 @@ mod tests {
         );
     }
 
-    use crate::provider::sse::SseFrame;
-    use crate::provider::stream::{RawDelta, StreamDecoder};
+    use crate::dialect::sse::SseFrame;
+    use crate::dialect::stream::{RawDelta, StreamDecoder};
 
     fn decode_all(frames: &[&str]) -> Vec<RawDelta> {
-        let mut decoder = crate::provider::openai_chat::Decoder;
+        let mut decoder = crate::dialect::openai_chat::Decoder;
         let mut out = Vec::new();
         for data in frames {
             let frame = SseFrame {
@@ -1000,7 +989,7 @@ mod tests {
         // There is no `event: error` line in this dialect, so the failure
         // rides an ordinary data frame. Ignoring it handed the caller a
         // truncated answer labelled Incomplete and no reason for it.
-        let mut decoder = crate::provider::openai_chat::Decoder;
+        let mut decoder = crate::dialect::openai_chat::Decoder;
         let mut out = Vec::new();
         let frame = SseFrame {
             event: None,
@@ -1008,14 +997,14 @@ mod tests {
         };
 
         match decoder.decode(&frame, &"groq".into(), &mut out) {
-            Err(ProviderError::Stream { endpoint, message }) => {
+            Err(Error::Stream { endpoint, message }) => {
                 assert_eq!(message, "model overloaded");
                 assert_eq!(
                     &*endpoint, "groq",
                     "a compatible endpoint must report its own name, not the dialect"
                 );
             }
-            other => panic!("expected ProviderError::Stream, got {other:?}"),
+            other => panic!("expected Error::Stream, got {other:?}"),
         }
     }
 

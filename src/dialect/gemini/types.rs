@@ -1,13 +1,13 @@
 //! Wire types for the Gemini Interactions API and their conversions to and from
 //! the neutral model.
 
-use crate::error::Error as ProviderError;
+use crate::dialect::refusal;
+use crate::endpoint::EndpointConfig;
+use crate::error::Error;
 use crate::model::{
     GenerateRequest, GenerateResponse, InputContent, OutputContent, ReasoningEffort,
     ResponseFormat, ResponseStatus, Role, ToolChoice, Usage,
 };
-use crate::provider::ProviderConfig;
-use crate::provider::refusal;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -84,10 +84,7 @@ pub struct Request {
 
 impl Request {
     /// Converts a neutral request into this dialect's wire format.
-    pub(crate) fn build(
-        value: &GenerateRequest,
-        config: &ProviderConfig,
-    ) -> Result<Self, ProviderError> {
+    pub(crate) fn build(value: &GenerateRequest, config: &EndpointConfig) -> Result<Self, Error> {
         let tool_choice = value.tool_choice.as_ref().map(tool_choice);
 
         let mut system = Vec::new();
@@ -130,7 +127,7 @@ impl Request {
                 match part {
                     InputContent::Text(text) => {
                         if message.role == Role::Tool {
-                            return Err(ProviderError::InvalidRequest {
+                            return Err(Error::InvalidRequest {
                                 endpoint: config.name.clone(),
                                 message: "tool messages may only contain tool results".into(),
                             });
@@ -144,7 +141,7 @@ impl Request {
                     // becomes carries a result and nothing else.
                     InputContent::ImageUrl(url) => {
                         if message.role == Role::Tool {
-                            return Err(ProviderError::InvalidRequest {
+                            return Err(Error::InvalidRequest {
                                 endpoint: config.name.clone(),
                                 message: "tool messages may only contain tool results".into(),
                             });
@@ -168,7 +165,7 @@ impl Request {
                     InputContent::ToolResult { call_id, output } => {
                         flush(&mut steps, step_type, &mut pending);
                         let Some(name) = tool_names.get(call_id.as_str()) else {
-                            return Err(ProviderError::InvalidRequest {
+                            return Err(Error::InvalidRequest {
                                 endpoint: config.name.clone(),
                                 message: format!(
                                     "no tool call with id '{call_id}' in the transcript; \
@@ -381,27 +378,23 @@ fn convert_step(step: Value) -> Vec<OutputContent> {
 }
 
 /// Parses a successful response body, attributing failures to the endpoint.
-pub(crate) fn parse(
-    body: &str,
-    config: &ProviderConfig,
-) -> Result<GenerateResponse, ProviderError> {
-    let wire: Response =
-        serde_json::from_str(body).map_err(|error| ProviderError::InvalidResponse {
-            endpoint: config.name.clone(),
-            message: format!("{error}; body: {body}"),
-        })?;
+pub(crate) fn parse(body: &str, config: &EndpointConfig) -> Result<GenerateResponse, Error> {
+    let wire: Response = serde_json::from_str(body).map_err(|error| Error::InvalidResponse {
+        endpoint: config.name.clone(),
+        message: format!("{error}; body: {body}"),
+    })?;
     Ok(wire.into())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::provider::sse::SseFrame;
-    use crate::provider::stream::{RawDelta, StreamDecoder};
-    use crate::provider::{Message, ProviderType};
+    use crate::dialect::sse::SseFrame;
+    use crate::dialect::stream::{RawDelta, StreamDecoder};
+    use crate::{EndpointPreset, Message};
 
     fn decode_all(frames: &[&str]) -> Vec<RawDelta> {
-        let mut decoder = crate::provider::gemini::Decoder::default();
+        let mut decoder = crate::dialect::gemini::Decoder::default();
         let mut out = Vec::new();
         for data in frames {
             // The Interactions API repeats event_type inside the payload, so
@@ -532,8 +525,8 @@ mod tests {
     }
 
     /// The shipped endpoint for this dialect, so tests cover the real defaults.
-    fn config() -> ProviderConfig {
-        ProviderType::Gemini.config()
+    fn config() -> EndpointConfig {
+        EndpointPreset::Gemini.config()
     }
 
     #[test]
@@ -630,7 +623,7 @@ mod tests {
         ));
 
         match Request::build(&request, &config()).err() {
-            Some(ProviderError::InvalidRequest { message, .. }) => {
+            Some(Error::InvalidRequest { message, .. }) => {
                 assert_eq!(message, "tool messages may only contain tool results");
             }
             other => panic!("expected InvalidRequest, got {other:?}"),
@@ -822,7 +815,7 @@ mod tests {
 
         assert!(matches!(
             Request::build(&request, &config()),
-            Err(ProviderError::InvalidRequest { .. })
+            Err(Error::InvalidRequest { .. })
         ));
     }
 
@@ -845,7 +838,7 @@ mod tests {
 
         assert!(matches!(
             Request::build(&request, &config()),
-            Err(ProviderError::InvalidRequest { .. })
+            Err(Error::InvalidRequest { .. })
         ));
     }
 
@@ -945,9 +938,9 @@ mod tests {
             r#"{"interaction":{"id":"v1_abc123","model":"gemini-3.6-flash","status":"requires_action","usage":{"total_input_tokens":11,"total_output_tokens":90,"total_tokens":101}},"event_type":"interaction.completed"}"#,
         ];
 
-        let streamed = crate::provider::stream::drain_for_test(
+        let streamed = crate::dialect::stream::drain_for_test(
             "gemini".into(),
-            Box::new(crate::provider::gemini::Decoder::default()),
+            Box::new(crate::dialect::gemini::Decoder::default()),
             frames
                 .iter()
                 .map(|frame| format!("data: {frame}\n\n").into_bytes())
@@ -1038,7 +1031,7 @@ mod tests {
 
         assert!(matches!(
             Request::build(&request, &config()),
-            Err(ProviderError::InvalidRequest { .. })
+            Err(Error::InvalidRequest { .. })
         ));
     }
 }

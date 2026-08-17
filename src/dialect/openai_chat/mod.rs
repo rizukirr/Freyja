@@ -1,31 +1,28 @@
 //! OpenAI Chat Completions backend. Transport lives in
-//! [`crate::provider::Client`]; this module owns only the wire format.
+//! [`crate::Client`]; this module owns only the wire format.
 
 mod types;
 
-use crate::error::Error as ProviderError;
+use crate::dialect::WireDialect;
+use crate::endpoint::EndpointConfig;
+use crate::error::Error;
 use crate::model::{GenerateRequest, GenerateResponse, ResponseStatus, Usage};
-use crate::provider::{Provider, ProviderConfig};
 use crate::stream::{RawDelta, SseFrame, StreamDecoder};
 
 pub(crate) struct OpenAiChatProvider;
 
-impl Provider for OpenAiChatProvider {
+impl WireDialect for OpenAiChatProvider {
     type Request = types::Request;
 
     fn build(
         &self,
         request: &GenerateRequest,
-        config: &ProviderConfig,
-    ) -> Result<Self::Request, ProviderError> {
+        config: &EndpointConfig,
+    ) -> Result<Self::Request, Error> {
         types::Request::build(request, config)
     }
 
-    fn parse(
-        &self,
-        body: &str,
-        config: &ProviderConfig,
-    ) -> Result<GenerateResponse, ProviderError> {
+    fn parse(&self, body: &str, config: &EndpointConfig) -> Result<GenerateResponse, Error> {
         types::parse(body, config)
     }
 }
@@ -42,7 +39,7 @@ impl StreamDecoder for Decoder {
         frame: &SseFrame,
         provider: &std::sync::Arc<str>,
         out: &mut Vec<RawDelta>,
-    ) -> Result<(), ProviderError> {
+    ) -> Result<(), Error> {
         // The sentinel is not JSON and carries nothing.
         if frame.data.trim() == "[DONE]" {
             return Ok(());
@@ -57,9 +54,9 @@ impl StreamDecoder for Decoder {
         // is handed a silently truncated answer reporting `Incomplete` --
         // on the dialect the widest range of third parties speaks.
         if let Some(error) = value.get("error").filter(|error| !error.is_null()) {
-            return Err(ProviderError::Stream {
+            return Err(Error::Stream {
                 // The endpoint's own name, never the dialect: see the
-                // invariant on ProviderError in model.rs.
+                // invariant on Error in model.rs.
                 endpoint: provider.clone(),
                 message: error["message"]
                     .as_str()

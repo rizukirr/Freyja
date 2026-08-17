@@ -1,33 +1,30 @@
-//! Gemini backend. Transport lives in [`crate::provider::Client`]; this
+//! Gemini backend. Transport lives in [`crate::Client`]; this
 //! module owns only the wire format.
 
 mod types;
 
-use crate::error::Error as ProviderError;
+use crate::dialect::WireDialect;
+use crate::endpoint::EndpointConfig;
+use crate::error::Error;
 use crate::model::{GenerateRequest, GenerateResponse, ResponseStatus, Usage};
-use crate::provider::{Provider, ProviderConfig};
 use crate::stream::{RawDelta, SseFrame, StreamDecoder};
 use serde_json::Value;
 use std::collections::HashMap;
 
 pub(crate) struct GeminiProvider;
 
-impl Provider for GeminiProvider {
+impl WireDialect for GeminiProvider {
     type Request = types::Request;
 
     fn build(
         &self,
         request: &GenerateRequest,
-        config: &ProviderConfig,
-    ) -> Result<Self::Request, ProviderError> {
+        config: &EndpointConfig,
+    ) -> Result<Self::Request, Error> {
         types::Request::build(request, config)
     }
 
-    fn parse(
-        &self,
-        body: &str,
-        config: &ProviderConfig,
-    ) -> Result<GenerateResponse, ProviderError> {
+    fn parse(&self, body: &str, config: &EndpointConfig) -> Result<GenerateResponse, Error> {
         types::parse(body, config)
     }
 }
@@ -87,7 +84,7 @@ impl StreamDecoder for Decoder {
         frame: &SseFrame,
         _provider: &std::sync::Arc<str>,
         out: &mut Vec<RawDelta>,
-    ) -> Result<(), ProviderError> {
+    ) -> Result<(), Error> {
         let Ok(value) = serde_json::from_str::<Value>(&frame.data) else {
             return Ok(());
         };

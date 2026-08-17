@@ -8,16 +8,16 @@
 //! than locally with a clear message.
 //!
 //! Every other endpoint is reachable, and no less supported for being absent.
-//! Most copy one of these three wire formats, so they need a [`ProviderConfig`]
+//! Most copy one of these three wire formats, so they need a [`EndpointConfig`]
 //! and nothing more. See the compatible-endpoint list in
 //! `docs/providers/custom.md`.
 //!
 //! ```
-//! use freyja::{ProviderConfig, ProviderDialect};
+//! use freyja::{EndpointConfig, Dialect};
 //!
 //! // Any endpoint offering a drop-in Claude API.
-//! let config = ProviderConfig::new(
-//!         ProviderDialect::Anthropic,
+//! let config = EndpointConfig::new(
+//!         Dialect::Anthropic,
 //!         "my-gateway",
 //!         "https://gateway.internal/anthropic/v1",
 //!     )
@@ -25,14 +25,15 @@
 //!     .default_model("claude-opus-5");
 //! ```
 
-use super::{ProviderConfig, ProviderDialect};
+use super::EndpointConfig;
+use crate::dialect::Dialect;
 
 /// A known endpoint.
 ///
-/// Converts into a [`ProviderConfig`], so anywhere a config is accepted a
-/// `ProviderType` is too.
+/// Converts into a [`EndpointConfig`], so anywhere a config is accepted a
+/// `EndpointPreset` is too.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ProviderType {
+pub enum EndpointPreset {
     /// OpenAI, via the Responses API.
     OpenAi,
     /// Google Gemini, via the Interactions API.
@@ -41,7 +42,7 @@ pub enum ProviderType {
     Anthropic,
 }
 
-impl ProviderType {
+impl EndpointPreset {
     /// The conventional environment variable holding this endpoint's API key.
     pub fn api_key_env(self) -> &'static str {
         match self {
@@ -52,31 +53,31 @@ impl ProviderType {
     }
 
     /// The wire format this endpoint speaks.
-    pub fn dialect(self) -> ProviderDialect {
+    pub fn dialect(self) -> Dialect {
         match self {
-            Self::OpenAi => ProviderDialect::OpenAiResponses,
-            Self::Gemini => ProviderDialect::Gemini,
-            Self::Anthropic => ProviderDialect::Anthropic,
+            Self::OpenAi => Dialect::OpenAiResponses,
+            Self::Gemini => Dialect::Gemini,
+            Self::Anthropic => Dialect::Anthropic,
         }
     }
 
     /// The full endpoint description.
-    pub fn config(self) -> ProviderConfig {
+    pub fn config(self) -> EndpointConfig {
         match self {
-            Self::OpenAi => ProviderConfig::new(
-                ProviderDialect::OpenAiResponses,
+            Self::OpenAi => EndpointConfig::new(
+                Dialect::OpenAiResponses,
                 "OpenAI",
                 "https://api.openai.com/v1",
             )
             .default_model("gpt-5.6-sol"),
-            Self::Gemini => ProviderConfig::new(
-                ProviderDialect::Gemini,
+            Self::Gemini => EndpointConfig::new(
+                Dialect::Gemini,
                 "Gemini",
                 "https://generativelanguage.googleapis.com/v1beta",
             )
             .default_model("gemini-3.5-flash"),
-            Self::Anthropic => ProviderConfig::new(
-                ProviderDialect::Anthropic,
+            Self::Anthropic => EndpointConfig::new(
+                Dialect::Anthropic,
                 "Anthropic",
                 "https://api.anthropic.com/v1",
             )
@@ -86,8 +87,8 @@ impl ProviderType {
     }
 }
 
-impl From<ProviderType> for ProviderConfig {
-    fn from(value: ProviderType) -> Self {
+impl From<EndpointPreset> for EndpointConfig {
+    fn from(value: EndpointPreset) -> Self {
         value.config()
     }
 }
@@ -96,10 +97,10 @@ impl From<ProviderType> for ProviderConfig {
 mod tests {
     use super::*;
 
-    const ALL: [ProviderType; 3] = [
-        ProviderType::OpenAi,
-        ProviderType::Gemini,
-        ProviderType::Anthropic,
+    const ALL: [EndpointPreset; 3] = [
+        EndpointPreset::OpenAi,
+        EndpointPreset::Gemini,
+        EndpointPreset::Anthropic,
     ];
 
     #[test]
@@ -115,7 +116,7 @@ mod tests {
 
     #[test]
     fn presets_cover_only_first_party_vendors() {
-        // Third-party endpoints are reached through ProviderConfig, not shipped
+        // Third-party endpoints are reached through EndpointConfig, not shipped
         // here, so this list stays short on purpose. Adding to it means taking
         // on responsibility for a URL and a model name Freyja does not test.
         assert_eq!(ALL.len(), 3);
@@ -124,15 +125,15 @@ mod tests {
     #[test]
     fn preset_urls_match_the_endpoints_freyja_shipped_with() {
         assert_eq!(
-            ProviderType::OpenAi.config().url(),
+            EndpointPreset::OpenAi.config().url(),
             "https://api.openai.com/v1/responses"
         );
         assert_eq!(
-            ProviderType::Gemini.config().url(),
+            EndpointPreset::Gemini.config().url(),
             "https://generativelanguage.googleapis.com/v1beta/interactions"
         );
         assert_eq!(
-            ProviderType::Anthropic.config().url(),
+            EndpointPreset::Anthropic.config().url(),
             "https://api.anthropic.com/v1/messages"
         );
     }

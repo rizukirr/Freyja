@@ -9,9 +9,9 @@
 //!
 //! ```no_run
 //! # async fn run() -> Result<(), freyja::Error> {
-//! use freyja::{Client, GenerateRequest, Message, ProviderType, Role};
+//! use freyja::{Client, GenerateRequest, Message, EndpointPreset, Role};
 //!
-//! let client = Client::from_env(ProviderType::OpenAi).expect("OPENAI_API_KEY");
+//! let client = Client::from_env(EndpointPreset::OpenAi).expect("OPENAI_API_KEY");
 //! let response = client
 //!     .generate(&GenerateRequest::new().message(Message::text(Role::User, "Hello")))
 //!     .await?;
@@ -88,18 +88,21 @@
 
 #![deny(missing_docs)]
 
+mod client;
+pub mod dialect;
+pub mod endpoint;
 pub mod error;
 pub mod model;
-pub mod provider;
 /// Types and utilities for consuming streaming provider responses.
 pub mod stream;
+mod transport;
 
+pub use client::Client;
+pub use dialect::Dialect;
+pub use endpoint::{Auth, EndpointConfig, EndpointPreset, TokenLimitField};
 pub use error::{Error, TransportError};
 pub use model::{
     GenerateRequest, GenerateResponse, InputContent, Message, OutputContent, ReasoningEffort,
     ResponseFormat, ResponseStatus, Role, ToolChoice, ToolDefinition, Usage, strict_schema,
-};
-pub use provider::{
-    Auth, Client, Provider, ProviderConfig, ProviderDialect, ProviderType, TokenLimitField,
 };
 pub use stream::{EventStream, StreamEvent};

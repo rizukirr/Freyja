@@ -1,13 +1,13 @@
 //! Wire types for the OpenAI Responses API and their conversions to and from
 //! the neutral model.
 
-use crate::error::Error as ProviderError;
+use crate::dialect::refusal;
+use crate::endpoint::EndpointConfig;
+use crate::error::Error;
 use crate::model::{
     GenerateRequest, GenerateResponse, InputContent, OutputContent, ReasoningEffort,
     ResponseFormat, ResponseStatus, Role, ToolChoice, Usage,
 };
-use crate::provider::ProviderConfig;
-use crate::provider::refusal;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -102,10 +102,7 @@ struct ToolWire {
 
 impl Request {
     /// Converts a neutral request into this dialect's wire format.
-    pub(crate) fn build(
-        value: &GenerateRequest,
-        config: &ProviderConfig,
-    ) -> Result<Self, ProviderError> {
+    pub(crate) fn build(value: &GenerateRequest, config: &EndpointConfig) -> Result<Self, Error> {
         let mut instructions = Vec::new();
         let mut input = Vec::new();
 
@@ -168,7 +165,7 @@ impl Request {
             }
 
             if message.role == Role::Tool && !pending.is_empty() {
-                return Err(ProviderError::InvalidRequest {
+                return Err(Error::InvalidRequest {
                     endpoint: config.name.clone(),
                     message: "tool messages may only contain tool results".into(),
                 });
@@ -346,26 +343,22 @@ fn parse_status(status: String) -> ResponseStatus {
 }
 
 /// Parses a successful response body, attributing failures to the endpoint.
-pub(crate) fn parse(
-    body: &str,
-    config: &ProviderConfig,
-) -> Result<GenerateResponse, ProviderError> {
-    let wire: Response =
-        serde_json::from_str(body).map_err(|error| ProviderError::InvalidResponse {
-            endpoint: config.name.clone(),
-            message: format!("{error}; body: {body}"),
-        })?;
+pub(crate) fn parse(body: &str, config: &EndpointConfig) -> Result<GenerateResponse, Error> {
+    let wire: Response = serde_json::from_str(body).map_err(|error| Error::InvalidResponse {
+        endpoint: config.name.clone(),
+        message: format!("{error}; body: {body}"),
+    })?;
     Ok(wire.into())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::provider::{Message, ProviderType};
+    use crate::{EndpointPreset, Message};
 
     /// The shipped endpoint for this dialect, so tests cover the real defaults.
-    fn config() -> ProviderConfig {
-        ProviderType::OpenAi.config()
+    fn config() -> EndpointConfig {
+        EndpointPreset::OpenAi.config()
     }
 
     #[test]
@@ -441,7 +434,7 @@ mod tests {
 
         assert!(matches!(
             Request::build(&request, &config()),
-            Err(ProviderError::InvalidRequest { .. })
+            Err(Error::InvalidRequest { .. })
         ));
     }
 
@@ -586,9 +579,9 @@ mod tests {
             ),
         ];
 
-        let streamed = crate::provider::stream::drain_for_test(
+        let streamed = crate::dialect::stream::drain_for_test(
             "openai".into(),
-            Box::new(crate::provider::openai_responses::Decoder),
+            Box::new(crate::dialect::openai_responses::Decoder),
             frames
                 .iter()
                 .map(|(event, data)| format!("event: {event}\ndata: {data}\n\n").into_bytes())
@@ -624,11 +617,11 @@ mod tests {
         );
     }
 
-    use crate::provider::sse::SseFrame;
-    use crate::provider::stream::{RawDelta, StreamDecoder};
+    use crate::dialect::sse::SseFrame;
+    use crate::dialect::stream::{RawDelta, StreamDecoder};
 
     fn decode_all(frames: &[(&str, &str)]) -> Vec<RawDelta> {
-        let mut decoder = crate::provider::openai_responses::Decoder;
+        let mut decoder = crate::dialect::openai_responses::Decoder;
         let mut out = Vec::new();
         for (event, data) in frames {
             let frame = SseFrame {
