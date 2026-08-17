@@ -61,7 +61,7 @@ impl Client {
     /// not cut short. Use [`Client::with_http_client`] to impose a total cap.
     ///
     /// Accepts anything that converts into a [`EndpointConfig`], including a
-    /// [`crate::EndpointPreset`] preset.
+    /// [`EndpointPreset`] preset.
     pub fn new(config: impl Into<EndpointConfig>, api_key: impl Into<String>) -> Self {
         Self::build(
             config.into(),

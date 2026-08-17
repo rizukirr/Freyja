@@ -41,7 +41,7 @@ Most dialects do not send these as ordinary turns. They lift them into a native 
 
 On the hoisting dialects, position in the message list does not matter for these two roles, so a system turn placed halfway through a transcript still applies to the whole conversation. On OpenAI Chat Completions it does matter, since the turn stays where you put it. Keep system turns at the front and the behaviour is the same everywhere.
 
-Only text is allowed in a system or developer turn on the hoisting dialects, since the target field is a plain string. Anything else returns `Error::UnsupportedCapability`. Keep to text regardless, so the transcript stays portable.
+Only text is allowed in a system or developer turn on the hoisting dialects, since the target field is a plain string. Anything else returns `ProviderError::UnsupportedCapability`. Keep to text regardless, so the transcript stays portable.
 
 ## InputContent
 

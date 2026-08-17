@@ -9,7 +9,7 @@
 //! IMAGE_URL=https://example.com/cat.png cargo run --example images
 //! ```
 
-use freyja::{Client, EndpointPreset, Error, GenerateRequest, InputContent, Message, Role};
+use freyja::{Client, GenerateRequest, InputContent, Message, ProviderError, ProviderType, Role};
 
 /// A 64×64 PNG: a red circle on white, embedded so the example needs no network
 /// beyond the model call and no third-party URL that might rot.
@@ -30,7 +30,7 @@ const RED_CIRCLE: &str = concat!(
 async fn main() {
     dotenvy::dotenv().ok();
 
-    let provider = EndpointPreset::OpenAi;
+    let provider = ProviderType::OpenAi;
     let Some(client) = Client::from_env(provider) else {
         eprintln!("{} is missing or empty", provider.api_key_env());
         return;
@@ -63,7 +63,7 @@ async fn main() {
                 println!("\n{} input tokens", usage.input_tokens);
             }
         }
-        Err(error) => eprintln!("{} failed: {error}", error.endpoint()),
+        Err(error) => eprintln!("{} failed: {error}", error.provider()),
     }
 
     demonstrate_placement(&client).await;
@@ -92,9 +92,9 @@ async fn demonstrate_placement(client: &Client) {
     println!("\n== the same image, on a system turn ==");
     match client.generate(&request).await {
         Ok(response) => println!("{}", response.output_text()),
-        Err(Error::UnsupportedCapability { capability, .. }) => {
+        Err(ProviderError::UnsupportedCapability { capability, .. }) => {
             println!("refused: cannot express {capability} (no request was sent)");
         }
-        Err(error) => eprintln!("{} failed: {error}", error.endpoint()),
+        Err(error) => eprintln!("{} failed: {error}", error.provider()),
     }
 }

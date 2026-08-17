@@ -6,20 +6,20 @@ Most hosted inference APIs do not invent a wire format. They copy one, usually O
 
 | Type | Answers | Example |
 |---|---|---|
-| `Dialect` | which wire format | `Anthropic` |
-| `EndpointConfig` | which endpoint speaks it | `https://api.z.ai/api/anthropic/v1`, `x-api-key`, `glm-4.6` |
+| `ProviderDialect` | which wire format | `Anthropic` |
+| `ProviderConfig` | which endpoint speaks it | `https://api.z.ai/api/anthropic/v1`, `x-api-key`, `glm-4.6` |
 
-A preset is only a `EndpointConfig` with the fields filled in. There is nothing a preset can do that you cannot.
+A preset is only a `ProviderConfig` with the fields filled in. There is nothing a preset can do that you cannot.
 
 ## The quickest version
 
 When all you need is a dialect, a name, a URL, and a key:
 
 ```rust
-use freyja::{Client, Dialect};
+use freyja::{Client, ProviderDialect};
 
 let client = Client::custom(
-    Dialect::OpenAiChat,
+    ProviderDialect::OpenAiChat,
     "my-gateway",
     "https://gateway.internal/v1",
     std::env::var("GATEWAY_API_KEY")?,
@@ -31,10 +31,10 @@ Auth follows the dialect, so this is `Authorization: Bearer` without saying so. 
 ## Pointing at a compatible endpoint
 
 ```rust
-use freyja::{Client, EndpointConfig, Dialect};
+use freyja::{Client, ProviderConfig, ProviderDialect};
 
-let config = EndpointConfig::new(
-        Dialect::Anthropic,
+let config = ProviderConfig::new(
+        ProviderDialect::Anthropic,
         "my-gateway",
         "https://gateway.internal/anthropic/v1",
     )
@@ -66,8 +66,8 @@ Model names are omitted on purpose. They change most often of all, and a wrong o
 ## Local runtimes need no key
 
 ```rust
-let config = EndpointConfig::new(
-    Dialect::OpenAiChat,
+let config = ProviderConfig::new(
+    ProviderDialect::OpenAiChat,
     "ollama",
     "http://localhost:11434/v1",
 );
@@ -96,7 +96,7 @@ let client = Client::without_key(config);
 Some endpoints want a field on every request that the neutral model has no name for — a safety configuration, a routing hint, a tier. `body` is the companion to `header`, one layer down:
 
 ```rust
-let config = EndpointConfig::new(Dialect::Gemini, "Gemini", base_url)
+let config = ProviderConfig::new(ProviderDialect::Gemini, "Gemini", base_url)
     .body(json!({"safety_settings": [{"category": "HARM_CATEGORY_HARASSMENT"}]}));
 ```
 
@@ -109,14 +109,14 @@ Use `body` for a property of the deployment and `extra_for` for anything that va
 `Auth` defaults to whatever the dialect conventionally uses, `Bearer` for OpenAI and a named header for Gemini and Anthropic. Override it when a compatible endpoint authenticates differently from the vendor it imitates:
 
 ```rust
-let config = EndpointConfig::new(Dialect::Anthropic, "gw", "https://gw.test/v1")
+let config = ProviderConfig::new(ProviderDialect::Anthropic, "gw", "https://gw.test/v1")
     .auth(Auth::Bearer);
 ```
 
 For a local runtime with no credentials at all, use `Auth::None` and `Client::without_key`:
 
 ```rust
-let config = EndpointConfig::new(Dialect::Anthropic, "local", "http://localhost:8080/v1")
+let config = ProviderConfig::new(ProviderDialect::Anthropic, "local", "http://localhost:8080/v1")
     .auth(Auth::None);
 
 let client = Client::without_key(config);
@@ -147,14 +147,14 @@ Freyja's `UnsupportedCapability` errors are raised by the *dialect*, so they tel
 When an endpoint is nearly one Freyja ships, start there and change what differs:
 
 ```rust
-let config = EndpointPreset::Anthropic.config()
+let config = ProviderType::Anthropic.config()
     .default_model("claude-sonnet-5")
     .header("x-trace-id", trace_id);
 ```
 
 ## Do not send a preset PR
 
-Popularity is not the bar. `src/endpoint/presets.rs` deliberately holds only the three first-party vendors whose dialects Freyja implements and tests against, and its header comment says so. A preset is a standing promise that a base URL and a default model are still current, and third-party endpoints change both faster than this crate could verify. A stale preset fails at the vendor with a confusing 404; a missing one fails locally with a clear message, or does not fail at all because you supplied the current URL.
+Popularity is not the bar. `src/provider/presets.rs` deliberately holds only the three first-party vendors whose dialects Freyja implements and tests against, and its header comment says so. A preset is a standing promise that a base URL and a default model are still current, and third-party endpoints change both faster than this crate could verify. A stale preset fails at the vendor with a confusing 404; a missing one fails locally with a clear message, or does not fail at all because you supplied the current URL.
 
 That rule is enforced, not just stated. `presets_cover_only_first_party_vendors` asserts the list stays at three, so a PR adding a fourth fails CI by design.
 
@@ -162,6 +162,6 @@ What is welcome instead: a correction to the [compatible-endpoint table](#known-
 
 ## Errors name your endpoint, not the vendor
 
-`Error` carries the `name` from your `EndpointConfig` in every variant, reachable with `error.endpoint()`. So a Claude-compatible gateway configured as `my-gateway` reports `my-gateway`, never `anthropic`, and you can tell which endpoint broke without reading the URL back.
+`ProviderError` carries the `name` from your `ProviderConfig` in every variant, reachable with `error.provider()`. So a Claude-compatible gateway configured as `my-gateway` reports `my-gateway`, never `anthropic`, and you can tell which endpoint broke without reading the URL back.
 
 The enum is `#[non_exhaustive]`, so match with a `_` arm. See [Errors](../reference/errors.md).

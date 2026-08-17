@@ -9,10 +9,10 @@ Implemented against the Interactions API.
 | Extra header | `Api-Revision: 2026-05-20` |
 | Key variable | `GEMINI_API_KEY` |
 | Default model | `gemini-3.5-flash` |
-| Source | `src/dialect/gemini/` |
+| Source | `src/provider/gemini/` |
 
 ```rust
-let client = Client::from_env(EndpointPreset::Gemini).expect("GEMINI_API_KEY");
+let client = Client::from_env(ProviderType::Gemini).expect("GEMINI_API_KEY");
 ```
 
 This backend is less complete than OpenAI. Read the gaps below before relying on it.
@@ -87,7 +87,7 @@ but it is available on the Gemini Enterprise Agent Platform.
 
 So a request carrying `metadata` costs a round trip to be told no. Freyja refused it locally for a while to save that round trip, and that refusal has been withdrawn on the same grounds as the effort levels above: **`labels` is a field this format has.** A deployment gating it is the deployment's business, and the message above says where it does work — which is more than a refusal from Freyja could.
 
-It also means `Client::custom(Dialect::Gemini, …)` pointed at the Enterprise platform gets a working `metadata` rather than a refusal from a library that decided on its behalf.
+It also means `Client::custom(ProviderDialect::Gemini, …)` pointed at the Enterprise platform gets a working `metadata` rather than a refusal from a library that decided on its behalf.
 
 This is why `GenerateRequest::new()` sets no defaults. An earlier version defaulted `tool_choice` and `reasoning_effort`; both were refused at the time, so every default constructed request failed against Gemini. Both refusals turned out to be wrong, which is its own argument for setting only what you asked for.
 
@@ -202,7 +202,7 @@ Gemini has two statuses OpenAI does not:
 
 ## Streaming needs the URL as well as the body
 
-Gemini is the only dialect here where `stream: true` in the body is not enough. The Interactions API also takes `?alt=sse` on the URL, and that query parameter is what selects SSE framing. `Client::stream` appends it for you, which is why `EndpointConfig::stream_url` exists alongside `url`.
+Gemini is the only dialect here where `stream: true` in the body is not enough. The Interactions API also takes `?alt=sse` on the URL, and that query parameter is what selects SSE framing. `Client::stream` appends it for you, which is why `ProviderConfig::stream_url` exists alongside `url`.
 
 Frames repeat their event name inside the payload as `event_type`, so the SSE event line is redundant and Freyja reads the body. Steps arrive as `step.start` / `step.delta` / `step.stop`, with the interaction's terminal frame carrying id, model, status, and usage. Thought signatures stream in as deltas and are merged back into the step before it surfaces, so what you replay is what the API sent.
 
@@ -218,4 +218,4 @@ A text turn has been run against the live endpoint, `?alt=sse` and all: deltas a
 
 ## Default model
 
-`gemini-3.5-flash` is used when `model` is unset. It is the preset's `default_model` in `src/endpoint/presets.rs`, not a property of the dialect. Set `model` on the request, or `default_model` on the config, for anything you need to stay stable.
+`gemini-3.5-flash` is used when `model` is unset. It is the preset's `default_model` in `src/provider/presets.rs`, not a property of the dialect. Set `model` on the request, or `default_model` on the config, for anything you need to stay stable.

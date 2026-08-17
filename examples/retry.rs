@@ -22,8 +22,8 @@
 //! ```
 
 use freyja::{
-    Client, Dialect, EndpointConfig, EndpointPreset, Error, GenerateRequest, GenerateResponse,
-    Message, Role, TransportError,
+    Client, GenerateRequest, GenerateResponse, Message, ProviderConfig, ProviderDialect,
+    ProviderError, ProviderType, Role, TransportError,
 };
 use std::time::Duration;
 use tokio::time::sleep;
@@ -61,7 +61,7 @@ async fn main() {
         Err(error) => {
             // Every variant names the endpoint, so a program holding several
             // clients can say which one failed.
-            eprintln!("{} failed: {error}", error.endpoint());
+            eprintln!("{} failed: {error}", error.provider());
             eprintln!("  {}", explain(&error));
         }
     }
@@ -75,7 +75,7 @@ async fn main() {
 async fn generate_with_retry(
     client: &Client,
     request: &GenerateRequest,
-) -> Result<GenerateResponse, Error> {
+) -> Result<GenerateResponse, ProviderError> {
     let mut attempt = 0;
 
     loop {
@@ -128,11 +128,11 @@ fn backoff(attempt: u32) -> Duration {
 /// Nothing here is required to use the library — it exists so that running the
 /// example teaches the variants. Real code matches on the ones it cares about
 /// and lets `is_retryable` handle the rest.
-fn explain(error: &Error) -> &'static str {
+fn explain(error: &ProviderError) -> &'static str {
     match error {
-        Error::RateLimit { .. } => "sending too fast — the limit resets on its own",
-        Error::ServerError { .. } => "the endpoint failed on its own side",
-        Error::Http { kind, .. } => match kind {
+        ProviderError::RateLimit { .. } => "sending too fast — the limit resets on its own",
+        ProviderError::ServerError { .. } => "the endpoint failed on its own side",
+        ProviderError::Http { kind, .. } => match kind {
             TransportError::Timeout => "no reply in time — but the endpoint may have been billed",
             TransportError::Body => "the connection died mid-answer",
             TransportError::Connect => "unreachable: check the URL, DNS, and TLS",
@@ -144,15 +144,15 @@ fn explain(error: &Error) -> &'static str {
         // The two that look alike and are not. Both arrive as 429 on
         // OpenAI-shaped endpoints; only the body separates them, and a caller
         // branching on the status alone would retry the second one forever.
-        Error::QuotaExceeded { .. } => "out of credit — waiting will never fix this",
+        ProviderError::QuotaExceeded { .. } => "out of credit — waiting will never fix this",
 
-        Error::Unauthorized { .. } => "the key is wrong or lacks access to this model",
-        Error::NotFound { .. } => "no such model or endpoint",
-        Error::BadRequest { .. } => "the endpoint rejected the request body",
-        Error::UnsupportedCapability { .. } => "this vendor cannot express that field",
-        Error::InvalidRequest { .. } => "Freyja rejected the request before sending it",
-        Error::InvalidResponse { .. } => "the body did not parse — report this as a bug",
-        Error::Stream { .. } => "the stream failed after it had begun",
+        ProviderError::Unauthorized { .. } => "the key is wrong or lacks access to this model",
+        ProviderError::NotFound { .. } => "no such model or endpoint",
+        ProviderError::BadRequest { .. } => "the endpoint rejected the request body",
+        ProviderError::UnsupportedCapability { .. } => "this vendor cannot express that field",
+        ProviderError::InvalidRequest { .. } => "Freyja rejected the request before sending it",
+        ProviderError::InvalidResponse { .. } => "the body did not parse — report this as a bug",
+        ProviderError::Stream { .. } => "the stream failed after it had begun",
 
         // `#[non_exhaustive]`, so a catch-all is required and future variants
         // will not break this build.
@@ -169,15 +169,15 @@ fn build_client() -> Option<Client> {
         // A default model, so the request below stays identical either way.
         // Without one, a request naming no model fails locally as
         // `InvalidRequest` and never reaches the transport being demonstrated.
-        let config =
-            EndpointConfig::new(Dialect::OpenAiChat, "demo", url).default_model("demo-model");
+        let config = ProviderConfig::new(ProviderDialect::OpenAiChat, "demo", url)
+            .default_model("demo-model");
         return Some(Client::new(
             config,
             std::env::var("OPENAI_API_KEY").unwrap_or_else(|_| "sk-unused".into()),
         ));
     }
 
-    let provider = EndpointPreset::OpenAi;
+    let provider = ProviderType::OpenAi;
     match Client::from_env(provider) {
         Some(client) => Some(client),
         None => {

@@ -1,6 +1,6 @@
 # OpenAI Chat Completions wire format
 
-The native JSON of the Chat Completions API, as Freyja speaks it. This page exists so you do not have to read vendor documentation to understand what is going over the wire, or to debug a `Error::Api` body.
+The native JSON of the Chat Completions API, as Freyja speaks it. This page exists so you do not have to read vendor documentation to understand what is going over the wire, or to debug a `ProviderError::Api` body.
 
 This is the format most third party vendors implement. The shapes below were confirmed against DeepSeek; other endpoints implement the same format with varying completeness.
 
@@ -33,7 +33,7 @@ There is no version header. The base URL is whatever the vendor documents, `http
 
 Only `model` and `messages` are required. Freyja omits every unset field rather than sending null.
 
-`max_tokens` is the default spelling and what the compatible ecosystem implements. OpenAI's own newer models reject it and require `max_completion_tokens` instead; `EndpointConfig::token_limit_field` chooses which one is sent, and exactly one ever is. See [Chat Completions](../../providers/openai-chat.md#the-token-cap-has-two-spellings).
+`max_tokens` is the default spelling and what the compatible ecosystem implements. OpenAI's own newer models reject it and require `max_completion_tokens` instead; `ProviderConfig::token_limit_field` chooses which one is sent, and exactly one ever is. See [Chat Completions](../../providers/openai-chat.md#the-token-cap-has-two-spellings).
 
 The request also carries `stream` and `stream_options`, both of which `generate()` leaves unset and therefore off the wire. Every body on this page is byte-accurate for a `generate()` call. See [Streaming](#streaming).
 
@@ -227,7 +227,7 @@ The response is a sequence of `data:` frames. Unlike the other three dialects th
 | `choices[0].delta.tool_calls[]` | Each entry carries an `index`. An entry with an `id` starts that call, with `function.name`; `function.arguments` fragments accumulate into it |
 | `choices[0].finish_reason` | The terminal status, mapped by the table above |
 | `id`, `model`, `usage` | Read off any frame that has them |
-| `error` | Fails the stream as `Error::Stream`, attributed to the endpoint's name |
+| `error` | Fails the stream as `ProviderError::Stream`, attributed to the endpoint's name |
 
 The final frame is usually **usage-only**: no choices, just `usage`. That is what `include_usage` buys, and it is where the token counts come from.
 
@@ -256,4 +256,4 @@ Freyja classifies the status into a named variant and preserves the whole body a
 
 Status codes mostly follow the OpenAI convention, 400 for a bad request, 401 for a bad key, 429 for rate limiting, 5xx for the endpoint's own trouble. Compatible vendors vary here more than anywhere else, and some return 200 with an error body. Read the body when the status alone is not enough.
 
-The same body can also arrive **mid-stream**, once the connection is already open and the status has long since been 200. This dialect has no event names, so it comes as an ordinary `data:` frame with an `error` object where a chunk would be. Freyja fails the stream with `Error::Stream` carrying the message. An explicit `"error": null`, which several compatible endpoints send on every frame, is not a failure and is ignored.
+The same body can also arrive **mid-stream**, once the connection is already open and the status has long since been 200. This dialect has no event names, so it comes as an ordinary `data:` frame with an `error` object where a chunk would be. Freyja fails the stream with `ProviderError::Stream` carrying the message. An explicit `"error": null`, which several compatible endpoints send on every frame, is not a failure and is ignored.

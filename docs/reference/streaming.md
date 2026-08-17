@@ -4,10 +4,10 @@
 
 ```rust
 pub async fn stream(&self, request: &GenerateRequest)
-    -> Result<EventStream, Error>
+    -> Result<EventStream, ProviderError>
 ```
 
-It returns once the provider has accepted the request, so a non-success status arrives here as `Error::Api` rather than part-way through iteration. By the time you hold an `EventStream`, the request is past authentication, rate limiting, and model validation.
+It returns once the provider has accepted the request, so a non-success status arrives here as `ProviderError::Api` rather than part-way through iteration. By the time you hold an `EventStream`, the request is past authentication, rate limiting, and model validation.
 
 ## Driving the stream
 
@@ -25,7 +25,7 @@ while let Some(event) = stream.next().await? {
 ```
 
 ```rust
-pub async fn next(&mut self) -> Result<Option<StreamEvent>, Error>
+pub async fn next(&mut self) -> Result<Option<StreamEvent>, ProviderError>
 ```
 
 The `?` sits inside the `while let`, not after it. `next` returns `Result<Option<_>>`: the `Result` is whether the stream is still healthy, the `Option` is whether there is anything left. `None` means the provider closed the body, and it is the loop's only exit.
@@ -87,7 +87,7 @@ Text and refusals are the exception, because a fragment of text is useful on its
 ## into_response
 
 ```rust
-pub fn into_response(self) -> Result<GenerateResponse, Error>
+pub fn into_response(self) -> Result<GenerateResponse, ProviderError>
 ```
 
 Consumes the drained stream and hands back the `GenerateResponse` that `generate` would have returned for the same turn.
@@ -112,7 +112,7 @@ What matches `generate` exactly:
 
 What differs is `provider_metadata`, and it differs by shape rather than by accident. `generate` collects the fields Freyja does not model, using serde's flatten, so you get the leftovers. A stream carries the provider's terminal object whole, because that object is what the final frame contains. Both are the provider's own data; read them accordingly, and do not compare the two paths field for field. See [Responses](responses.md#provider_metadata).
 
-Calling `into_response` before `next` has returned `None` fails with `Error::Stream`. A response that looks complete but is not, replayed to a provider on the next turn, fails in ways that are hard to trace back here, so Freyja refuses instead. Drain first.
+Calling `into_response` before `next` has returned `None` fails with `ProviderError::Stream`. A response that looks complete but is not, replayed to a provider on the next turn, fails in ways that are hard to trace back here, so Freyja refuses instead. Drain first.
 
 ## A streaming tool loop
 
@@ -165,14 +165,14 @@ let http = reqwest::Client::builder()
     .connect_timeout(Duration::from_secs(5))
     .build()?;
 
-let client = Client::with_http_client(EndpointPreset::OpenAi, api_key, http);
+let client = Client::with_http_client(ProviderType::OpenAi, api_key, http);
 ```
 
 `timeout` on a streaming request is a deadline for the whole response body, which for streaming is a deadline on how long the model is allowed to talk.
 
 ## Errors
 
-Everything that can fail before the first byte surfaces from `stream`, classified by cause: `RateLimit`, `Unauthorized`, `ServerError`, and the rest of the status-bearing variants. After that, failures surface from `next`: `Error::Stream` for the provider's own mid-stream error frame, `Error::Http` with a `Body` kind for the connection dropping underneath.
+Everything that can fail before the first byte surfaces from `stream`, classified by cause: `RateLimit`, `Unauthorized`, `ServerError`, and the rest of the status-bearing variants. After that, failures surface from `next`: `ProviderError::Stream` for the provider's own mid-stream error frame, `ProviderError::Http` with a `Body` kind for the connection dropping underneath.
 
 A stream that simply stops early, with no error frame, is not an error. The `Done` event carries `ResponseStatus::Incomplete`, because nothing set a terminal status, so check `status` rather than assuming a stream that ended is a stream that finished. See [Errors](errors.md#stream).
 

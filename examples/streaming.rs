@@ -2,14 +2,14 @@
 //!
 //! Run with: `cargo run --example streaming`
 
-use freyja::{Client, EndpointPreset, GenerateRequest, Message, Role, StreamEvent};
+use freyja::{Client, GenerateRequest, Message, ProviderType, Role, StreamEvent};
 use std::io::Write;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     dotenvy::dotenv().ok();
 
-    let client = Client::from_env(EndpointPreset::OpenAi).ok_or("OPENAI_API_KEY is unset")?;
+    let client = Client::from_env(ProviderType::OpenAi).ok_or("OPENAI_API_KEY is unset")?;
     let request = GenerateRequest::new()
         .message(Message::text(Role::User, "Name three primary colors."))
         .max_tokens(128);

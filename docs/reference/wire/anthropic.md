@@ -1,6 +1,6 @@
 # Anthropic wire format
 
-The native JSON of the Anthropic Messages API, as Freyja speaks it. This page exists so you do not have to read Anthropic's documentation to understand what is going over the wire, or to debug a `Error::Api` body.
+The native JSON of the Anthropic Messages API, as Freyja speaks it. This page exists so you do not have to read Anthropic's documentation to understand what is going over the wire, or to debug a `ProviderError::Api` body.
 
 > The format below is confirmed: a live tool round trip completes against this endpoint. The individual payloads are illustrative rather than captured verbatim, unlike the [OpenAI](../../reference/wire/openai.md) and [Gemini](../../reference/wire/gemini.md) pages. See [Verification status](../../providers/anthropic.md#verification-status) for what the live run did and did not cover.
 
@@ -273,7 +273,7 @@ The response is SSE, and **the event name is on the SSE `event:` line**, which i
 | `content_block_delta` | `text_delta` → text, `input_json_delta` → a fragment of tool arguments, `thinking_delta` → reasoning text, `signature_delta` → the thinking signature |
 | `content_block_stop` | Closes the block at `index`. This is what separates two adjacent text blocks into two parts rather than one |
 | `message_delta` | Carries `delta.stop_reason` and `usage.output_tokens` |
-| `error` | Fails the stream as `Error::Stream`, attributed to the endpoint's name |
+| `error` | Fails the stream as `ProviderError::Stream`, attributed to the endpoint's name |
 
 Everything else, including `ping` and `message_stop`, is ignored.
 

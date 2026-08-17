@@ -2,7 +2,7 @@
 use super::event::EventStream;
 use super::event::StreamEvent;
 use super::sse::SseFrame;
-use crate::error::Error;
+use crate::error::Error as ProviderError;
 use crate::model::{GenerateResponse, OutputContent, ResponseStatus, Usage};
 use serde_json::Value;
 
@@ -56,16 +56,16 @@ pub(crate) trait StreamDecoder: Send {
     /// Appends everything this frame means to `out`.
     ///
     /// `provider` is the endpoint's configured name, not the dialect. Any
-    /// [`Error`] this raises must carry it verbatim: a Claude-compatible
+    /// [`ProviderError`] this raises must carry it verbatim: a Claude-compatible
     /// gateway has to report itself and not "anthropic", which is the invariant
-    /// documented on [`Error`] in `model.rs` and which the non-streaming
-    /// path honours through `EndpointConfig::name`.
+    /// documented on [`ProviderError`] in `model.rs` and which the non-streaming
+    /// path honours through `ProviderConfig::name`.
     fn decode(
         &mut self,
         frame: &SseFrame,
         provider: &Arc<str>,
         out: &mut Vec<RawDelta>,
-    ) -> Result<(), Error>;
+    ) -> Result<(), ProviderError>;
 
     /// Whether this dialect's parser re-serializes tool arguments from parsed
     /// JSON rather than passing the raw string through.
@@ -263,9 +263,9 @@ impl Assembler {
     }
 
     /// The whole response, once the stream has closed.
-    pub(super) fn into_response(self) -> Result<GenerateResponse, Error> {
+    pub(super) fn into_response(self) -> Result<GenerateResponse, ProviderError> {
         if !self.finished {
-            return Err(Error::Stream {
+            return Err(ProviderError::Stream {
                 endpoint: self.provider,
                 message: "into_response called before the stream was drained".into(),
             });
@@ -288,7 +288,7 @@ pub(crate) fn drain_for_test(
     provider: Arc<str>,
     decoder: Box<dyn StreamDecoder>,
     chunks: Vec<Vec<u8>>,
-) -> Result<GenerateResponse, Error> {
+) -> Result<GenerateResponse, ProviderError> {
     let mut stream = EventStream::for_test(provider, decoder, chunks);
     while stream.next_blocking()?.is_some() {}
     stream.into_response()
@@ -568,7 +568,7 @@ mod tests {
             frame: &SseFrame,
             _provider: &Arc<str>,
             out: &mut Vec<RawDelta>,
-        ) -> Result<(), Error> {
+        ) -> Result<(), ProviderError> {
             if frame.data == "[DONE]" {
                 out.push(RawDelta::Meta {
                     id: Some("resp_1".into()),
@@ -620,7 +620,7 @@ mod tests {
 
         assert!(matches!(
             Assembler::new("acme".into(), false).into_response(),
-            Err(Error::Stream { .. })
+            Err(ProviderError::Stream { .. })
         ));
 
         assembler.absorb(

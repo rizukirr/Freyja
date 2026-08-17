@@ -16,13 +16,14 @@
 //! it — though the point lands better with two.
 
 use freyja::{
-    Client, EndpointPreset, Error, GenerateRequest, Message, ReasoningEffort, ResponseFormat, Role,
+    Client, GenerateRequest, Message, ProviderError, ProviderType, ReasoningEffort, ResponseFormat,
+    Role,
 };
 
-const PROVIDERS: [EndpointPreset; 3] = [
-    EndpointPreset::OpenAi,
-    EndpointPreset::Anthropic,
-    EndpointPreset::Gemini,
+const PROVIDERS: [ProviderType; 3] = [
+    ProviderType::OpenAi,
+    ProviderType::Anthropic,
+    ProviderType::Gemini,
 ];
 
 #[tokio::main]
@@ -42,7 +43,7 @@ async fn main() {
 
     // Now ask for two things not every vendor has. Both are portable names for
     // ideas each vendor arranges differently, and each one loses a different
-    // endpoint:
+    // provider:
     //
     //   OpenAI     takes both
     //   Anthropic  has effort levels, but no schema-less JSON mode
@@ -120,7 +121,7 @@ async fn run_on_all(request: &GenerateRequest) {
             // The refusal that makes portability honest. It is raised by the
             // dialect before anything is sent, so it costs nothing and cannot
             // be confused with the vendor rejecting the request itself.
-            Err(Error::UnsupportedCapability { capability, .. }) => {
+            Err(ProviderError::UnsupportedCapability { capability, .. }) => {
                 println!("\n{name:>9}  refused: cannot express {capability}");
                 println!("{:>9}  (no request was sent)", "");
             }

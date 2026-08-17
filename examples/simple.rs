@@ -4,13 +4,13 @@
 //! cargo run --example simple
 //! ```
 
-use freyja::{Client, EndpointPreset, GenerateRequest, Message, Role};
+use freyja::{Client, GenerateRequest, Message, ProviderType, Role};
 
 #[tokio::main]
 async fn main() {
     dotenvy::dotenv().ok();
 
-    let provider = EndpointPreset::OpenAi;
+    let provider = ProviderType::OpenAi;
     let Some(client) = Client::from_env(provider) else {
         eprintln!("{} is missing or empty", provider.api_key_env());
         return;
