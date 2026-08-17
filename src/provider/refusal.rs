@@ -29,17 +29,18 @@
 //! costs more. A refusal is silent and permanent; a rejection is loud and stops
 //! the day the vendor changes its mind.
 
+use super::ProviderConfig;
 #[cfg(test)]
 use super::ProviderDialect;
-use super::{ProviderConfig, ProviderError};
+use crate::error::Error;
 
 /// Builds the refusal error for `capability`, naming the endpoint that raised it.
 ///
 /// Dialects call this rather than constructing the variant, so every refusal
 /// goes through a constant declared in this module.
-pub(crate) fn unsupported(config: &ProviderConfig, capability: &'static str) -> ProviderError {
-    ProviderError::UnsupportedCapability {
-        provider: config.name.clone(),
+pub(crate) fn unsupported(config: &ProviderConfig, capability: &'static str) -> Error {
+    Error::UnsupportedCapability {
+        endpoint: config.name.clone(),
         capability,
     }
 }

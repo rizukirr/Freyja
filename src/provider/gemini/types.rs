@@ -1,11 +1,13 @@
 //! Wire types for the Gemini Interactions API and their conversions to and from
 //! the neutral model.
 
-use crate::provider::refusal;
-use crate::provider::{
-    GenerateRequest, GenerateResponse, InputContent, OutputContent, ProviderConfig, ProviderError,
-    ReasoningEffort, ResponseFormat, ResponseStatus, Role, ToolChoice, Usage,
+use crate::error::Error as ProviderError;
+use crate::model::{
+    GenerateRequest, GenerateResponse, InputContent, OutputContent, ReasoningEffort,
+    ResponseFormat, ResponseStatus, Role, ToolChoice, Usage,
 };
+use crate::provider::ProviderConfig;
+use crate::provider::refusal;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -129,7 +131,7 @@ impl Request {
                     InputContent::Text(text) => {
                         if message.role == Role::Tool {
                             return Err(ProviderError::InvalidRequest {
-                                provider: config.name.clone(),
+                                endpoint: config.name.clone(),
                                 message: "tool messages may only contain tool results".into(),
                             });
                         }
@@ -143,7 +145,7 @@ impl Request {
                     InputContent::ImageUrl(url) => {
                         if message.role == Role::Tool {
                             return Err(ProviderError::InvalidRequest {
-                                provider: config.name.clone(),
+                                endpoint: config.name.clone(),
                                 message: "tool messages may only contain tool results".into(),
                             });
                         }
@@ -167,7 +169,7 @@ impl Request {
                         flush(&mut steps, step_type, &mut pending);
                         let Some(name) = tool_names.get(call_id.as_str()) else {
                             return Err(ProviderError::InvalidRequest {
-                                provider: config.name.clone(),
+                                endpoint: config.name.clone(),
                                 message: format!(
                                     "no tool call with id '{call_id}' in the transcript; \
                                      Gemini requires the tool name alongside its result"
@@ -385,7 +387,7 @@ pub(crate) fn parse(
 ) -> Result<GenerateResponse, ProviderError> {
     let wire: Response =
         serde_json::from_str(body).map_err(|error| ProviderError::InvalidResponse {
-            provider: config.name.clone(),
+            endpoint: config.name.clone(),
             message: format!("{error}; body: {body}"),
         })?;
     Ok(wire.into())

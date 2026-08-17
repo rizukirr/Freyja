@@ -1,7 +1,8 @@
 //! Streaming: neutral events, the shared assembler, and the public stream type.
 
+use crate::error::Error as ProviderError;
+use crate::model::{GenerateResponse, OutputContent, ResponseStatus, Usage};
 use crate::provider::sse::SseFrame;
-use crate::provider::{ProviderError, ResponseStatus, Usage};
 use serde_json::Value;
 
 /// One thing the model produced, as it arrives.
@@ -124,7 +125,6 @@ pub(crate) trait StreamDecoder: Send {
     }
 }
 
-use crate::provider::{GenerateResponse, OutputContent};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -312,7 +312,7 @@ impl Assembler {
     fn into_response(self) -> Result<GenerateResponse, ProviderError> {
         if !self.finished {
             return Err(ProviderError::Stream {
-                provider: self.provider,
+                endpoint: self.provider,
                 message: "into_response called before the stream was drained".into(),
             });
         }

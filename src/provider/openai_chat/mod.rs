@@ -3,10 +3,11 @@
 
 mod types;
 
+use crate::error::Error as ProviderError;
+use crate::model::{GenerateRequest, GenerateResponse, ResponseStatus, Usage};
 use crate::provider::sse::SseFrame;
 use crate::provider::stream::{RawDelta, StreamDecoder};
-use crate::provider::{GenerateRequest, GenerateResponse, Provider, ProviderConfig, ProviderError};
-use crate::provider::{ResponseStatus, Usage};
+use crate::provider::{Provider, ProviderConfig};
 
 pub(crate) struct OpenAiChatProvider;
 
@@ -42,7 +43,7 @@ impl StreamDecoder for Decoder {
         frame: &SseFrame,
         provider: &std::sync::Arc<str>,
         out: &mut Vec<RawDelta>,
-    ) -> Result<(), crate::provider::ProviderError> {
+    ) -> Result<(), ProviderError> {
         // The sentinel is not JSON and carries nothing.
         if frame.data.trim() == "[DONE]" {
             return Ok(());
@@ -57,10 +58,10 @@ impl StreamDecoder for Decoder {
         // is handed a silently truncated answer reporting `Incomplete` --
         // on the dialect the widest range of third parties speaks.
         if let Some(error) = value.get("error").filter(|error| !error.is_null()) {
-            return Err(crate::provider::ProviderError::Stream {
+            return Err(ProviderError::Stream {
                 // The endpoint's own name, never the dialect: see the
                 // invariant on ProviderError in model.rs.
-                provider: provider.clone(),
+                endpoint: provider.clone(),
                 message: error["message"]
                     .as_str()
                     .unwrap_or("unknown streaming error")

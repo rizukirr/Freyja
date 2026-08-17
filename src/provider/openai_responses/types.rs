@@ -1,11 +1,13 @@
 //! Wire types for the OpenAI Responses API and their conversions to and from
 //! the neutral model.
 
-use crate::provider::refusal;
-use crate::provider::{
-    GenerateRequest, GenerateResponse, InputContent, OutputContent, ProviderConfig, ProviderError,
-    ReasoningEffort, ResponseFormat, ResponseStatus, Role, ToolChoice, Usage,
+use crate::error::Error as ProviderError;
+use crate::model::{
+    GenerateRequest, GenerateResponse, InputContent, OutputContent, ReasoningEffort,
+    ResponseFormat, ResponseStatus, Role, ToolChoice, Usage,
 };
+use crate::provider::ProviderConfig;
+use crate::provider::refusal;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -167,7 +169,7 @@ impl Request {
 
             if message.role == Role::Tool && !pending.is_empty() {
                 return Err(ProviderError::InvalidRequest {
-                    provider: config.name.clone(),
+                    endpoint: config.name.clone(),
                     message: "tool messages may only contain tool results".into(),
                 });
             }
@@ -350,7 +352,7 @@ pub(crate) fn parse(
 ) -> Result<GenerateResponse, ProviderError> {
     let wire: Response =
         serde_json::from_str(body).map_err(|error| ProviderError::InvalidResponse {
-            provider: config.name.clone(),
+            endpoint: config.name.clone(),
             message: format!("{error}; body: {body}"),
         })?;
     Ok(wire.into())

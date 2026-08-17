@@ -14,16 +14,16 @@ pub(crate) mod gemini;
 pub(crate) mod openai_chat;
 pub(crate) mod openai_responses;
 
-mod model;
 mod presets;
 mod refusal;
 pub(crate) mod sse;
 pub(crate) mod stream;
 
-pub use model::*;
 pub use presets::ProviderType;
 pub use stream::{EventStream, StreamEvent};
 
+use crate::error::Error as ProviderError;
+use crate::model::*;
 use serde::Serialize;
 use serde_json::Value;
 use std::fmt;
@@ -322,7 +322,7 @@ impl ProviderConfig {
         let Value::Object(fields) = fields else {
             panic!("body expects a JSON object, got {fields}");
         };
-        model::merge_into(&mut self.extra_body, &fields);
+        crate::model::merge_into(&mut self.extra_body, &fields);
         self
     }
 
@@ -371,7 +371,7 @@ impl ProviderConfig {
             .clone()
             .or_else(|| self.default_model.clone())
             .ok_or_else(|| ProviderError::InvalidRequest {
-                provider: self.name.clone(),
+                endpoint: self.name.clone(),
                 message: "no model set on the request and no default_model on the endpoint".into(),
             })
     }
@@ -729,7 +729,7 @@ impl Client {
         let text = response.output_text();
 
         serde_json::from_str(&text).map_err(|error| ProviderError::OutputMismatch {
-            provider: self.config.name.clone(),
+            endpoint: self.config.name.clone(),
             message: error.to_string(),
             // Checked rather than inferred from the parse error: a truncated
             // answer and a wrong-shaped one both fail here, and only the
@@ -905,7 +905,7 @@ fn to_value<T: Serialize>(
     config: &ProviderConfig,
 ) -> Result<Value, ProviderError> {
     let invalid = |error: serde_json::Error| ProviderError::InvalidRequest {
-        provider: config.name.clone(),
+        endpoint: config.name.clone(),
         message: error.to_string(),
     };
 
@@ -915,16 +915,16 @@ fn to_value<T: Serialize>(
         // rather than unwrapped so a future one that is not says so.
         other => {
             return Err(ProviderError::InvalidRequest {
-                provider: config.name.clone(),
+                endpoint: config.name.clone(),
                 message: format!("request body must be a JSON object, built {other}"),
             });
         }
     };
 
-    model::merge_into(&mut body, &config.extra_body);
+    crate::model::merge_into(&mut body, &config.extra_body);
     for (dialect, fields) in &request.extra {
         if *dialect == config.dialect {
-            model::merge_into(&mut body, fields);
+            crate::model::merge_into(&mut body, fields);
         }
     }
 

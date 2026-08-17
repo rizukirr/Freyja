@@ -5,11 +5,13 @@
 //! Fireworks, DeepSeek, OpenRouter, Ollama, vLLM, and others implement it, so
 //! this one mapping reaches all of them through [`ProviderConfig`].
 
-use crate::provider::refusal;
-use crate::provider::{
-    GenerateRequest, GenerateResponse, InputContent, OutputContent, ProviderConfig, ProviderError,
-    ReasoningEffort, ResponseFormat, ResponseStatus, Role, TokenLimitField, ToolChoice, Usage,
+use crate::error::Error as ProviderError;
+use crate::model::{
+    GenerateRequest, GenerateResponse, InputContent, OutputContent, ReasoningEffort,
+    ResponseFormat, ResponseStatus, Role, ToolChoice, Usage,
 };
+use crate::provider::refusal;
+use crate::provider::{ProviderConfig, TokenLimitField};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -180,7 +182,7 @@ impl Request {
                         // Anthropic where several results share a user turn.
                         if tool_call_id.is_some() {
                             return Err(ProviderError::InvalidRequest {
-                                provider: config.name.clone(),
+                                endpoint: config.name.clone(),
                                 message: "each tool message may answer only one tool call; \
                                           send one message per result"
                                     .into(),
@@ -425,7 +427,7 @@ pub(crate) fn parse(
 ) -> Result<GenerateResponse, ProviderError> {
     let wire: Response =
         serde_json::from_str(body).map_err(|error| ProviderError::InvalidResponse {
-            provider: config.name.clone(),
+            endpoint: config.name.clone(),
             message: format!("{error}; body: {body}"),
         })?;
     Ok(wire.into())
@@ -1006,10 +1008,10 @@ mod tests {
         };
 
         match decoder.decode(&frame, &"groq".into(), &mut out) {
-            Err(ProviderError::Stream { provider, message }) => {
+            Err(ProviderError::Stream { endpoint, message }) => {
                 assert_eq!(message, "model overloaded");
                 assert_eq!(
-                    &*provider, "groq",
+                    &*endpoint, "groq",
                     "a compatible endpoint must report its own name, not the dialect"
                 );
             }

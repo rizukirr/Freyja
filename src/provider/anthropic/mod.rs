@@ -3,10 +3,11 @@
 
 mod types;
 
+use crate::error::Error as ProviderError;
+use crate::model::{GenerateRequest, GenerateResponse, ResponseStatus, Usage};
 use crate::provider::sse::SseFrame;
 use crate::provider::stream::{RawDelta, StreamDecoder};
-use crate::provider::{GenerateRequest, GenerateResponse, Provider, ProviderConfig, ProviderError};
-use crate::provider::{ResponseStatus, Usage};
+use crate::provider::{Provider, ProviderConfig};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 
@@ -66,7 +67,7 @@ impl StreamDecoder for Decoder {
         frame: &SseFrame,
         provider: &std::sync::Arc<str>,
         out: &mut Vec<RawDelta>,
-    ) -> Result<(), crate::provider::ProviderError> {
+    ) -> Result<(), ProviderError> {
         let Ok(value) = serde_json::from_str::<Value>(&frame.data) else {
             return Ok(());
         };
@@ -77,10 +78,10 @@ impl StreamDecoder for Decoder {
 
         match event {
             "error" => {
-                return Err(crate::provider::ProviderError::Stream {
+                return Err(ProviderError::Stream {
                     // The endpoint's own name, never the dialect: see the
                     // invariant on ProviderError in model.rs.
-                    provider: provider.clone(),
+                    endpoint: provider.clone(),
                     message: value["error"]["message"]
                         .as_str()
                         .unwrap_or("unknown streaming error")
