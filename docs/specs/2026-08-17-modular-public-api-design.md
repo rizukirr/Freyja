@@ -1,7 +1,7 @@
 ---
 title: Modular public API
 date: 2026-08-17
-status: draft
+status: approved
 ---
 
 # Modular public API — Design
