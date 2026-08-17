@@ -295,7 +295,7 @@
   error accessor provider() -> endpoint()
   ```
 
-- [ ] Step 2: Rewrite architecture and dialect-extension documentation to describe the new module ownership and private `WireDialect` trait; remove instructions that refer to `src/provider`.
+- [ ] Step 2: Rewrite architecture and dialect-extension documentation to describe the new module ownership and private `WireDialect` trait; remove instructions that refer to `src/provider`; qualify the rustdoc links in `src/client.rs` and `src/endpoint/mod.rs` as `crate::EndpointPreset`, `crate::Client::from_env`, and `crate::Client` so the required documentation build resolves them without module-local imports.
 - [ ] Step 3: Add `tests/public_api.rs` with one compile-time test importing representative public types from both supported styles:
 
   ```rust
