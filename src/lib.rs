@@ -91,6 +91,8 @@
 pub mod error;
 pub mod model;
 pub mod provider;
+/// Types and utilities for consuming streaming provider responses.
+pub mod stream;
 
 pub use error::{Error, TransportError};
 pub use model::{
@@ -98,6 +100,6 @@ pub use model::{
     ResponseFormat, ResponseStatus, Role, ToolChoice, ToolDefinition, Usage, strict_schema,
 };
 pub use provider::{
-    Auth, Client, EventStream, Provider, ProviderConfig, ProviderDialect, ProviderType,
-    StreamEvent, TokenLimitField,
+    Auth, Client, Provider, ProviderConfig, ProviderDialect, ProviderType, TokenLimitField,
 };
+pub use stream::{EventStream, StreamEvent};

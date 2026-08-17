@@ -5,9 +5,8 @@ mod types;
 
 use crate::error::Error as ProviderError;
 use crate::model::{GenerateRequest, GenerateResponse, ResponseStatus, Usage};
-use crate::provider::sse::SseFrame;
-use crate::provider::stream::{RawDelta, StreamDecoder};
 use crate::provider::{Provider, ProviderConfig};
+use crate::stream::{RawDelta, SseFrame, StreamDecoder};
 use serde_json::Value;
 
 pub(crate) struct OpenAiResponsesProvider;

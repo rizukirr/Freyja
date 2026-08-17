@@ -16,11 +16,19 @@ pub(crate) mod openai_responses;
 
 mod presets;
 mod refusal;
-pub(crate) mod sse;
-pub(crate) mod stream;
 
 pub use presets::ProviderType;
-pub use stream::{EventStream, StreamEvent};
+
+#[cfg(test)]
+pub(crate) mod sse {
+    pub(crate) use crate::stream::SseFrame;
+}
+
+#[cfg(test)]
+pub(crate) mod stream {
+    pub(crate) use crate::stream::drain_for_test;
+    pub(crate) use crate::stream::{RawDelta, StreamDecoder};
+}
 
 use crate::error::Error as ProviderError;
 use crate::model::*;
@@ -435,7 +443,7 @@ macro_rules! with_provider {
 ///
 /// Separate from [`with_provider`] because a decoder *is* returnable as `dyn`,
 /// and because `stream` is the only caller that needs one.
-fn decoder_for(dialect: ProviderDialect) -> Box<dyn stream::StreamDecoder> {
+fn decoder_for(dialect: ProviderDialect) -> Box<dyn crate::stream::StreamDecoder> {
     match dialect {
         ProviderDialect::OpenAiResponses => Box::new(openai_responses::Decoder),
         ProviderDialect::OpenAiChat => Box::new(openai_chat::Decoder),
@@ -766,7 +774,10 @@ impl Client {
     /// # Ok(())
     /// # }
     /// ```
-    pub async fn stream(&self, request: &GenerateRequest) -> Result<EventStream, ProviderError> {
+    pub async fn stream(
+        &self,
+        request: &GenerateRequest,
+    ) -> Result<crate::stream::EventStream, ProviderError> {
         let wire = with_provider!(self.config.dialect, |provider| {
             let body = provider.build(request, &self.config)?.streaming();
             to_value(&body, request, &self.config)?
@@ -792,7 +803,7 @@ impl Client {
             ));
         }
 
-        Ok(EventStream::new(
+        Ok(crate::stream::EventStream::new(
             self.config.name.clone(),
             decoder,
             response,
