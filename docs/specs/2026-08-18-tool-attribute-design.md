@@ -1,7 +1,7 @@
 ---
 title: Tool attribute macro
 date: 2026-08-18
-status: draft
+status: approved
 ---
 
 # Tool attribute macro — Design
