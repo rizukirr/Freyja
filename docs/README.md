@@ -36,7 +36,7 @@ Look these up rather than reading them through. Generated rustdoc is on [docs.rs
 | [Client](reference/client.md) | `Client`, `EndpointPreset`, `EndpointConfig`, credentials, HTTP |
 | [Requests](reference/requests.md) | `GenerateRequest` and every builder method |
 | [Messages](reference/messages.md) | `Message`, `Role`, `InputContent` |
-| [Tools](reference/tools.md) | `ToolDefinition`, `ToolChoice`, the round trip in full |
+| [Tools](reference/tools.md) | `#[tool]`, `Tool`, `ToolDefinition`, dispatch, and the full round trip |
 | [Responses](reference/responses.md) | `GenerateResponse`, `OutputContent`, `ResponseStatus`, `Usage` |
 | [Streaming](reference/streaming.md) | `Client::stream`, `EventStream`, `StreamEvent`, `into_response` |
 | [Errors](reference/errors.md) | `Error` and how to handle each variant |
@@ -65,4 +65,4 @@ Samples that make a network call are written as if inside an `async fn` returnin
 
 ## Status
 
-Phase 0 is complete and Phase 1 is under way. The neutral core is stable, four dialects are implemented, tool calling works end to end against live APIs, every dialect streams, and failures are classified by cause. There is no orchestration layer, and retries are deliberately the caller's. [Features](features.md) has the honest boundary; the [roadmap](../README.md#roadmap) has what is planned.
+Phases 0 and 1 are complete and Phase 2 has started. Typed tools, the provider-neutral round trip, and streaming are implemented; automatic orchestration is not. Retries remain deliberately caller-owned. [Features](features.md) has the honest boundary; the [roadmap](../README.md#roadmap) has what is planned.

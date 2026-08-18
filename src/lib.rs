@@ -32,6 +32,24 @@
 //!
 //! # Tool calling
 //!
+//! [`tool`] turns a typed synchronous function into a callable [`Tool`]. Its
+//! parameters generate the JSON Schema sent to the model, and [`Tool::execute`]
+//! deserializes a requested call and serializes the result:
+//!
+//! ```
+//! use freyja::{Tool, tool};
+//!
+//! #[tool(description = "adds two numbers together", strict = true)]
+//! fn add(a: i64, b: i64) -> i64 {
+//!     a + b
+//! }
+//!
+//! let tools = [add];
+//! let definitions = tools.iter().map(|tool| tool.definition()).collect::<Vec<_>>();
+//! assert_eq!(definitions[0].name, "add");
+//! assert_eq!(add.execute(r#"{"a":20,"b":22}"#).unwrap(), "42");
+//! ```
+//!
 //! A tool round trip is three turns: the user asks, the model answers with a
 //! [`OutputContent::ToolCall`], and you feed the result back with
 //! [`Message::tool_result`]. [`GenerateResponse::to_message`] converts the

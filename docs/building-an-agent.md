@@ -15,52 +15,48 @@ Everything here runs. `examples/tool_loop.rs` is the finished version, and `carg
 
 The model never runs anything. It asks, you execute, you report back. That boundary is the whole security model: nothing happens that your code did not choose to do.
 
-## Step 1: describe the tool
+## Step 1: declare the tool
 
-A tool is a name, a description, and a JSON Schema for its arguments.
+`#[tool]` turns a synchronous typed function into a `Tool` value. The function name becomes the model-visible name, its parameters become a JSON Schema, and its return value is serialized as JSON.
 
 ```rust
-use freyja::ToolDefinition;
+use freyja::{Tool, tool};
 
-let add = ToolDefinition::new("add", "adds two numbers together")
-    .parameters(serde_json::json!({
-        "type": "object",
-        "properties": {
-            "a": {"type": "integer"},
-            "b": {"type": "integer"}
-        },
-        "required": ["a", "b"]
-    }));
+#[tool(
+    description = "adds two numbers together; use this instead of doing arithmetic yourself",
+    strict = true
+)]
+fn add(a: i64, b: i64) -> i64 {
+    a + b
+}
+
+let tools = [add];
 ```
 
 **The description is a prompt, not a comment.** It is the only thing the model reads when deciding whether this tool applies. Write it for the model. Say when to call it, not just what it does: "adds two numbers together" is weaker than "adds two numbers together; use this instead of doing arithmetic yourself".
 
-Schemas are hand-written JSON today. Deriving them from a Rust type is planned, not present.
+`strict` defaults to `false`. With `strict = true`, Freyja also rewrites the generated schema into the strict subset accepted by providers that enforce it.
 
-## Step 2: write the function
+The initial macro accepts synchronous free functions with explicit parameter types and simple identifier parameters. Async functions, methods, generics, and destructuring patterns are rejected at compile time. Parameter types must support `Deserialize` and `JsonSchema`; the return type must support `Serialize`.
 
-An ordinary function, plus a dispatcher that maps a name and a JSON string onto it.
+## Step 2: dispatch requested names
+
+Keep the tools in an array and look up the name requested by the model. `Tool::execute` validates the JSON against the Rust parameter types, calls the function, and serializes its result.
 
 ```rust
-fn dispatch(name: &str, arguments: &str) -> String {
-    let parsed: Value = match serde_json::from_str(arguments) {
-        Ok(value) => value,
-        Err(error) => return format!("error: arguments were not valid JSON: {error}"),
-    };
-
-    match name {
-        "add" => match (parsed["a"].as_i64(), parsed["b"].as_i64()) {
-            (Some(a), Some(b)) => (a + b).to_string(),
-            _ => "error: both 'a' and 'b' must be integers".to_string(),
-        },
-        other => format!("error: unknown tool '{other}'"),
+fn dispatch(tools: &[Tool], name: &str, arguments: &str) -> String {
+    match tools.iter().copied().find(|tool| tool.name() == name) {
+        Some(tool) => tool
+            .execute(arguments)
+            .unwrap_or_else(|error| format!("error: {error:?}")),
+        None => format!("error: unknown tool '{name}'"),
     }
 }
 ```
 
 Two rules here, and both matter more than they look.
 
-**Never unwrap on arguments.** They came from a model. A schema is guidance, not a guarantee, even with `strict` set. A panic in your dispatcher takes down the loop.
+**Do not unwrap `Tool::execute`.** Arguments came from a model. A schema is guidance rather than a guarantee, even with `strict` set.
 
 **Return errors as output, not as `Err`.** A tool that fails has not broken your program; it has produced information. Hand the model the error text and it will usually correct itself, ask a clarifying question, or try another approach. Propagating the error instead ends the conversation over something recoverable.
 
@@ -69,7 +65,7 @@ Two rules here, and both matter more than they look.
 ```rust
 let mut request = GenerateRequest::new()
     .message(Message::text(Role::User, "What is 20 + 22?"))
-    .tools([add]);
+    .tools(tools.iter().map(|tool| tool.definition()).collect::<Vec<_>>());
 
 let response = client.generate(&request).await?;
 ```
@@ -98,7 +94,7 @@ Two turns go back for each round, and the order is not optional.
 let results: Vec<Message> = response
     .tool_calls()
     .map(|(id, name, arguments)| {
-        let output = dispatch(name, arguments);
+        let output = dispatch(&tools, name, arguments);
         Message::tool_result(id, output)
     })
     .collect();
@@ -117,7 +113,7 @@ If you remember one thing from this page, make it that line.
 ```rust
 let mut request = GenerateRequest::new()
     .message(Message::text(Role::User, "What is 20 + 22?"))
-    .tools([add]);
+    .tools(tools.iter().map(|tool| tool.definition()).collect::<Vec<_>>());
 
 for _ in 0..5 {
     let response = client.generate(&request).await?;
@@ -129,7 +125,9 @@ for _ in 0..5 {
 
     let results: Vec<Message> = response
         .tool_calls()
-        .map(|(id, name, arguments)| Message::tool_result(id, dispatch(name, arguments)))
+        .map(|(id, name, arguments)| {
+            Message::tool_result(id, dispatch(&tools, name, arguments))
+        })
         .collect();
 
     request = request

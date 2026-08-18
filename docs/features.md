@@ -29,6 +29,7 @@ Streaming delivers the same answer incrementally, and a drained stream converts 
 | | |
 |---|---|
 | Declaring tools | Yes, with JSON Schema parameters |
+| Typed tool functions | `#[tool]` derives the schema and JSON executor from a synchronous function |
 | Constraining tool choice | Auto, none, required, or a named tool |
 | The full tool round trip | **Yes, verified against live APIs**, not just tested offline |
 | Multi-turn conversations | Yes, transcripts are plain data you own |
@@ -56,7 +57,7 @@ Built-in means Freyja ships and tests the URL and default model. It does not mea
 | Errors | Classified by cause, each attributed to the endpoint that failed |
 | Retry decisions | `is_retryable()` and the endpoint's own `Retry-After` |
 | Credential safety | `Debug` redacts the API key |
-| Dependencies | Three: `reqwest`, `serde`, `serde_json` |
+| Dependencies | `reqwest`, `serde`, `serde_json`, `schemars`, and `freyja-macros` |
 
 ## What does not exist yet
 
@@ -65,8 +66,9 @@ Be sure none of these is on your critical path before adopting.
 | | Status | Workaround |
 |---|---|---|
 | **Retries** | Out of scope, deliberately | A 429 or 5xx surfaces once. `is_retryable()` and `retry_after()` tell you what to do; the loop is yours, and composes with `backon` or `tower::retry`. See [Errors](reference/errors.md#retries). |
-| **Automatic tool dispatch** | Not implemented | You match on the tool name and call your function. There is no registry or `Tool` trait yet. |
-| **Schema derivation** | Not implemented | Schemas are hand-written JSON, for tool parameters and for `response_format` alike. Generate one with `schemars` and pass it through `strict_schema()`; Freyja will not write it from a Rust type for you. |
+| **Automatic loop orchestration** | Not implemented | Keep a `[Tool; N]`, find the requested name, call `Tool::execute`, and feed the result back. Freyja does not run the model loop for you. |
+| **Async tools** | Not implemented | `#[tool]` currently accepts synchronous free functions with typed identifier parameters. |
+| **Structured-output schema derivation** | Not implemented | `#[tool]` derives argument schemas, but `ResponseFormat::JsonSchema` still takes an explicit schema. Generate one with `schemars` and pass it through `strict_schema()`. |
 | **Capability tables** | Not planned | `Client::check` answers the same question by running the conversion, so there is nothing to keep in sync. It needs a request in hand, which a table would not. |
 | **Embeddings, memory, RAG** | Not implemented | Freyja is a generation client today. |
 | **Agent orchestration** | Not implemented | You write the loop. It is about fifteen lines. |

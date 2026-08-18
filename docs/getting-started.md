@@ -96,19 +96,22 @@ Four things: which wire format, a name for error messages, the root URL, and the
 
 ## Add a tool
 
-This is the reason to use this library rather than a thinner one. Declare a function, and the model can ask you to run it:
+This is the reason to use this library rather than a thinner one. Annotate a typed function and Freyja derives its JSON Schema and executor:
 
 ```rust
-let add = ToolDefinition::new("add", "adds two numbers together")
-    .parameters(serde_json::json!({
-        "type": "object",
-        "properties": {"a": {"type": "integer"}, "b": {"type": "integer"}},
-        "required": ["a", "b"]
-    }));
+use freyja::{Tool, tool};
+
+#[tool(description = "adds two numbers together", strict = true)]
+fn add(a: i64, b: i64) -> i64 {
+    a + b
+}
+
+let tools = [add];
+let definitions = tools.iter().map(|tool| tool.definition()).collect::<Vec<_>>();
 
 let request = GenerateRequest::new()
     .message(Message::text(Role::User, "What is 20 + 22?"))
-    .tools([add]);
+    .tools(definitions);
 
 let response = client.generate(&request).await?;
 
@@ -117,7 +120,7 @@ for (id, name, arguments) in response.tool_calls() {
 }
 ```
 
-The model does not run anything. It asks; you decide. Turning that into a loop is [Building an agent](building-an-agent.md), and it is about fifteen lines.
+The model does not run anything. It asks; you find the requested `Tool`, call `execute(arguments)`, and decide how to report failures. Turning that into a loop is [Building an agent](building-an-agent.md).
 
 ## Run the examples
 

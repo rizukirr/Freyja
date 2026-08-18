@@ -2,7 +2,7 @@
 
 Tool calling lets the model ask you to run a function and then use the result. In Freyja the full round trip works on every provider, and it is the foundation the agent loop will be built on.
 
-There is no automatic execution yet. You declare the tools, you run them, you feed the results back. A `Tool` trait and a registry that does the dispatch for you are Phase 2 work.
+`#[tool]` generates typed argument parsing and execution, but Freyja does not run the model loop automatically. You choose which tools are available, dispatch requested names, and feed the results back.
 
 ## The shape of a round trip
 
@@ -14,7 +14,45 @@ There is no automatic execution yet. You declare the tools, you run them, you fe
 
 Steps 2 through 5 repeat as long as the model keeps asking for tools, which is why real loops need a bound on the number of rounds.
 
-## Declaring a tool
+## Declaring a typed tool
+
+```rust
+use freyja::{Tool, tool};
+
+#[tool(description = "adds two numbers together", strict = true)]
+fn add(a: i64, b: i64) -> i64 {
+    a + b
+}
+
+let tools = [add];
+let definitions = tools.iter().map(|tool| tool.definition()).collect::<Vec<_>>();
+
+let request = GenerateRequest::new()
+    .message(Message::text(Role::User, "What is 20 + 22?"))
+    .tools(definitions);
+```
+
+The macro replaces the function item with a same-named `Tool` value. Its typed parameters generate the object schema, `description` tells the model when to use it, and `strict` defaults to `false`. `Tool::execute` deserializes the model's JSON arguments, calls the original function, and serializes the return value as JSON.
+
+Supported functions are synchronous free functions with explicit types and simple identifier parameters. Async functions, methods with `self`, generics, and destructured parameters produce compile errors. Argument types must support serde deserialization and `schemars::JsonSchema`; return values must support serde serialization.
+
+```rust
+pub struct Tool {
+    // private generated function pointers
+}
+
+impl Tool {
+    pub const fn name(self) -> &'static str;
+    pub fn definition(self) -> ToolDefinition;
+    pub fn execute(self, arguments: &str) -> Result<String, ToolError>;
+}
+```
+
+`ToolError::Arguments` means the model's JSON did not match the Rust parameters. `ToolError::Result` means the return value could not be serialized. `ToolError::Execution` is available for runtime tool failures.
+
+## Declaring a raw definition
+
+The existing manual API remains available when a schema does not map cleanly onto a Rust function:
 
 ```rust
 pub struct ToolDefinition {
@@ -47,7 +85,7 @@ let request = GenerateRequest::new()
 | `.parameters(Value)` | Sets the JSON Schema for the arguments |
 | `.strict(bool)` | Asks the provider to enforce the schema exactly |
 
-The description is what the model reads to decide when to call the tool. Write it for the model, not for other developers. Schemas are hand written JSON Schema today. Deriving them from a Rust type is Phase 1 work.
+The description is what the model reads to decide when to call the tool. Write it for the model, not for other developers. Raw and generated definitions use the same provider-neutral request path.
 
 ## Constraining the choice
 
@@ -90,7 +128,7 @@ pub enum OutputContent {
 
 `Reasoning` is in the list because a reasoning model interleaves it with the calls, and it has to go back with them. `to_message()` handles that for you; see below.
 
-`arguments` is a raw JSON string, not a parsed value, because that is what the transcript has to replay verbatim. Parse it yourself:
+`arguments` is a raw JSON string because that is what the transcript has to replay verbatim. Pass it to the matching generated `Tool`, or parse it yourself when using raw definitions:
 
 ```rust
 if response.has_tool_calls() {
@@ -137,7 +175,7 @@ This is the pattern in `examples/tool_loop.rs`, reduced to its essentials:
 ```rust
 let mut request = GenerateRequest::new()
     .message(Message::text(Role::User, "What is 20 + 22?"))
-    .tools([add_tool]);
+    .tools(tools.iter().map(|tool| tool.definition()).collect::<Vec<_>>());
 
 for _ in 0..5 {
     let response = client.generate(&request).await?;
@@ -149,7 +187,17 @@ for _ in 0..5 {
 
     let results: Vec<Message> = response
         .tool_calls()
-        .map(|(id, name, arguments)| Message::tool_result(id, dispatch(name, arguments)))
+        .map(|(id, name, arguments)| {
+            let output = tools
+                .iter()
+                .copied()
+                .find(|tool| tool.name() == name)
+                .map(|tool| tool.execute(arguments))
+                .transpose()
+                .map(|output| output.unwrap_or_else(|| format!("error: unknown tool '{name}'")))
+                .unwrap_or_else(|error| format!("error: {error:?}"));
+            Message::tool_result(id, output)
+        })
         .collect();
 
     request = request
@@ -167,20 +215,9 @@ The same loop works while streaming. Drain the stream, call `into_response()`, a
 A failed tool is not an error in your program. Report it as the tool's output and let the model recover:
 
 ```rust
-fn dispatch(name: &str, arguments: &str) -> String {
-    let parsed: Value = match serde_json::from_str(arguments) {
-        Ok(value) => value,
-        Err(error) => return format!("error: arguments were not valid JSON: {error}"),
-    };
-
-    match name {
-        "add" => match (parsed["a"].as_i64(), parsed["b"].as_i64()) {
-            (Some(a), Some(b)) => (a + b).to_string(),
-            _ => "error: both 'a' and 'b' must be integers".to_string(),
-        },
-        other => format!("error: unknown tool '{other}'"),
-    }
-}
+let output = add
+    .execute(arguments)
+    .unwrap_or_else(|error| format!("error: {error:?}"));
 ```
 
 Never unwrap on arguments. They come from a model, and a schema is guidance rather than a guarantee, even with `strict` set.
@@ -205,8 +242,8 @@ Two things differ per provider in the tool arguments themselves. OpenAI sends `a
 
 ## What does not exist yet
 
-- No `Tool` trait, no registry, no automatic dispatch by name
-- No macro to derive a schema from a function signature
+- No automatic model loop or built-in name registry
+- No async tools or injected application state
 - No parallel execution of tool calls
 - No per tool timeouts or approval hooks
 - No enforcement that a result's `call_id` matches a real call

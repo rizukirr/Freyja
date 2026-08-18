@@ -73,7 +73,7 @@ while let Some(event) = stream.next().await? {
 
 A drained stream converts back with `stream.into_response()?`, so a streaming tool loop reuses the same `to_message()` the non-streaming one does. See [Streaming](docs/reference/streaming.md).
 
-Add tools and a loop and you have an agent. That is [Building an agent](docs/building-an-agent.md), and it is about fifteen lines.
+Add typed tools and a bounded loop and you have an agent. `#[tool]` derives the argument schema and JSON dispatcher from an ordinary Rust function. See [Building an agent](docs/building-an-agent.md).
 
 ```bash
 cargo run --example simple           # one question, one answer
@@ -103,22 +103,22 @@ Then [providers](docs/providers/README.md), the [API reference](docs/README.md#r
 
 ## Status
 
-Phases 0 and 1 are complete: the neutral core is stable, four wire dialects are implemented, tool calling works end to end, every dialect streams, failures are classified by cause, a request can be checked before it is sent, a JSON schema can be rewritten into the subset a vendor accepts, and an answer can be deserialized straight into your own type. Next is Phase 2, the agent layer.
+Phases 0 and 1 are complete, and Phase 2 has started: the neutral core is stable, four wire dialects are implemented, tool calling works end to end, typed `#[tool]` functions derive their schemas and dispatchers, every dialect streams, and failures are classified by cause.
 
 | Area | State |
 |---|---|
 | Built-in providers | OpenAI, Gemini, Anthropic, all verified against live APIs |
 | Other endpoints | DeepSeek, Groq, OpenRouter, Ollama and friends via `Client::custom` |
-| Tool calling | Full round trip, verified live on four endpoints |
+| Tool calling | Typed `#[tool]` declarations and the full round trip |
 | Streaming | All four dialects, text verified live; tool calls offline only |
-| Dependencies | Three: `reqwest`, `serde`, `serde_json` |
+| Dependencies | `reqwest`, `serde`, `serde_json`, `schemars`, and the companion macro crate |
 | Errors | Classified by cause, with `is_retryable()` and `Retry-After` |
 | Pre-flight checks | `client.check(&request)`, no network call |
 | Structured output | `strict_schema()` plus `generate_as::<T>()` |
 | Vendor-only fields | `extra_for()`, without forking |
-| Not implemented | Automatic tool dispatch, orchestration |
+| Not implemented | Automatic loop orchestration, async tools, timeouts, approval hooks |
 
-`cargo test`: 128 unit tests, 8 integration tests, and 15 doctests. `cargo clippy --all-targets -- -D warnings` clean. [Features](docs/features.md) has the honest boundary, including which capabilities each provider refuses.
+The workspace test suite covers the core, macro expansion, public typed-tool behavior, examples, and doctests. [Features](docs/features.md) has the honest boundary, including which capabilities each provider refuses.
 
 ## Roadmap
 
@@ -128,9 +128,7 @@ The goal: everything you need to build an AI agent in Rust, with no vendor lock-
 
 **Phase 1, production-grade provider layer.** Complete. Four dialects, the dialect/endpoint split, streaming, typed errors, pre-flight checking, typed responses, and strict-mode schema rewriting.
 
-Deriving a JSON schema *from a Rust type* is deliberately not here: `schemars` already does it, and doing it again would mean a proc-macro crate and a derive that has to agree with serde's own attributes. Phase 2's `#[tool]` macro needs the same machinery, so the two get decided together there.
-
-**Phase 2, the agent.** A `Tool` trait and registry, a `#[tool]` macro deriving schemas from function signatures, an `Agent` type, and a bounded loop with per-tool timeouts and approval hooks.
+**Phase 2, the agent.** In progress. `Tool` and `#[tool]` now derive schemas from synchronous function signatures and provide typed execution. Still planned: an `Agent` type, automatic loop orchestration, async tools, per-tool timeouts, and approval hooks.
 
 **Phase 3, memory and context.** A `Memory` trait, context-window management with truncation and summarization, persistent backends, and retrieval with embeddings and a vector store.
 
