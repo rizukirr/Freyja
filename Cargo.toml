@@ -14,11 +14,16 @@ readme = "README.md"
 keywords = ["llm", "ai", "openai", "anthropic", "gemini"]
 categories = ["api-bindings", "asynchronous"]
 
+[workspace]
+members = ["macros"]
+
 
 # The library itself needs only serialization and HTTP. It exposes `async fn`
 # and never spawns, so it pulls in no runtime of its own; the caller chooses.
 [dependencies]
+freyja-macros = { path = "macros" }
 reqwest = { version = "0.13", features = ["json"] }
+schemars = "1.2.2"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
 

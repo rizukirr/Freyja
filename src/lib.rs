@@ -103,6 +103,15 @@ pub use endpoint::{Auth, EndpointConfig, EndpointPreset, TokenLimitField};
 pub use error::{Error, TransportError};
 pub use model::{
     GenerateRequest, GenerateResponse, InputContent, Message, OutputContent, ReasoningEffort,
-    ResponseFormat, ResponseStatus, Role, ToolChoice, ToolDefinition, Usage, strict_schema,
+    ResponseFormat, ResponseStatus, Role, Tool, ToolChoice, ToolDefinition, ToolError, Usage,
+    strict_schema,
 };
 pub use stream::{EventStream, StreamEvent};
+
+/// Private dependencies used by generated code.
+#[doc(hidden)]
+pub mod __private {
+    pub use schemars;
+    pub use serde;
+    pub use serde_json;
+}
