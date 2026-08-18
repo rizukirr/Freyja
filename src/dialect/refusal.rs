@@ -30,16 +30,17 @@
 //! the day the vendor changes its mind.
 
 #[cfg(test)]
-use super::ProviderDialect;
-use super::{ProviderConfig, ProviderError};
+use super::Dialect;
+use crate::endpoint::EndpointConfig;
+use crate::error::Error;
 
 /// Builds the refusal error for `capability`, naming the endpoint that raised it.
 ///
 /// Dialects call this rather than constructing the variant, so every refusal
 /// goes through a constant declared in this module.
-pub(crate) fn unsupported(config: &ProviderConfig, capability: &'static str) -> ProviderError {
-    ProviderError::UnsupportedCapability {
-        provider: config.name.clone(),
+pub(crate) fn unsupported(config: &EndpointConfig, capability: &'static str) -> Error {
+    Error::UnsupportedCapability {
+        endpoint: config.name.clone(),
         capability,
     }
 }
@@ -81,7 +82,7 @@ pub(crate) enum Evidence {
 #[derive(Debug)]
 pub(crate) struct Refusal {
     /// The dialect that refuses it.
-    pub dialect: ProviderDialect,
+    pub dialect: Dialect,
     /// The constant from this module that names it.
     pub capability: &'static str,
     /// How well the refusal is known to be true.
@@ -96,28 +97,28 @@ pub(crate) struct Refusal {
 #[cfg(test)]
 pub(crate) const REFUSALS: &[Refusal] = &[
     Refusal {
-        dialect: ProviderDialect::OpenAiResponses,
+        dialect: Dialect::OpenAiResponses,
         capability: NON_TEXT_SYSTEM,
         evidence: Evidence::Probed,
         note: "`Invalid value: 'input_image'. Supported values are: 'input_text'.` \
                for both the system and developer roles.",
     },
     Refusal {
-        dialect: ProviderDialect::OpenAiResponses,
+        dialect: Dialect::OpenAiResponses,
         capability: IMAGES_OUTSIDE_USER,
         evidence: Evidence::Probed,
         note: "An assistant turn takes `output_text` and `refusal` and nothing \
                else; `input_image` and `output_image` are both rejected by name.",
     },
     Refusal {
-        dialect: ProviderDialect::OpenAiChat,
+        dialect: Dialect::OpenAiChat,
         capability: CONVERSATION_CONTINUATION,
         evidence: Evidence::Structural,
         note: "Chat Completions is stateless. There is no response id to continue \
                from and no field to carry one.",
     },
     Refusal {
-        dialect: ProviderDialect::Gemini,
+        dialect: Dialect::Gemini,
         capability: NON_TEXT_SYSTEM,
         evidence: Evidence::Structural,
         note: "`system_instruction` is a bare string and nothing else: an array or \
@@ -125,13 +126,13 @@ pub(crate) const REFUSALS: &[Refusal] = &[
                Expected string`. There is no richer shape to put an image in.",
     },
     Refusal {
-        dialect: ProviderDialect::Anthropic,
+        dialect: Dialect::Anthropic,
         capability: CONVERSATION_CONTINUATION,
         evidence: Evidence::Structural,
         note: "The Messages API is stateless. Nothing is stored to continue from.",
     },
     Refusal {
-        dialect: ProviderDialect::Anthropic,
+        dialect: Dialect::Anthropic,
         capability: NON_TEXT_SYSTEM,
         evidence: Evidence::Unverified,
         note: "No Anthropic key is available, so this was probed only against DeepSeek's \
@@ -141,7 +142,7 @@ pub(crate) const REFUSALS: &[Refusal] = &[
                does. Needs a first-party key.",
     },
     Refusal {
-        dialect: ProviderDialect::Anthropic,
+        dialect: Dialect::Anthropic,
         capability: IMAGES_OUTSIDE_USER,
         evidence: Evidence::Unverified,
         note: "No Anthropic key is available, so this was probed only against DeepSeek's \
@@ -151,7 +152,7 @@ pub(crate) const REFUSALS: &[Refusal] = &[
                does. Needs a first-party key.",
     },
     Refusal {
-        dialect: ProviderDialect::Anthropic,
+        dialect: Dialect::Anthropic,
         capability: SCHEMALESS_JSON,
         evidence: Evidence::Unverified,
         note: "DeepSeek's Anthropic-compatible endpoint accepted `output_config`, \

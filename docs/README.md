@@ -33,13 +33,13 @@ Look these up rather than reading them through. Generated rustdoc is on [docs.rs
 
 | | |
 |---|---|
-| [Client](reference/client.md) | `Client`, `ProviderType`, `ProviderConfig`, credentials, HTTP |
+| [Client](reference/client.md) | `Client`, `EndpointPreset`, `EndpointConfig`, credentials, HTTP |
 | [Requests](reference/requests.md) | `GenerateRequest` and every builder method |
 | [Messages](reference/messages.md) | `Message`, `Role`, `InputContent` |
 | [Tools](reference/tools.md) | `ToolDefinition`, `ToolChoice`, the round trip in full |
 | [Responses](reference/responses.md) | `GenerateResponse`, `OutputContent`, `ResponseStatus`, `Usage` |
 | [Streaming](reference/streaming.md) | `Client::stream`, `EventStream`, `StreamEvent`, `into_response` |
-| [Errors](reference/errors.md) | `ProviderError` and how to handle each variant |
+| [Errors](reference/errors.md) | `Error` and how to handle each variant |
 
 Wire formats, for debugging an `Api` error against the native JSON: [OpenAI](reference/wire/openai.md), [Chat Completions](reference/wire/openai-chat.md), [Gemini](reference/wire/gemini.md), [Anthropic](reference/wire/anthropic.md).
 
@@ -58,10 +58,10 @@ For working on Freyja itself rather than with it.
 Samples assume these imports unless stated otherwise:
 
 ```rust
-use freyja::{Client, GenerateRequest, Message, ProviderType, Role};
+use freyja::{Client, GenerateRequest, Message, EndpointPreset, Role};
 ```
 
-Samples that make a network call are written as if inside an `async fn` returning `Result<(), freyja::ProviderError>`.
+Samples that make a network call are written as if inside an `async fn` returning `Result<(), freyja::Error>`.
 
 ## Status
 

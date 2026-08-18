@@ -38,14 +38,14 @@ Which is why reaching a new vendor is usually not a code change:
 
 ```rust
 let client = Client::custom(
-    ProviderDialect::OpenAiChat,      // which format
+    Dialect::OpenAiChat,      // which format
     "DeepSeek",                        // name, for error messages
     "https://api.deepseek.com/v1",     // where
     api_key,
 );
 ```
 
-Freyja ships **presets** for OpenAI, Gemini, and Anthropic only. That is deliberate: a preset is a promise that a URL and default model are current, and third-party endpoints change faster than this library could verify. A preset is nothing but a `ProviderConfig` with the fields filled in, so nothing is gated behind having one. See [Custom providers](providers/custom.md).
+Freyja ships **presets** for OpenAI, Gemini, and Anthropic only. That is deliberate: a preset is a promise that a URL and default model are current, and third-party endpoints change faster than this library could verify. A preset is nothing but a `EndpointConfig` with the fields filled in, so nothing is gated behind having one. See [Custom providers](providers/custom.md).
 
 ## 3. Unset means "the vendor decides"
 
@@ -101,7 +101,7 @@ That is the whole rule. You do not need to know what is inside.
 ```rust
 // 1. Pick an endpoint. A preset, or your own.
 //    `from_env` returns None when the key variable is unset.
-let Some(client) = Client::from_env(ProviderType::Anthropic) else {
+let Some(client) = Client::from_env(EndpointPreset::Anthropic) else {
     return Ok(());
 };
 

@@ -11,7 +11,7 @@ Derives `Clone`. Cloning is cheap for the HTTP client, since `reqwest::Client` i
 `Debug` is implemented by hand rather than derived, and **redacts the API key**:
 
 ```
-Client { config: ProviderConfig { .. }, api_key: "<redacted>", http: .. }
+Client { config: EndpointConfig { .. }, api_key: "<redacted>", http: .. }
 ```
 
 A derived `Debug` would print the key verbatim, so one `tracing::debug!(?client)` would put a live credential in your logs. The redaction still distinguishes `"<redacted>"` from `"<none>"`, since which one you have is the usual explanation for a 401.
@@ -21,13 +21,13 @@ A derived `Debug` would print the key verbatim, so one `tracing::debug!(?client)
 ### `Client::new`
 
 ```rust
-pub fn new(config: impl Into<ProviderConfig>, api_key: impl Into<String>) -> Self
+pub fn new(config: impl Into<EndpointConfig>, api_key: impl Into<String>) -> Self
 ```
 
 Builds a client with a pooled `reqwest::Client` and a 120 second read timeout. That bounds the gap between bytes rather than the total duration of a request, so a long generation is not cut short and a stalled connection still fails.
 
 ```rust
-let client = Client::new(ProviderType::OpenAi, "sk-...");
+let client = Client::new(EndpointPreset::OpenAi, "sk-...");
 ```
 
 If the HTTP client fails to build, Freyja falls back to `reqwest::Client::default()` rather than panicking. The fallback has no timeout.
@@ -36,18 +36,18 @@ If the HTTP client fails to build, Freyja falls back to `reqwest::Client::defaul
 
 ```rust
 pub fn custom(
-    dialect: ProviderDialect,
+    dialect: Dialect,
     name: impl Into<Arc<str>>,
     base_url: impl Into<String>,
     api_key: impl Into<String>,
 ) -> Self
 ```
 
-Reaches an endpoint Freyja does not ship, in one call. Shorthand for `ProviderConfig::new` followed by `Client::new`.
+Reaches an endpoint Freyja does not ship, in one call. Shorthand for `EndpointConfig::new` followed by `Client::new`.
 
 ```rust
 let client = Client::custom(
-    ProviderDialect::OpenAiChat,
+    Dialect::OpenAiChat,
     "my-gateway",
     "https://gateway.internal/v1",
     std::env::var("GATEWAY_API_KEY")?,
@@ -59,14 +59,14 @@ Use the config builder directly when you also need a default model, a key variab
 ### `Client::without_key`
 
 ```rust
-pub fn without_key(config: impl Into<ProviderConfig>) -> Self
+pub fn without_key(config: impl Into<EndpointConfig>) -> Self
 ```
 
 For endpoints that need no credentials, such as a local Ollama or vLLM server.
 
 ```rust
-let config = ProviderConfig::new(
-    ProviderDialect::OpenAiChat,
+let config = EndpointConfig::new(
+    Dialect::OpenAiChat,
     "ollama",
     "http://localhost:11434/v1",
 );
@@ -77,14 +77,14 @@ let client = Client::without_key(config);
 ### `Client::from_env`
 
 ```rust
-pub fn from_env(config: impl Into<ProviderConfig>) -> Option<Self>
+pub fn from_env(config: impl Into<EndpointConfig>) -> Option<Self>
 ```
 
 Reads the key from the variable named by the endpoint's `api_key_env`. Returns `None` when the variable is unset or set to an empty string, which lets you report a missing key rather than sending an unauthenticated request. An endpoint whose auth is `Auth::None` needs no key and always succeeds.
 
 ```rust
-let Some(client) = Client::from_env(ProviderType::OpenAi) else {
-    eprintln!("{} is missing or empty", ProviderType::OpenAi.api_key_env());
+let Some(client) = Client::from_env(EndpointPreset::OpenAi) else {
+    eprintln!("{} is missing or empty", EndpointPreset::OpenAi.api_key_env());
     return;
 };
 ```
@@ -93,7 +93,7 @@ let Some(client) = Client::from_env(ProviderType::OpenAi) else {
 
 ```rust
 pub fn with_http_client(
-    config: impl Into<ProviderConfig>,
+    config: impl Into<EndpointConfig>,
     api_key: impl Into<String>,
     http: reqwest::Client,
 ) -> Self
@@ -109,7 +109,7 @@ let http = reqwest::Client::builder()
     .connect_timeout(Duration::from_secs(5))
     .build()?;
 
-let client = Client::with_http_client(ProviderType::OpenAi, api_key, http);
+let client = Client::with_http_client(EndpointPreset::OpenAi, api_key, http);
 ```
 
 The client you supply is used as it is, so its timeouts are yours to get right. Set `read_timeout` rather than `timeout` if you stream: `timeout` caps the whole response body, which on a stream is a cap on how long the model is allowed to talk, and a healthy long generation is killed part-way. See [Streaming](streaming.md#timeouts).
@@ -120,7 +120,7 @@ The client you supply is used as it is, so its timeouts are yours to get right. 
 
 ```rust
 pub async fn generate(&self, request: &GenerateRequest)
-    -> Result<GenerateResponse, ProviderError>
+    -> Result<GenerateResponse, Error>
 ```
 
 Sends a request and returns the normalized response. The request is borrowed, so you can reuse and extend it across turns, which is what the tool loop does.
@@ -131,7 +131,7 @@ The whole response is buffered before returning. Use `stream` when you want the 
 
 ```rust
 pub async fn generate_as<T: DeserializeOwned>(&self, request: &GenerateRequest)
-    -> Result<T, ProviderError>
+    -> Result<T, Error>
 ```
 
 Sends a request and deserializes the answer into `T`. The companion to `ResponseFormat::JsonSchema`: you constrain the model's output to a shape, and this hands back that shape rather than a string.
@@ -160,7 +160,7 @@ Two things make it more useful than the `serde_json::Error` you would get by han
 **It separates truncation.** A cut-off answer is still valid text and never valid JSON, and it is the most common way this fails. Freyja checks `ResponseStatus::Incomplete` rather than guessing from the parse error, so a `truncated: true` sends you to `max_tokens` instead of to your schema:
 
 ```rust
-Err(ProviderError::OutputMismatch { text, truncated: true, .. }) => {
+Err(Error::OutputMismatch { text, truncated: true, .. }) => {
     eprintln!("cut short by max_tokens, got: {text}");
 }
 ```
@@ -171,7 +171,7 @@ Err(ProviderError::OutputMismatch { text, truncated: true, .. }) => {
 
 ```rust
 pub async fn stream(&self, request: &GenerateRequest)
-    -> Result<EventStream, ProviderError>
+    -> Result<EventStream, Error>
 ```
 
 Opens a streaming generation. Returns once the provider has accepted the request, so a non-success status arrives here, classified by cause, rather than mid-stream.
@@ -194,7 +194,7 @@ A drained stream converts back into the same `GenerateResponse` that `generate` 
 ### `check`
 
 ```rust
-pub fn check(&self, request: &GenerateRequest) -> Result<(), ProviderError>
+pub fn check(&self, request: &GenerateRequest) -> Result<(), Error>
 ```
 
 Decides whether this endpoint's dialect can carry a request, without sending it. No network call, no credentials used, and cheap enough to run per request: it builds one wire body and drops it. The body is never even serialized to JSON, since that happens on the way to the socket.
@@ -202,7 +202,7 @@ Decides whether this endpoint's dialect can carry a request, without sending it.
 ```rust
 match client.check(&request) {
     Ok(()) => { /* generate() will get as far as the network */ }
-    Err(ProviderError::UnsupportedCapability { capability, .. }) => {
+    Err(Error::UnsupportedCapability { capability, .. }) => {
         eprintln!("this endpoint cannot express {capability}");
     }
     Err(error) => return Err(error),
@@ -223,7 +223,7 @@ That the *dialect* can express this request: every field has somewhere to go in 
 
 Not that the endpoint will accept it. Freyja knows the wire format; it has never met your gateway, and will not claim to know what that gateway implements. A request that passes `check` can still come back `BadRequest`. See [Custom providers](../providers/custom.md).
 
-Not that the *model* supports it either. `check` never reads the model name — `ProviderConfig::model_for` picks which string to send and nothing inspects it — so a model that does no reasoning still passes a request carrying `reasoning_effort`, and the vendor settles it.
+Not that the *model* supports it either. `check` never reads the model name — `EndpointConfig::model_for` picks which string to send and nothing inspects it — so a model that does no reasoning still passes a request carrying `reasoning_effort`, and the vendor settles it.
 
 That boundary is deliberate. Wire formats change on the order of years and are documented. What a given model accepts changes weekly, silently, and differs on every compatible gateway; a table of it would be confidently wrong within a month, which is worse than saying nothing. It is the same reasoning `presets.rs` gives for shipping only three presets: a stale promise fails at the vendor with a confusing error instead of locally with a clear one.
 
@@ -234,7 +234,7 @@ The converse is solid: an `Err` from `check` is an error `generate` would have r
 Because the answer depends on the request rather than on a fixed table, comparing endpoints means checking the same request against each:
 
 ```rust
-let usable: Vec<_> = [ProviderType::OpenAi, ProviderType::Gemini]
+let usable: Vec<_> = [EndpointPreset::OpenAi, EndpointPreset::Gemini]
     .into_iter()
     .filter_map(Client::from_env)
     .filter(|client| client.check(&request).is_ok())
@@ -250,7 +250,7 @@ Everything decidable before the network, not only capabilities. A request naming
 ### `config`
 
 ```rust
-pub fn config(&self) -> &ProviderConfig
+pub fn config(&self) -> &EndpointConfig
 ```
 
 The endpoint this client talks to, including its dialect and resolved URL. Useful when a caller holds a client built elsewhere and needs to branch on capability.
@@ -261,18 +261,18 @@ Freyja splits *how* a request is serialized from *where* it is sent, because mos
 
 | Type | Answers |
 |---|---|
-| `ProviderDialect` | Which wire format. `OpenAiResponses`, `OpenAiChat`, `Gemini`, `Anthropic` |
-| `ProviderConfig` | Which endpoint. Base URL, auth style, key variable, default model, extra headers |
-| `ProviderType` | A preset that builds a `ProviderConfig` for an endpoint Freyja ships |
+| `Dialect` | Which wire format. `OpenAiResponses`, `OpenAiChat`, `Gemini`, `Anthropic` |
+| `EndpointConfig` | Which endpoint. Base URL, auth style, key variable, default model, extra headers |
+| `EndpointPreset` | A preset that builds a `EndpointConfig` for an endpoint Freyja ships |
 
-Anywhere a config is accepted a `ProviderType` is too, so the short form keeps working and nothing below changes for callers who only use the shipped endpoints.
+Anywhere a config is accepted a `EndpointPreset` is too, so the short form keeps working and nothing below changes for callers who only use the shipped endpoints.
 
 For pointing Freyja at an endpoint it does not ship, see [Custom endpoints](../providers/custom.md).
 
-## ProviderType
+## EndpointPreset
 
 ```rust
-pub enum ProviderType {
+pub enum EndpointPreset {
     OpenAi,     // OpenAiResponses
     Gemini,
     Anthropic,
@@ -294,14 +294,14 @@ The conventional environment variable for this endpoint, `OPENAI_API_KEY`, `GEMI
 ### `dialect` and `config`
 
 ```rust
-pub fn dialect(self) -> ProviderDialect
-pub fn config(self) -> ProviderConfig
+pub fn dialect(self) -> Dialect
+pub fn config(self) -> EndpointConfig
 ```
 
 `config()` is the full endpoint description, and is what `Client` actually consumes. Call it when you want to start from a preset and change one thing:
 
 ```rust
-let config = ProviderType::Anthropic.config().default_model("claude-sonnet-5");
+let config = EndpointPreset::Anthropic.config().default_model("claude-sonnet-5");
 let client = Client::new(config, key);
 ```
 
@@ -312,7 +312,7 @@ One `reqwest::Client` is built per `Client` and reused for every request, so TLS
 ```rust
 use std::sync::Arc;
 
-let client = Arc::new(Client::from_env(ProviderType::OpenAi).unwrap());
+let client = Arc::new(Client::from_env(EndpointPreset::OpenAi).unwrap());
 
 for question in questions {
     let client = Arc::clone(&client);
@@ -331,15 +331,15 @@ for question in questions {
 pub trait Provider: Send + Sync {
     type Request: Serialize + Send;
 
-    fn build(&self, request: &GenerateRequest, config: &ProviderConfig)
-        -> Result<Self::Request, ProviderError>;
+    fn build(&self, request: &GenerateRequest, config: &EndpointConfig)
+        -> Result<Self::Request, Error>;
 
-    fn parse(&self, body: &str, config: &ProviderConfig)
-        -> Result<GenerateResponse, ProviderError>;
+    fn parse(&self, body: &str, config: &EndpointConfig)
+        -> Result<GenerateResponse, Error>;
 }
 ```
 
-There is no transport method. `Client` owns convert, POST, check status, parse for every dialect, so it also owns the one `reqwest::Client` that every request in a process shares. The trait has an associated type, so it is not object safe. Dispatch happens through a `ProviderDialect` match inside `Client::generate`, not through a trait object.
+There is no transport method. `Client` owns convert, POST, check status, parse for every dialect, so it also owns the one `reqwest::Client` that every request in a process shares. The trait has an associated type, so it is not object safe. Dispatch happens through a `Dialect` match inside `Client::generate`, not through a trait object.
 
 Streaming is not part of the trait. Each dialect also owns a decoder that turns its own SSE frames into neutral events, selected by the same match inside `Client::stream`.
 

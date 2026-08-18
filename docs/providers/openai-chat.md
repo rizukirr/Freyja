@@ -8,7 +8,7 @@ The dialect the compatible ecosystem speaks. One mapping, many endpoints.
 | Auth | `Authorization: Bearer <key>` |
 | Extra header | none |
 | Default model | none, comes from the endpoint |
-| Source | `src/provider/openai_chat/` |
+| Source | `src/dialect/openai_chat/` |
 
 This is not the same as the [OpenAI](../providers/openai.md) page. That one covers OpenAI's own Responses API, which is OpenAI-specific. This page covers Chat Completions, which almost every third party vendor implements, and which OpenAI also still serves.
 
@@ -18,14 +18,14 @@ Freyja ships presets only for the three first-party vendors it tests against. Ev
 
 ```rust
 let client = Client::custom(
-    ProviderDialect::OpenAiChat,
+    Dialect::OpenAiChat,
     "DeepSeek",
     "https://api.deepseek.com/v1",
     std::env::var("DEEPSEEK_API_KEY")?,
 );
 ```
 
-That is not a lesser path. A preset is only a `ProviderConfig` with the fields filled in, and this dialect works identically either way.
+That is not a lesser path. A preset is only a `EndpointConfig` with the fields filled in, and this dialect works identically either way.
 
 The reason is maintenance honesty rather than effort. A preset is a standing promise that a base URL and a default model are still current, and these vendors change both faster than this crate could verify. A stale preset fails at the vendor with a confusing 404; a missing one fails locally with a clear message, or does not fail at all because you supplied the current URL.
 
@@ -109,17 +109,17 @@ Use 'max_completion_tokens' instead.
 That is a rejection of the field's *presence*, not its value, so sending both to cover the two spellings fails on exactly the endpoint that needs the new one. Freyja sends one or the other, chosen by the endpoint:
 
 ```rust
-use freyja::{ProviderConfig, ProviderDialect, TokenLimitField};
+use freyja::{EndpointConfig, Dialect, TokenLimitField};
 
-let config = ProviderConfig::new(
-        ProviderDialect::OpenAiChat,
+let config = EndpointConfig::new(
+        Dialect::OpenAiChat,
         "OpenAI",
         "https://api.openai.com/v1",
     )
     .token_limit_field(TokenLimitField::MaxCompletionTokens);
 ```
 
-The default is `max_tokens`, because this dialect is reached only through an explicit `ProviderConfig` — `ProviderType::OpenAi` is the Responses dialect — so by default it is serving one of the compatible vendors it exists for. Set the field when you point it at OpenAI itself.
+The default is `max_tokens`, because this dialect is reached only through an explicit `EndpointConfig` — `EndpointPreset::OpenAi` is the Responses dialect — so by default it is serving one of the compatible vendors it exists for. Set the field when you point it at OpenAI itself.
 
 Both spellings were verified against `api.openai.com`: the default is rejected there, and `MaxCompletionTokens` is accepted.
 

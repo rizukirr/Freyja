@@ -1,36 +1,10 @@
-//! Gemini backend. Transport lives in [`crate::provider::Client`]; this
-//! module owns only the wire format.
+//! Streaming decoder for the Gemini Interactions API.
 
-mod types;
-
-use crate::provider::sse::SseFrame;
-use crate::provider::stream::{RawDelta, StreamDecoder};
-use crate::provider::{GenerateRequest, GenerateResponse, Provider, ProviderConfig, ProviderError};
-use crate::provider::{ResponseStatus, Usage};
+use crate::error::Error;
+use crate::model::{ResponseStatus, Usage};
+use crate::stream::{RawDelta, SseFrame, StreamDecoder};
 use serde_json::Value;
 use std::collections::HashMap;
-
-pub(crate) struct GeminiProvider;
-
-impl Provider for GeminiProvider {
-    type Request = types::Request;
-
-    fn build(
-        &self,
-        request: &GenerateRequest,
-        config: &ProviderConfig,
-    ) -> Result<Self::Request, ProviderError> {
-        types::Request::build(request, config)
-    }
-
-    fn parse(
-        &self,
-        body: &str,
-        config: &ProviderConfig,
-    ) -> Result<GenerateResponse, ProviderError> {
-        types::parse(body, config)
-    }
-}
 
 /// What kind of step an index refers to.
 ///
@@ -87,7 +61,7 @@ impl StreamDecoder for Decoder {
         frame: &SseFrame,
         _provider: &std::sync::Arc<str>,
         out: &mut Vec<RawDelta>,
-    ) -> Result<(), crate::provider::ProviderError> {
+    ) -> Result<(), Error> {
         let Ok(value) = serde_json::from_str::<Value>(&frame.data) else {
             return Ok(());
         };
@@ -117,8 +91,6 @@ impl StreamDecoder for Decoder {
                             },
                         );
                     }
-                    // Model output is modeled: it arrives through text deltas
-                    // and must not be kept as an opaque blob.
                     Some("model_output") => {
                         self.steps.insert(slot, Step::ModelOutput);
                     }
@@ -155,11 +127,6 @@ impl StreamDecoder for Decoder {
                             signature.push_str(value);
                         }
                     }
-                    // An unmodeled step's payload streams in after `step.start`,
-                    // so the snapshot taken there is incomplete. Merge each
-                    // delta into it, or the blob replayed at `step.stop` will be
-                    // missing whatever the deltas carried — a `code_execution`
-                    // step would lose its `code`.
                     _ => {
                         if let Some(Step::Opaque(step)) = self.steps.get_mut(&slot) {
                             merge_delta(step, delta);
@@ -174,8 +141,6 @@ impl StreamDecoder for Decoder {
                     mut step,
                     signature,
                 }) => {
-                    // Merge the streamed signature back into the step the API
-                    // sent, so the blob matches what the parser would store.
                     if !signature.is_empty()
                         && let Some(object) = step.as_object_mut()
                     {
@@ -188,9 +153,6 @@ impl StreamDecoder for Decoder {
             },
             "interaction.completed" | "interaction.failed" | "interaction.incomplete" => {
                 let interaction = &value["interaction"];
-                // Every field of `UsageWire` in types.rs is `#[serde(default)]`,
-                // so the parser reports zeros for a partial usage object rather
-                // than dropping it. Default the same way here.
                 let usage = interaction.get("usage").map(|usage| Usage {
                     input_tokens: usage["total_input_tokens"].as_u64().unwrap_or(0),
                     output_tokens: usage["total_output_tokens"].as_u64().unwrap_or(0),
@@ -199,13 +161,6 @@ impl StreamDecoder for Decoder {
                 out.push(RawDelta::Meta {
                     id: interaction["id"].as_str().map(str::to_string),
                     model: interaction["model"].as_str().map(str::to_string),
-                    // Mirrors the parser's status mapping arm for arm. Gemini
-                    // has no named status function: the parser maps these
-                    // strings inline in `impl From<Response> for
-                    // GenerateResponse` in types.rs. Kept as its own match
-                    // rather than shared with the other dialects: the strings
-                    // differ per provider, and every divergence found in review
-                    // came from this mapping drifting from the parser's.
                     status: Some(match interaction["status"].as_str() {
                         Some("completed") => ResponseStatus::Completed,
                         Some("incomplete" | "budget_exceeded") => ResponseStatus::Incomplete,
@@ -223,7 +178,7 @@ impl StreamDecoder for Decoder {
         Ok(())
     }
 
-    /// `convert_step` in types.rs maps the parsed `arguments` object through
+    /// `convert_step` in response.rs maps the parsed `arguments` object through
     /// `Value::to_string`, which sorts its keys.
     fn normalizes_tool_arguments(&self) -> bool {
         true

@@ -16,14 +16,13 @@
 //! it — though the point lands better with two.
 
 use freyja::{
-    Client, GenerateRequest, Message, ProviderError, ProviderType, ReasoningEffort, ResponseFormat,
-    Role,
+    Client, EndpointPreset, Error, GenerateRequest, Message, ReasoningEffort, ResponseFormat, Role,
 };
 
-const PROVIDERS: [ProviderType; 3] = [
-    ProviderType::OpenAi,
-    ProviderType::Anthropic,
-    ProviderType::Gemini,
+const PROVIDERS: [EndpointPreset; 3] = [
+    EndpointPreset::OpenAi,
+    EndpointPreset::Anthropic,
+    EndpointPreset::Gemini,
 ];
 
 #[tokio::main]
@@ -121,7 +120,7 @@ async fn run_on_all(request: &GenerateRequest) {
             // The refusal that makes portability honest. It is raised by the
             // dialect before anything is sent, so it costs nothing and cannot
             // be confused with the vendor rejecting the request itself.
-            Err(ProviderError::UnsupportedCapability { capability, .. }) => {
+            Err(Error::UnsupportedCapability { capability, .. }) => {
                 println!("\n{name:>9}  refused: cannot express {capability}");
                 println!("{:>9}  (no request was sent)", "");
             }
