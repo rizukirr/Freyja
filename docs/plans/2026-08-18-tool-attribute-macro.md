@@ -69,8 +69,8 @@
 - Create: `tests/tool_macro.rs`
 - Modify: `examples/tool_loop.rs:14-107`
 
-- [ ] Derive `Debug` for `ToolAttrs`, correct its missing-description diagnostic to `missing description = "..."`, and add parser tests covering the required description, `strict` default, explicit strict value, unknown key, and malformed separators; the derive satisfies `Result::unwrap_err` in negative parser tests.
-- [ ] Implement the compiler entry point in `macros/src/lib.rs` as a thin conversion boundary:
+- [x] Derive `Debug` for `ToolAttrs`, correct its missing-description diagnostic to `missing description = "..."`, and add parser tests covering the required description, `strict` default, explicit strict value, unknown key, and malformed separators; the derive satisfies `Result::unwrap_err` in negative parser tests.
+- [x] Implement the compiler entry point in `macros/src/lib.rs` as a thin conversion boundary:
 
   ```rust
   #[proc_macro_attribute]
@@ -81,12 +81,12 @@
   }
   ```
 
-- [ ] Re-export the completed attribute at the Freyja crate root with `pub use freyja_macros::tool;`.
+- [x] Re-export the completed attribute at the Freyja crate root with `pub use freyja_macros::tool;`.
 
-- [ ] Implement `tools::expand` with `proc_macro2`, `syn`, and `quote`: reject async, generic, receiver, and non-identifier parameters; rename the original function; generate a private argument struct; generate definition and executor functions; and emit a same-named `Tool` constant. Generated derives and calls use `::freyja::__private`; generated schemas pass through `strict_schema` when `strict = true`.
-- [ ] Add expansion unit tests that parse generated output as `syn::File` for a supported function and assert errors for every unsupported signature category.
-- [ ] Add `tests/tool_macro.rs` through the public `freyja::tool` export. Define typed tools, retain them in an array, assert names, descriptions, strict flags, object properties and required fields, successful JSON execution, and invalid-argument `ToolError` behavior.
-- [ ] Rewrite `examples/tool_loop.rs` around:
+- [x] Implement `tools::expand` with `proc_macro2`, `syn`, and `quote`: reject async, generic, receiver, and non-identifier parameters; rename the original function; generate a private argument struct; generate definition and executor functions; and emit a same-named `Tool` constant. Generated derives and calls use `::freyja::__private`; generated schemas pass through `strict_schema` when `strict = true`.
+- [x] Add expansion unit tests that parse generated output as `syn::File` for a supported function and assert errors for every unsupported signature category.
+- [x] Add `tests/tool_macro.rs` through the public `freyja::tool` export. Define typed tools, retain them in an array, assert names, descriptions, strict flags, object properties and required fields, successful JSON execution, and invalid-argument `ToolError` behavior.
+- [x] Rewrite `examples/tool_loop.rs` around:
 
   ```rust
   #[tool(description = "adds two numbers together", strict = true)]
@@ -99,8 +99,8 @@
   ```
 
   Dispatch requested calls by finding `Tool::name` in `tools` and calling `Tool::execute`; remove raw schema JSON and the handwritten name match.
-- [ ] Run `cargo fmt --all --check`.
-- [ ] Run `cargo test --workspace --all-targets`.
-- [ ] Run `cargo test --doc --workspace`.
-- [ ] Run `git diff --check`.
-- [ ] Stage only this task's files and commit with `feat: add tool attribute macro`.
+- [x] Run `cargo fmt --all --check`.
+- [x] Run `cargo test --workspace --all-targets`.
+- [x] Run `cargo test --doc --workspace`.
+- [x] Run `git diff --check`.
+- [x] Stage only this task's files and commit with `feat: add tool attribute macro`.
