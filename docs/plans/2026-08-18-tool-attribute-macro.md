@@ -69,7 +69,7 @@
 - Create: `tests/tool_macro.rs`
 - Modify: `examples/tool_loop.rs:14-107`
 
-- [ ] Correct `ToolAttrs`' missing-description diagnostic to `missing description = "..."` and add parser tests covering the required description, `strict` default, explicit strict value, unknown key, and malformed separators.
+- [ ] Derive `Debug` for `ToolAttrs`, correct its missing-description diagnostic to `missing description = "..."`, and add parser tests covering the required description, `strict` default, explicit strict value, unknown key, and malformed separators; the derive satisfies `Result::unwrap_err` in negative parser tests.
 - [ ] Implement the compiler entry point in `macros/src/lib.rs` as a thin conversion boundary:
 
   ```rust
