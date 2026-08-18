@@ -19,12 +19,17 @@
 **Files:**
 - Modify: `Cargo.toml:1-27`
 - Modify: `Cargo.lock`
-- Modify: `macros/Cargo.toml:1-17`
+- Create: `macros/Cargo.toml`
+- Create: `macros/src/lib.rs`
+- Create: `macros/src/tools.rs`
 - Modify: `src/lib.rs:90-109`
 - Modify: `src/model/tools.rs:1-182`
 - Modify: `src/model/mod.rs:1-15`
 
-- [ ] Remove `syn`, `ToolAttrs`, and its `Parse` implementation from `src/model/tools.rs`; the identical parser remains solely in `macros/src/tools.rs`.
+- [ ] Keep `src/model/tools.rs` free of `syn`, `ToolAttrs`, and procedural-macro parsing code.
+- [ ] Create the `freyja-macros` proc-macro package with only `proc-macro2`, `quote`, and `syn` dependencies; register it as a workspace member and a main-crate dependency.
+- [ ] Create `macros/src/tools.rs` with the `ToolAttrs` parser for required `description`, optional `strict`, unknown-key errors, and comma-separated attributes; keep this parser solely in the macro crate.
+- [ ] Create `macros/src/lib.rs` with `mod tools;` as the compileable package entry point; Task 2 adds the public attribute entry point after expansion exists.
 - [ ] Retain `Tool` as a copyable descriptor with `name`, `definition`, and `execute` function pointers, and retain `ToolError` as its public execution error.
 - [ ] Add focused runtime tests using local backing functions:
 
@@ -38,7 +43,7 @@
   }
   ```
 
-- [ ] Add a documented hidden `__private` module in `src/lib.rs` that publicly re-exports `schemars`, `serde`, and `serde_json` for generated code, and re-export `freyja_macros::tool` at the crate root:
+- [ ] Add a documented hidden `__private` module in `src/lib.rs` that publicly re-exports `schemars`, `serde`, and `serde_json` for generated code:
 
   ```rust
   #[doc(hidden)]
@@ -47,12 +52,10 @@
       pub use serde;
       pub use serde_json;
   }
-
-  pub use freyja_macros::tool;
   ```
 
 - [ ] Keep `Tool`, `ToolError`, and the existing `ToolDefinition` exports available through both `freyja::model` and the crate root.
-- [ ] Remove `schemars`, `serde`, and `serde_json` from `macros/Cargo.toml`; generated code resolves them through `freyja::__private`, while the proc-macro implementation retains only `proc-macro2`, `quote`, and `syn`.
+- [ ] Generated code dependencies remain in the main package: add `schemars` beside the existing `serde` and `serde_json`; do not add those runtime libraries to `macros/Cargo.toml` because expansion will resolve them through `freyja::__private`.
 - [ ] Run `cargo fmt --all --check`.
 - [ ] Run `cargo test --lib`.
 - [ ] Stage only this task's files and commit with `feat: add callable tool runtime`.
@@ -62,6 +65,7 @@
 **Files:**
 - Modify: `macros/src/lib.rs:1`
 - Modify: `macros/src/tools.rs:1-53`
+- Modify: `src/lib.rs:90-109`
 - Create: `tests/tool_macro.rs`
 - Modify: `examples/tool_loop.rs:14-107`
 
@@ -76,6 +80,8 @@
           .into()
   }
   ```
+
+- [ ] Re-export the completed attribute at the Freyja crate root with `pub use freyja_macros::tool;`.
 
 - [ ] Implement `tools::expand` with `proc_macro2`, `syn`, and `quote`: reject async, generic, receiver, and non-identifier parameters; rename the original function; generate a private argument struct; generate definition and executor functions; and emit a same-named `Tool` constant. Generated derives and calls use `::freyja::__private`; generated schemas pass through `strict_schema` when `strict = true`.
 - [ ] Add expansion unit tests that parse generated output as `syn::File` for a supported function and assert errors for every unsupported signature category.
