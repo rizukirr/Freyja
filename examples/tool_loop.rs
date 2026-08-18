@@ -11,29 +11,21 @@
 //! same code against a different vendor. Nothing else changes, which is the
 //! point of the neutral model.
 
-use freyja::{
-    Client, EndpointPreset, GenerateRequest, Message, OutputContent, Role, ToolDefinition,
-};
-use serde_json::Value;
+use freyja::{Client, EndpointPreset, GenerateRequest, Message, OutputContent, Role, Tool, tool};
 
 /// The single tool this example exposes to the model.
+#[tool(description = "adds two numbers together", strict = true)]
 fn add(a: i64, b: i64) -> i64 {
     a + b
 }
 
 /// Runs a tool call and returns the output to send back to the model.
-fn dispatch(name: &str, arguments: &str) -> String {
-    let parsed: Value = match serde_json::from_str(arguments) {
-        Ok(value) => value,
-        Err(error) => return format!("error: arguments were not valid JSON: {error}"),
-    };
-
-    match name {
-        "add" => match (parsed["a"].as_i64(), parsed["b"].as_i64()) {
-            (Some(a), Some(b)) => add(a, b).to_string(),
-            _ => "error: both 'a' and 'b' must be integers".to_string(),
-        },
-        other => format!("error: unknown tool '{other}'"),
+fn dispatch(tools: &[Tool], name: &str, arguments: &str) -> String {
+    match tools.iter().copied().find(|tool| tool.name() == name) {
+        Some(tool) => tool
+            .execute(arguments)
+            .unwrap_or_else(|error| format!("error: {error:?}")),
+        None => format!("error: unknown tool '{name}'"),
     }
 }
 
@@ -47,19 +39,15 @@ async fn main() {
         return;
     };
 
-    let add_tool =
-        ToolDefinition::new("add", "adds two numbers together").parameters(serde_json::json!({
-            "type": "object",
-            "properties": {
-                "a": {"type": "integer"},
-                "b": {"type": "integer"}
-            },
-            "required": ["a", "b"]
-        }));
+    let tools = [add];
+    let definitions = tools
+        .iter()
+        .map(|tool| tool.definition())
+        .collect::<Vec<_>>();
 
     let mut request = GenerateRequest::new()
         .message(Message::text(Role::User, "What is 20 + 22?"))
-        .tools([add_tool]);
+        .tools(definitions);
 
     // Bounded loop: call, run whatever tools the model asks for, call again.
     for _ in 0..5 {
@@ -93,7 +81,7 @@ async fn main() {
         let results: Vec<Message> = response
             .tool_calls()
             .map(|(id, name, arguments)| {
-                let output = dispatch(name, arguments);
+                let output = dispatch(&tools, name, arguments);
                 println!("tool result: {output}");
                 Message::tool_result(id, output)
             })

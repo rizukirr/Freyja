@@ -1,0 +1,16 @@
+[package]
+name = "freyja-macros"
+version = "0.1.1"
+edition = "2024"
+rust-version = "1.88"
+license = "MIT"
+description = "Procedural macros for freyja"
+repository = "https://github.com/rizukirr/Freyja"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+proc-macro2 = "1.0.107"
+quote = "1.0.47"
+syn = { version = "2.0.119", features = ["full"] }
