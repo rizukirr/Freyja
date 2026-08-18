@@ -26,12 +26,12 @@
 - Modify: `src/model/tools.rs:1-182`
 - Modify: `src/model/mod.rs:1-15`
 
-- [ ] Keep `src/model/tools.rs` free of `syn`, `ToolAttrs`, and procedural-macro parsing code.
-- [ ] Create the `freyja-macros` proc-macro package with only `proc-macro2`, `quote`, and `syn` dependencies; register it as a workspace member and a main-crate dependency.
-- [ ] Create `macros/src/tools.rs` with the `ToolAttrs` parser for required `description`, optional `strict`, unknown-key errors, and comma-separated attributes; keep this parser solely in the macro crate.
-- [ ] Create `macros/src/lib.rs` with `mod tools;` as the compileable package entry point; Task 2 adds the public attribute entry point after expansion exists.
-- [ ] Retain `Tool` as a copyable descriptor with `name`, `definition`, and `execute` function pointers, and retain `ToolError` as its public execution error.
-- [ ] Add focused runtime tests using local backing functions:
+- [x] Keep `src/model/tools.rs` free of `syn`, `ToolAttrs`, and procedural-macro parsing code.
+- [x] Create the `freyja-macros` proc-macro package with only `proc-macro2`, `quote`, and `syn` dependencies; register it as a workspace member and a main-crate dependency.
+- [x] Create `macros/src/tools.rs` with the `ToolAttrs` parser for required `description`, optional `strict`, unknown-key errors, and comma-separated attributes; keep this parser solely in the macro crate.
+- [x] Create `macros/src/lib.rs` with `mod tools;` as the compileable package entry point; Task 2 adds the public attribute entry point after expansion exists.
+- [x] Retain `Tool` as a copyable descriptor with `name`, `definition`, and `execute` function pointers, and retain `ToolError` as its public execution error.
+- [x] Add focused runtime tests using local backing functions:
 
   ```rust
   #[test]
@@ -43,7 +43,7 @@
   }
   ```
 
-- [ ] Add a documented hidden `__private` module in `src/lib.rs` that publicly re-exports `schemars`, `serde`, and `serde_json` for generated code:
+- [x] Add a documented hidden `__private` module in `src/lib.rs` that publicly re-exports `schemars`, `serde`, and `serde_json` for generated code:
 
   ```rust
   #[doc(hidden)]
@@ -54,11 +54,11 @@
   }
   ```
 
-- [ ] Keep `Tool`, `ToolError`, and the existing `ToolDefinition` exports available through both `freyja::model` and the crate root.
-- [ ] Generated code dependencies remain in the main package: add `schemars` beside the existing `serde` and `serde_json`; do not add those runtime libraries to `macros/Cargo.toml` because expansion will resolve them through `freyja::__private`.
-- [ ] Run `cargo fmt --all --check`.
-- [ ] Run `cargo test --lib`.
-- [ ] Stage only this task's files and commit with `feat: add callable tool runtime`.
+- [x] Keep `Tool`, `ToolError`, and the existing `ToolDefinition` exports available through both `freyja::model` and the crate root.
+- [x] Generated code dependencies remain in the main package: add `schemars` beside the existing `serde` and `serde_json`; do not add those runtime libraries to `macros/Cargo.toml` because expansion will resolve them through `freyja::__private`.
+- [x] Run `cargo fmt --all --check`.
+- [x] Run `cargo test --lib`.
+- [x] Stage only this task's files and commit with `feat: add callable tool runtime`.
 
 ### Task 2: Generate typed callable tools → verify: `cargo test --workspace --all-targets` exits with status 0
 
