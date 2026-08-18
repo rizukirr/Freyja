@@ -101,6 +101,7 @@ pub use client::Client;
 pub use dialect::Dialect;
 pub use endpoint::{Auth, EndpointConfig, EndpointPreset, TokenLimitField};
 pub use error::{Error, TransportError};
+pub use freyja_macros::tool;
 pub use model::{
     GenerateRequest, GenerateResponse, InputContent, Message, OutputContent, ReasoningEffort,
     ResponseFormat, ResponseStatus, Role, Tool, ToolChoice, ToolDefinition, ToolError, Usage,
