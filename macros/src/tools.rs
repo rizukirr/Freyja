@@ -5,7 +5,6 @@ use syn::{
     parse::ParseStream,
 };
 
-#[derive(Debug)]
 pub(crate) struct ToolAttrs {
     pub(crate) description: LitStr,
     pub(crate) strict: bool,
@@ -173,7 +172,9 @@ mod tests {
 
     #[test]
     fn parser_requires_a_description() {
-        let error = syn::parse2::<ToolAttrs>(quote!(strict = true)).unwrap_err();
+        let error = syn::parse2::<ToolAttrs>(quote!(strict = true))
+            .err()
+            .expect("attributes without a description should fail");
         assert_eq!(error.to_string(), "missing description = \"...\"");
     }
 
@@ -194,8 +195,9 @@ mod tests {
 
     #[test]
     fn parser_rejects_unknown_keys() {
-        let error =
-            syn::parse2::<ToolAttrs>(quote!(description = "adds", other = true)).unwrap_err();
+        let error = syn::parse2::<ToolAttrs>(quote!(description = "adds", other = true))
+            .err()
+            .expect("unknown attributes should fail");
         assert_eq!(
             error.to_string(),
             "unknown tool attribute; expected `description` or `strict`"
