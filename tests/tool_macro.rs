@@ -10,6 +10,12 @@ fn repeat(word: String, count: usize) -> String {
     word.repeat(count)
 }
 
+#[tool(description = "waits, then echoes a word back")]
+async fn echo(word: String) -> String {
+    tokio::task::yield_now().await;
+    word
+}
+
 #[tokio::test]
 async fn typed_tools_generate_definitions_and_execute_json() {
     let tools = [add, repeat];
@@ -45,4 +51,45 @@ async fn typed_tools_report_invalid_arguments() {
         add.execute(r#"{"a":"not a number","b":22}"#).await,
         Err(ToolError::Arguments(_))
     ));
+}
+
+#[tokio::test]
+async fn async_tools_generate_definitions_and_execute_json() {
+    assert_eq!(echo.name(), "echo");
+
+    let definition = echo.definition();
+    assert_eq!(definition.name, "echo");
+    assert_eq!(
+        definition.description.as_deref(),
+        Some("waits, then echoes a word back")
+    );
+    assert_eq!(definition.parameters["type"], "object");
+    assert!(definition.parameters["properties"].get("word").is_some());
+
+    assert_eq!(echo.execute(r#"{"word":"ha"}"#).await.unwrap(), r#""ha""#);
+}
+
+#[tokio::test]
+async fn async_tools_report_invalid_arguments() {
+    assert!(matches!(
+        echo.execute(r#"{"word":42}"#).await,
+        Err(ToolError::Arguments(_))
+    ));
+}
+
+#[test]
+fn tool_execution_futures_are_send() {
+    fn assert_send<T: Send>(_: T) {}
+    assert_send(echo.execute(r#"{"word":"ha"}"#));
+    assert_send(add.execute(r#"{"a":1,"b":2}"#));
+}
+
+#[tokio::test]
+async fn async_tools_run_concurrently() {
+    let (first, second) = tokio::join!(
+        echo.execute(r#"{"word":"ha"}"#),
+        echo.execute(r#"{"word":"ho"}"#)
+    );
+    assert_eq!(first.unwrap(), r#""ha""#);
+    assert_eq!(second.unwrap(), r#""ho""#);
 }

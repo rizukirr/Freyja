@@ -13,10 +13,18 @@
 
 use freyja::{Client, EndpointPreset, GenerateRequest, Message, OutputContent, Role, Tool, tool};
 
-/// The single tool this example exposes to the model.
+/// The tools this example exposes to the model.
 #[tool(description = "adds two numbers together", strict = true)]
 fn add(a: i64, b: i64) -> i64 {
     a + b
+}
+
+/// An async tool. Any `.await` works here: an HTTP call, a database query, or
+/// a sleep, as in this case.
+#[tool(description = "waits for the given number of milliseconds, then confirms")]
+async fn wait(milliseconds: u64) -> String {
+    tokio::time::sleep(std::time::Duration::from_millis(milliseconds)).await;
+    format!("waited {milliseconds}ms")
 }
 
 /// Runs a tool call and returns the output to send back to the model.
@@ -40,14 +48,17 @@ async fn main() {
         return;
     };
 
-    let tools = [add];
+    let tools = [add, wait];
     let definitions = tools
         .iter()
         .map(|tool| tool.definition())
         .collect::<Vec<_>>();
 
     let mut request = GenerateRequest::new()
-        .message(Message::text(Role::User, "What is 20 + 22?"))
+        .message(Message::text(
+            Role::User,
+            "What is 20 + 22, and once you have it, wait 500 milliseconds before confirming?",
+        ))
         .tools(definitions);
 
     // Bounded loop: call, run whatever tools the model asks for, call again.
