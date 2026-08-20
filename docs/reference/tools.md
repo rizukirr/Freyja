@@ -44,7 +44,7 @@ pub struct Tool {
 impl Tool {
     pub const fn name(self) -> &'static str;
     pub fn definition(self) -> ToolDefinition;
-    pub fn execute(self, arguments: &str) -> Result<String, ToolError>;
+    pub async fn execute(self, arguments: &str) -> Result<String, ToolError>;
 }
 ```
 
@@ -87,14 +87,14 @@ let request = GenerateRequest::new()
 
 The description is what the model reads to decide when to call the tool. Write it for the model, not for other developers. Raw and generated definitions use the same provider-neutral request path.
 
-A `Tool` can also be built by hand from a raw function pointer, without going through `#[tool]`. `Tool::new` wraps a synchronous `fn(&str) -> Result<String, ToolError>`. `Tool::new_async` wraps an async one, `fn(&str) -> ToolFuture`:
+A `Tool` can also be built by hand from a raw function pointer, without going through `#[tool]`. `Tool::new` wraps a synchronous `fn(&str) -> Result<String, ToolError>`. `Tool::new_async` wraps an async one, `fn(&str) -> ToolFuture`. Both take `definition` as a factory function, not a `ToolDefinition` value, so the same definition can be rebuilt on demand:
 
 ```rust
 pub type ToolFuture = Pin<Box<dyn Future<Output = Result<String, ToolError>> + Send + 'static>>;
 
 impl Tool {
-    pub const fn new(name: &'static str, definition: ToolDefinition, run: fn(&str) -> Result<String, ToolError>) -> Tool;
-    pub const fn new_async(name: &'static str, definition: ToolDefinition, run: fn(&str) -> ToolFuture) -> Tool;
+    pub const fn new(name: &'static str, definition: fn() -> ToolDefinition, execute: fn(&str) -> Result<String, ToolError>) -> Tool;
+    pub const fn new_async(name: &'static str, definition: fn() -> ToolDefinition, execute: fn(&str) -> ToolFuture) -> Tool;
 }
 ```
 

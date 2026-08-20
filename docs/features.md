@@ -29,7 +29,7 @@ Streaming delivers the same answer incrementally, and a drained stream converts 
 | | |
 |---|---|
 | Declaring tools | Yes, with JSON Schema parameters |
-| Typed tool functions | `#[tool]` derives the schema and JSON executor from a synchronous function |
+| Typed tool functions | `#[tool]` derives the schema and JSON executor from a sync or async function |
 | Constraining tool choice | Auto, none, required, or a named tool |
 | The full tool round trip | **Yes, verified against live APIs**, not just tested offline |
 | Multi-turn conversations | Yes, transcripts are plain data you own |
@@ -67,7 +67,6 @@ Be sure none of these is on your critical path before adopting.
 |---|---|---|
 | **Retries** | Out of scope, deliberately | A 429 or 5xx surfaces once. `is_retryable()` and `retry_after()` tell you what to do; the loop is yours, and composes with `backon` or `tower::retry`. See [Errors](reference/errors.md#retries). |
 | **Automatic loop orchestration** | Not implemented | Keep a `[Tool; N]`, find the requested name, call `Tool::execute`, and feed the result back. Freyja does not run the model loop for you. |
-| **Async tools** | Supported | `#[tool]` accepts both synchronous and `async fn` free functions with typed identifier parameters; `Tool::execute` is itself `async` and awaits either. |
 | **Structured-output schema derivation** | Not implemented | `#[tool]` derives argument schemas, but `ResponseFormat::JsonSchema` still takes an explicit schema. Generate one with `schemars` and pass it through `strict_schema()`. |
 | **Capability tables** | Not planned | `Client::check` answers the same question by running the conversion, so there is nothing to keep in sync. It needs a request in hand, which a table would not. |
 | **Embeddings, memory, RAG** | Not implemented | Freyja is a generation client today. |
