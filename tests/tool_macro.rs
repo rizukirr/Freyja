@@ -10,8 +10,8 @@ fn repeat(word: String, count: usize) -> String {
     word.repeat(count)
 }
 
-#[test]
-fn typed_tools_generate_definitions_and_execute_json() {
+#[tokio::test]
+async fn typed_tools_generate_definitions_and_execute_json() {
     let tools = [add, repeat];
     assert_eq!(tools.map(Tool::name), ["add", "repeat"]);
 
@@ -32,17 +32,17 @@ fn typed_tools_generate_definitions_and_execute_json() {
     );
 
     assert_eq!(repeat.definition().strict, Some(false));
-    assert_eq!(add.execute(r#"{"a":20,"b":22}"#).unwrap(), "42");
+    assert_eq!(add.execute(r#"{"a":20,"b":22}"#).await.unwrap(), "42");
     assert_eq!(
-        repeat.execute(r#"{"word":"ha","count":2}"#).unwrap(),
+        repeat.execute(r#"{"word":"ha","count":2}"#).await.unwrap(),
         r#""haha""#
     );
 }
 
-#[test]
-fn typed_tools_report_invalid_arguments() {
+#[tokio::test]
+async fn typed_tools_report_invalid_arguments() {
     assert!(matches!(
-        add.execute(r#"{"a":"not a number","b":22}"#),
+        add.execute(r#"{"a":"not a number","b":22}"#).await,
         Err(ToolError::Arguments(_))
     ));
 }

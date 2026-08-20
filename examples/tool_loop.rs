@@ -20,10 +20,11 @@ fn add(a: i64, b: i64) -> i64 {
 }
 
 /// Runs a tool call and returns the output to send back to the model.
-fn dispatch(tools: &[Tool], name: &str, arguments: &str) -> String {
+async fn dispatch(tools: &[Tool], name: &str, arguments: &str) -> String {
     match tools.iter().copied().find(|tool| tool.name() == name) {
         Some(tool) => tool
             .execute(arguments)
+            .await
             .unwrap_or_else(|error| format!("error: {error:?}")),
         None => format!("error: unknown tool '{name}'"),
     }
@@ -78,14 +79,12 @@ async fn main() {
             return;
         }
 
-        let results: Vec<Message> = response
-            .tool_calls()
-            .map(|(id, name, arguments)| {
-                let output = dispatch(&tools, name, arguments);
-                println!("tool result: {output}");
-                Message::tool_result(id, output)
-            })
-            .collect();
+        let mut results: Vec<Message> = Vec::new();
+        for (id, name, arguments) in response.tool_calls() {
+            let output = dispatch(&tools, name, arguments).await;
+            println!("tool result: {output}");
+            results.push(Message::tool_result(id, output));
+        }
 
         request = request
             .message(response.to_message())
