@@ -122,8 +122,8 @@ pub use error::{Error, TransportError};
 pub use freyja_macros::tool;
 pub use model::{
     GenerateRequest, GenerateResponse, InputContent, Message, OutputContent, ReasoningEffort,
-    ResponseFormat, ResponseStatus, Role, Tool, ToolChoice, ToolDefinition, ToolError, Usage,
-    strict_schema,
+    ResponseFormat, ResponseStatus, Role, Tool, ToolChoice, ToolDefinition, ToolError, ToolFuture,
+    Usage, strict_schema,
 };
 pub use stream::{EventStream, StreamEvent};
 
