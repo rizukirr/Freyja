@@ -32,7 +32,7 @@
 //!
 //! # Tool calling
 //!
-//! [`tool`] turns a typed synchronous function into a callable [`Tool`]. Its
+//! [`tool`] turns a typed function into a callable [`Tool`]. Its
 //! parameters generate the JSON Schema sent to the model, and [`Tool::execute`]
 //! deserializes a requested call and serializes the result:
 //!
@@ -44,10 +44,12 @@
 //!     a + b
 //! }
 //!
+//! # tokio::runtime::Runtime::new().unwrap().block_on(async {
 //! let tools = [add];
 //! let definitions = tools.iter().map(|tool| tool.definition()).collect::<Vec<_>>();
 //! assert_eq!(definitions[0].name, "add");
-//! assert_eq!(add.execute(r#"{"a":20,"b":22}"#).unwrap(), "42");
+//! assert_eq!(add.execute(r#"{"a":20,"b":22}"#).await.unwrap(), "42");
+//! # });
 //! ```
 //!
 //! A tool round trip is three turns: the user asks, the model answers with a
@@ -122,8 +124,8 @@ pub use error::{Error, TransportError};
 pub use freyja_macros::tool;
 pub use model::{
     GenerateRequest, GenerateResponse, InputContent, Message, OutputContent, ReasoningEffort,
-    ResponseFormat, ResponseStatus, Role, Tool, ToolChoice, ToolDefinition, ToolError, Usage,
-    strict_schema,
+    ResponseFormat, ResponseStatus, Role, Tool, ToolChoice, ToolDefinition, ToolError, ToolFuture,
+    Usage, strict_schema,
 };
 pub use stream::{EventStream, StreamEvent};
 

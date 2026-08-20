@@ -13,17 +13,26 @@
 
 use freyja::{Client, EndpointPreset, GenerateRequest, Message, OutputContent, Role, Tool, tool};
 
-/// The single tool this example exposes to the model.
+/// The tools this example exposes to the model.
 #[tool(description = "adds two numbers together", strict = true)]
 fn add(a: i64, b: i64) -> i64 {
     a + b
 }
 
+/// An async tool. Any `.await` works here: an HTTP call, a database query, or
+/// a sleep, as in this case.
+#[tool(description = "waits for the given number of milliseconds, then confirms")]
+async fn wait(milliseconds: u64) -> String {
+    tokio::time::sleep(std::time::Duration::from_millis(milliseconds)).await;
+    format!("waited {milliseconds}ms")
+}
+
 /// Runs a tool call and returns the output to send back to the model.
-fn dispatch(tools: &[Tool], name: &str, arguments: &str) -> String {
+async fn dispatch(tools: &[Tool], name: &str, arguments: &str) -> String {
     match tools.iter().copied().find(|tool| tool.name() == name) {
         Some(tool) => tool
             .execute(arguments)
+            .await
             .unwrap_or_else(|error| format!("error: {error:?}")),
         None => format!("error: unknown tool '{name}'"),
     }
@@ -39,14 +48,17 @@ async fn main() {
         return;
     };
 
-    let tools = [add];
+    let tools = [add, wait];
     let definitions = tools
         .iter()
         .map(|tool| tool.definition())
         .collect::<Vec<_>>();
 
     let mut request = GenerateRequest::new()
-        .message(Message::text(Role::User, "What is 20 + 22?"))
+        .message(Message::text(
+            Role::User,
+            "What is 20 + 22, and once you have it, wait 500 milliseconds before confirming?",
+        ))
         .tools(definitions);
 
     // Bounded loop: call, run whatever tools the model asks for, call again.
@@ -78,14 +90,12 @@ async fn main() {
             return;
         }
 
-        let results: Vec<Message> = response
-            .tool_calls()
-            .map(|(id, name, arguments)| {
-                let output = dispatch(&tools, name, arguments);
-                println!("tool result: {output}");
-                Message::tool_result(id, output)
-            })
-            .collect();
+        let mut results: Vec<Message> = Vec::new();
+        for (id, name, arguments) in response.tool_calls() {
+            let output = dispatch(&tools, name, arguments).await;
+            println!("tool result: {output}");
+            results.push(Message::tool_result(id, output));
+        }
 
         request = request
             .message(response.to_message())

@@ -1,16 +1,28 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::future::Future;
+use std::pin::Pin;
+
+/// The future returned by an async tool.
+pub type ToolFuture = Pin<Box<dyn Future<Output = Result<String, ToolError>> + Send + 'static>>;
+
+/// How a [`Tool`] runs: directly, or by awaiting a future.
+#[derive(Clone, Copy)]
+enum Executor {
+    Sync(fn(&str) -> Result<String, ToolError>),
+    Async(fn(&str) -> ToolFuture),
+}
 
 /// A callable tool descriptor.
 #[derive(Clone, Copy)]
 pub struct Tool {
     name: &'static str,
     definition: fn() -> ToolDefinition,
-    execute: fn(&str) -> Result<String, ToolError>,
+    execute: Executor,
 }
 
 impl Tool {
-    /// Creates a tool descriptor from its name, definition factory, and executor.
+    /// Creates a tool descriptor from its name, definition factory, and synchronous executor.
     pub const fn new(
         name: &'static str,
         definition: fn() -> ToolDefinition,
@@ -19,7 +31,23 @@ impl Tool {
         Self {
             name,
             definition,
-            execute,
+            execute: Executor::Sync(execute),
+        }
+    }
+
+    /// Creates a tool descriptor whose executor returns a future.
+    ///
+    /// The future must be `Send` so callers can drive several tool calls at
+    /// once. A tool body may not hold a non-`Send` value across an `.await`.
+    pub const fn new_async(
+        name: &'static str,
+        definition: fn() -> ToolDefinition,
+        execute: fn(&str) -> ToolFuture,
+    ) -> Self {
+        Self {
+            name,
+            definition,
+            execute: Executor::Async(execute),
         }
     }
 
@@ -34,8 +62,15 @@ impl Tool {
     }
 
     /// Executes this tool with JSON arguments.
-    pub fn execute(self, arguments: &str) -> Result<String, ToolError> {
-        (self.execute)(arguments)
+    ///
+    /// A synchronous tool completes without yielding; an async tool awaits its
+    /// future. Dropping the returned future before it completes cancels the
+    /// tool.
+    pub async fn execute(self, arguments: &str) -> Result<String, ToolError> {
+        match self.execute {
+            Executor::Sync(execute) => execute(arguments),
+            Executor::Async(execute) => execute(arguments).await,
+        }
     }
 }
 
@@ -100,7 +135,7 @@ pub enum ToolChoice {
 
 #[cfg(test)]
 mod tests {
-    use super::{Tool, ToolDefinition, ToolError};
+    use super::{Tool, ToolDefinition, ToolError, ToolFuture};
 
     fn definition() -> ToolDefinition {
         ToolDefinition::new("add", "adds two numbers")
@@ -114,11 +149,38 @@ mod tests {
         Ok((a + b).to_string())
     }
 
-    #[test]
-    fn callable_tool_delegates_definition_and_execution() {
+    fn execute_async(arguments: &str) -> ToolFuture {
+        let parsed: Result<serde_json::Value, _> = serde_json::from_str(arguments);
+        Box::pin(async move {
+            let arguments = parsed.map_err(ToolError::Arguments)?;
+            let a = arguments["a"].as_i64().unwrap();
+            let b = arguments["b"].as_i64().unwrap();
+            Ok((a + b).to_string())
+        })
+    }
+
+    #[tokio::test]
+    async fn callable_tool_delegates_definition_and_execution() {
         let tool = Tool::new("add", definition, execute);
         assert_eq!(tool.name(), "add");
         assert_eq!(tool.definition().name, "add");
-        assert_eq!(tool.execute(r#"{"a":20,"b":22}"#).unwrap(), "42");
+        assert_eq!(tool.execute(r#"{"a":20,"b":22}"#).await.unwrap(), "42");
+    }
+
+    #[tokio::test]
+    async fn hand_written_async_tool_awaits_its_future() {
+        let tool = Tool::new_async("add", definition, execute_async);
+        assert_eq!(tool.name(), "add");
+        assert_eq!(tool.definition().name, "add");
+        assert_eq!(tool.execute(r#"{"a":20,"b":22}"#).await.unwrap(), "42");
+    }
+
+    #[tokio::test]
+    async fn async_tool_reports_invalid_arguments() {
+        let tool = Tool::new_async("add", definition, execute_async);
+        assert!(matches!(
+            tool.execute("not json").await,
+            Err(ToolError::Arguments(_))
+        ));
     }
 }

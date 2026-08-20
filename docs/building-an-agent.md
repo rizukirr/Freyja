@@ -37,17 +37,18 @@ let tools = [add];
 
 `strict` defaults to `false`. With `strict = true`, Freyja also rewrites the generated schema into the strict subset accepted by providers that enforce it.
 
-The initial macro accepts synchronous free functions with explicit parameter types and simple identifier parameters. Async functions, methods, generics, and destructuring patterns are rejected at compile time. Parameter types must support `Deserialize` and `JsonSchema`; the return type must support `Serialize`.
+The macro accepts free functions with explicit parameter types and simple identifier parameters, sync or `async fn`. Methods, generics, and destructuring patterns are rejected at compile time. Parameter types must support `Deserialize` and `JsonSchema`; the return type must support `Serialize`.
 
 ## Step 2: dispatch requested names
 
 Keep the tools in an array and look up the name requested by the model. `Tool::execute` validates the JSON against the Rust parameter types, calls the function, and serializes its result.
 
 ```rust
-fn dispatch(tools: &[Tool], name: &str, arguments: &str) -> String {
+async fn dispatch(tools: &[Tool], name: &str, arguments: &str) -> String {
     match tools.iter().copied().find(|tool| tool.name() == name) {
         Some(tool) => tool
             .execute(arguments)
+            .await
             .unwrap_or_else(|error| format!("error: {error:?}")),
         None => format!("error: unknown tool '{name}'"),
     }

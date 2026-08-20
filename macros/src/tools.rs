@@ -54,12 +54,7 @@ pub(crate) fn expand(attributes: TokenStream, input: TokenStream) -> Result<Toke
     let attributes = syn::parse2::<ToolAttrs>(attributes)?;
     let mut function = syn::parse2::<ItemFn>(input)?;
 
-    if function.sig.asyncness.is_some() {
-        return Err(Error::new_spanned(
-            function.sig.asyncness,
-            "tool functions cannot be async",
-        ));
-    }
+    let is_async = function.sig.asyncness.is_some();
     if !function.sig.generics.params.is_empty() {
         return Err(Error::new_spanned(
             &function.sig.generics,
@@ -95,6 +90,37 @@ pub(crate) fn expand(attributes: TokenStream, input: TokenStream) -> Result<Toke
         quote!(schema)
     };
 
+    let executor = if is_async {
+        quote! {
+            fn #execute_name(arguments: &str) -> ::freyja::ToolFuture {
+                let parsed = ::freyja::__private::serde_json::from_str::<#arguments_name>(arguments);
+                ::std::boxed::Box::pin(async move {
+                    let #arguments_name { #( #destructured_names, )* } =
+                        parsed.map_err(::freyja::ToolError::Arguments)?;
+                    let result = #implementation_name( #( #invocation_names ),* ).await;
+                    ::freyja::__private::serde_json::to_string(&result)
+                        .map_err(::freyja::ToolError::Result)
+                })
+            }
+        }
+    } else {
+        quote! {
+            fn #execute_name(arguments: &str) -> ::core::result::Result<::std::string::String, ::freyja::ToolError> {
+                let #arguments_name { #( #destructured_names, )* } =
+                    ::freyja::__private::serde_json::from_str(arguments)
+                        .map_err(::freyja::ToolError::Arguments)?;
+                let result = #implementation_name( #( #invocation_names ),* );
+                ::freyja::__private::serde_json::to_string(&result)
+                    .map_err(::freyja::ToolError::Result)
+            }
+        }
+    };
+    let constructor = if is_async {
+        quote!(::freyja::Tool::new_async)
+    } else {
+        quote!(::freyja::Tool::new)
+    };
+
     Ok(quote! {
         #function
 
@@ -118,17 +144,10 @@ pub(crate) fn expand(attributes: TokenStream, input: TokenStream) -> Result<Toke
                 .strict(#strict)
         }
 
-        fn #execute_name(arguments: &str) -> ::core::result::Result<::std::string::String, ::freyja::ToolError> {
-            let #arguments_name { #( #destructured_names, )* } =
-                ::freyja::__private::serde_json::from_str(arguments)
-                    .map_err(::freyja::ToolError::Arguments)?;
-            let result = #implementation_name( #( #invocation_names ),* );
-            ::freyja::__private::serde_json::to_string(&result)
-                .map_err(::freyja::ToolError::Result)
-        }
+        #executor
 
         #[allow(non_upper_case_globals)]
-        const #name: ::freyja::Tool = ::freyja::Tool::new(
+        const #name: ::freyja::Tool = #constructor(
             stringify!(#name),
             #definition_name,
             #execute_name,
@@ -227,11 +246,6 @@ mod tests {
     fn expansion_rejects_unsupported_signatures() {
         for input in [
             quote!(
-                async fn add(a: i64) -> i64 {
-                    a
-                }
-            ),
-            quote!(
                 fn add<T>(a: T) -> T {
                     a
                 }
@@ -249,5 +263,20 @@ mod tests {
         ] {
             assert!(expand(quote!(description = "adds"), input).is_err());
         }
+    }
+
+    #[test]
+    fn expansion_accepts_async_functions() {
+        let output = expand(
+            quote!(description = "fetches a page"),
+            quote!(
+                async fn fetch(url: String) -> String {
+                    url
+                }
+            ),
+        )
+        .expect("async function expands");
+        assert!(output.to_string().contains("new_async"));
+        syn::parse2::<syn::File>(output).expect("expansion is valid Rust");
     }
 }

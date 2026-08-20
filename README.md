@@ -85,6 +85,7 @@ cargo run --example chat             # an interactive multi-turn conversation
 cargo run --example portable         # one request, every vendor, and its limits
 cargo run --example structured_output # JSON constrained by a schema, deserialized
 cargo run --example images           # an image in a prompt, by URL or data URI
+cargo run --example async_tools      # several tool calls running at once
 ```
 
 ## Documentation
@@ -103,7 +104,7 @@ Then [providers](docs/providers/README.md), the [API reference](docs/README.md#r
 
 ## Status
 
-Phases 0 and 1 are complete, and Phase 2 has started: the neutral core is stable, four wire dialects are implemented, tool calling works end to end, typed `#[tool]` functions derive their schemas and dispatchers, every dialect streams, and failures are classified by cause.
+Phases 0 and 1 are complete, and Phase 2 has started: the neutral core is stable, four wire dialects are implemented, tool calling works end to end, typed `#[tool]` functions derive their schemas and dispatchers and may be sync or async, every dialect streams, and failures are classified by cause.
 
 | Area | State |
 |---|---|
@@ -116,7 +117,7 @@ Phases 0 and 1 are complete, and Phase 2 has started: the neutral core is stable
 | Pre-flight checks | `client.check(&request)`, no network call |
 | Structured output | `strict_schema()` plus `generate_as::<T>()` |
 | Vendor-only fields | `extra_for()`, without forking |
-| Not implemented | Automatic loop orchestration, async tools, timeouts, approval hooks |
+| Not implemented | Automatic loop orchestration, per-tool timeouts, approval hooks |
 
 The workspace test suite covers the core, macro expansion, public typed-tool behavior, examples, and doctests. [Features](docs/features.md) has the honest boundary, including which capabilities each provider refuses.
 
@@ -128,7 +129,7 @@ The goal: everything you need to build an AI agent in Rust, with no vendor lock-
 
 **Phase 1, production-grade provider layer.** Complete. Four dialects, the dialect/endpoint split, streaming, typed errors, pre-flight checking, typed responses, and strict-mode schema rewriting.
 
-**Phase 2, the agent.** In progress. `Tool` and `#[tool]` now derive schemas from synchronous function signatures and provide typed execution. Still planned: an `Agent` type, automatic loop orchestration, async tools, per-tool timeouts, and approval hooks.
+**Phase 2, the agent.** In progress. `Tool` and `#[tool]` now derive schemas from sync or async function signatures and provide typed execution. Still planned: an `Agent` type, automatic loop orchestration, per-tool timeouts, and approval hooks.
 
 **Phase 3, memory and context.** A `Memory` trait, context-window management with truncation and summarization, persistent backends, and retrieval with embeddings and a vector store.
 
