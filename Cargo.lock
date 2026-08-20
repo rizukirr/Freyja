@@ -211,7 +211,7 @@ dependencies = [
 
 [[package]]
 name = "freyja"
-version = "0.2.0"
+version = "0.1.1"
 dependencies = [
  "dotenvy",
  "freyja-macros",
@@ -224,7 +224,7 @@ dependencies = [
 
 [[package]]
 name = "freyja-macros"
-version = "0.2.0"
+version = "0.1.1"
 dependencies = [
  "proc-macro2",
  "quote",
