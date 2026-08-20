@@ -44,12 +44,12 @@
 //!     a + b
 //! }
 //!
-//! # async fn run() {
+//! # tokio::runtime::Runtime::new().unwrap().block_on(async {
 //! let tools = [add];
 //! let definitions = tools.iter().map(|tool| tool.definition()).collect::<Vec<_>>();
 //! assert_eq!(definitions[0].name, "add");
 //! assert_eq!(add.execute(r#"{"a":20,"b":22}"#).await.unwrap(), "42");
-//! # }
+//! # });
 //! ```
 //!
 //! A tool round trip is three turns: the user asks, the model answers with a
