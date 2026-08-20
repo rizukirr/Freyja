@@ -85,6 +85,7 @@ cargo run --example chat             # an interactive multi-turn conversation
 cargo run --example portable         # one request, every vendor, and its limits
 cargo run --example structured_output # JSON constrained by a schema, deserialized
 cargo run --example images           # an image in a prompt, by URL or data URI
+cargo run --example async_tools      # several tool calls running at once
 ```
 
 ## Documentation
