@@ -34,7 +34,7 @@ let request = GenerateRequest::new()
 
 The macro replaces the function item with a same-named `Tool` value. Its typed parameters generate the object schema, `description` tells the model when to use it, and `strict` defaults to `false`. `Tool::execute` deserializes the model's JSON arguments, calls the original function, and serializes the return value as JSON.
 
-Supported functions are synchronous free functions with explicit types and simple identifier parameters. Async functions, methods with `self`, generics, and destructured parameters produce compile errors. Argument types must support serde deserialization and `schemars::JsonSchema`; return values must support serde serialization.
+Supported functions are free functions, sync or `async fn`, with explicit types and simple identifier parameters. Methods with `self`, generics, and destructured parameters produce compile errors. Argument types must support serde deserialization and `schemars::JsonSchema`; return values must support serde serialization.
 
 ```rust
 pub struct Tool {
@@ -86,6 +86,19 @@ let request = GenerateRequest::new()
 | `.strict(bool)` | Asks the provider to enforce the schema exactly |
 
 The description is what the model reads to decide when to call the tool. Write it for the model, not for other developers. Raw and generated definitions use the same provider-neutral request path.
+
+A `Tool` can also be built by hand from a raw function pointer, without going through `#[tool]`. `Tool::new` wraps a synchronous `fn(&str) -> Result<String, ToolError>`. `Tool::new_async` wraps an async one, `fn(&str) -> ToolFuture`:
+
+```rust
+pub type ToolFuture = Pin<Box<dyn Future<Output = Result<String, ToolError>> + Send + 'static>>;
+
+impl Tool {
+    pub const fn new(name: &'static str, definition: ToolDefinition, run: fn(&str) -> Result<String, ToolError>) -> Tool;
+    pub const fn new_async(name: &'static str, definition: ToolDefinition, run: fn(&str) -> ToolFuture) -> Tool;
+}
+```
+
+Both constructors are `const fn`, and the resulting `Tool` is `Clone + Copy` either way. `Tool::execute` dispatches on which variant it holds: a sync tool resolves without yielding, an async tool awaits the boxed future.
 
 ## Constraining the choice
 
@@ -185,20 +198,17 @@ for _ in 0..5 {
         break;
     }
 
-    let results: Vec<Message> = response
-        .tool_calls()
-        .map(|(id, name, arguments)| {
-            let output = tools
-                .iter()
-                .copied()
-                .find(|tool| tool.name() == name)
-                .map(|tool| tool.execute(arguments))
-                .transpose()
-                .map(|output| output.unwrap_or_else(|| format!("error: unknown tool '{name}'")))
-                .unwrap_or_else(|error| format!("error: {error:?}"));
-            Message::tool_result(id, output)
-        })
-        .collect();
+    let mut results: Vec<Message> = Vec::new();
+    for (id, name, arguments) in response.tool_calls() {
+        let output = match tools.iter().copied().find(|tool| tool.name() == name) {
+            Some(tool) => tool
+                .execute(arguments)
+                .await
+                .unwrap_or_else(|error| format!("error: {error:?}")),
+            None => format!("error: unknown tool '{name}'"),
+        };
+        results.push(Message::tool_result(id, output));
+    }
 
     request = request
         .message(response.to_message())
@@ -217,6 +227,7 @@ A failed tool is not an error in your program. Report it as the tool's output an
 ```rust
 let output = add
     .execute(arguments)
+    .await
     .unwrap_or_else(|error| format!("error: {error:?}"));
 ```
 
@@ -243,7 +254,7 @@ Two things differ per provider in the tool arguments themselves. OpenAI sends `a
 ## What does not exist yet
 
 - No automatic model loop or built-in name registry
-- No async tools or injected application state
+- No injected application state
 - No parallel execution of tool calls
 - No per tool timeouts or approval hooks
 - No enforcement that a result's `call_id` matches a real call
