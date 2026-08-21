@@ -197,11 +197,11 @@ async fn feeds_a_tool_error_back_to_the_model() {
     assert!(second.contains("Arguments"));
 }
 
-const CALLS_ECHO_TWICE: &str = r#"{"id":"chatcmpl-1","model":"test-model","choices":[{"message":{"role":"assistant","content":null,"tool_calls":[{"id":"call_a","type":"function","function":{"name":"echo","arguments":"{\"word\":\"ha\"}"}},{"id":"call_b","type":"function","function":{"name":"echo","arguments":"{\"word\":\"ho\"}"}}]},"finish_reason":"tool_calls"}]}"#;
+const CALLS_ECHO_THRICE: &str = r#"{"id":"chatcmpl-1","model":"test-model","choices":[{"message":{"role":"assistant","content":null,"tool_calls":[{"id":"call_a","type":"function","function":{"name":"echo","arguments":"{\"word\":\"ha\"}"}},{"id":"call_b","type":"function","function":{"name":"echo","arguments":"{\"word\":\"ho\"}"}},{"id":"call_c","type":"function","function":{"name":"echo","arguments":"{\"word\":\"hi\"}"}}]},"finish_reason":"tool_calls"}]}"#;
 
 #[tokio::test]
 async fn dispatches_parallel_calls_concurrently() {
-    let (base, requests) = serve_many(vec![canned(CALLS_ECHO_TWICE), canned(ANSWER)]);
+    let (base, requests) = serve_many(vec![canned(CALLS_ECHO_THRICE), canned(ANSWER)]);
     let agent = Agent::new(client(base)).tools([echo]);
 
     let mut messages = vec![Message::text(Role::User, "go")];
@@ -209,7 +209,7 @@ async fn dispatches_parallel_calls_concurrently() {
     agent.run(&mut messages).await.unwrap();
 
     assert!(started.elapsed() < std::time::Duration::from_millis(350));
-    assert_eq!(messages.len(), 5);
+    assert_eq!(messages.len(), 6);
 
     // Each call is answered exactly once. Match the result's correlation field
     // rather than the bare id: the transcript also carries the assistant's own
@@ -219,6 +219,7 @@ async fn dispatches_parallel_calls_concurrently() {
     let second = requests.recv().unwrap();
     assert_eq!(second.matches(r#""tool_call_id":"call_a""#).count(), 1);
     assert_eq!(second.matches(r#""tool_call_id":"call_b""#).count(), 1);
+    assert_eq!(second.matches(r#""tool_call_id":"call_c""#).count(), 1);
 }
 
 const REFUSAL: &str = r#"{"id":"chatcmpl-1","model":"test-model","choices":[{"message":{"role":"assistant","refusal":"I cannot help with that"},"finish_reason":"stop"}]}"#;
