@@ -34,6 +34,7 @@ Streaming delivers the same answer incrementally, and a drained stream converts 
 | The full tool round trip | **Yes, verified against live APIs**, not just tested offline |
 | Multi-turn conversations | Yes, transcripts are plain data you own |
 | Reasoning state replay | Handled for you, see [Concepts](concepts.md#opaque-state) |
+| Automatic loop orchestration | `Agent` runs the tool-calling loop for you and dispatches parallel tool calls concurrently |
 
 The round trip is the load-bearing feature. A model asks for a function, you run it, you feed the result back, and it continues. [Building an agent](building-an-agent.md) is the guide.
 
@@ -66,11 +67,9 @@ Be sure none of these is on your critical path before adopting.
 | | Status | Workaround |
 |---|---|---|
 | **Retries** | Out of scope, deliberately | A 429 or 5xx surfaces once. `is_retryable()` and `retry_after()` tell you what to do; the loop is yours, and composes with `backon` or `tower::retry`. See [Errors](reference/errors.md#retries). |
-| **Automatic loop orchestration** | Not implemented | Keep a `[Tool; N]`, find the requested name, call `Tool::execute`, and feed the result back. Freyja does not run the model loop for you. |
 | **Structured-output schema derivation** | Not implemented | `#[tool]` derives argument schemas, but `ResponseFormat::JsonSchema` still takes an explicit schema. Generate one with `schemars` and pass it through `strict_schema()`. |
 | **Capability tables** | Not planned | `Client::check` answers the same question by running the conversion, so there is nothing to keep in sync. It needs a request in hand, which a table would not. |
 | **Embeddings, memory, RAG** | Not implemented | Freyja is a generation client today. |
-| **Agent orchestration** | Not implemented | You write the loop. It is about fifteen lines. |
 
 ## Per-provider gaps
 

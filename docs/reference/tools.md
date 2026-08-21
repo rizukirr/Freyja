@@ -126,6 +126,8 @@ let request = request.tool_choice(ToolChoice::Required);
 
 Leave `tool_choice` unset unless you need it. Unset means the provider's own default, which is normally `Auto`, and it keeps the request portable. All four dialects carry it, each with its own spelling: `Required` is `any` on Gemini and Anthropic, and `required` on the two OpenAI formats.
 
+`Agent` (see [Building an agent](../building-an-agent.md)) handles this for you: send `Required` on its template to force the first turn to call a tool, and `Agent::run` downgrades it to `Auto` for every turn after the first, so the loop can still end in a final answer.
+
 ## Reading the calls
 
 A response carries tool calls as `OutputContent::ToolCall`:
@@ -253,9 +255,8 @@ Two things differ per provider in the tool arguments themselves. OpenAI sends `a
 
 ## What does not exist yet
 
-- No automatic model loop or built-in name registry
+- No built-in name registry
 - No injected application state
-- No parallel execution of tool calls
 - No per tool timeouts or approval hooks
 - No enforcement that a result's `call_id` matches a real call
 
