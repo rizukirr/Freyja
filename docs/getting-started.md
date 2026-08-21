@@ -124,7 +124,7 @@ The model does not run anything. It asks; you find the requested `Tool`, call `e
 
 ## Run the examples
 
-The repository ships four runnable programs:
+The repository ships a runnable program for each pattern below:
 
 ```bash
 cargo run --example simple           # one question, one answer
@@ -137,6 +137,7 @@ cargo run --example portable         # one request, every vendor, and its limits
 cargo run --example structured_output # JSON constrained by a schema, deserialized
 cargo run --example images           # an image in a prompt, by URL or data URI
 cargo run --example async_tools      # several tool calls running at once
+cargo run --example agent            # the loop driven by Agent
 ```
 
 They are compiled by `cargo test`, so they cannot drift out of date the way README snippets do.

@@ -215,6 +215,7 @@ version = "0.1.1"
 dependencies = [
  "dotenvy",
  "freyja-macros",
+ "futures-util",
  "reqwest",
  "schemars",
  "serde",

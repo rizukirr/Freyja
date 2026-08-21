@@ -108,6 +108,7 @@
 
 #![deny(missing_docs)]
 
+mod agent;
 mod client;
 pub mod dialect;
 pub mod endpoint;
@@ -117,6 +118,7 @@ pub mod model;
 pub mod stream;
 mod transport;
 
+pub use agent::{Agent, Chat, Run, StopReason};
 pub use client::Client;
 pub use dialect::Dialect;
 pub use endpoint::{Auth, EndpointConfig, EndpointPreset, TokenLimitField};

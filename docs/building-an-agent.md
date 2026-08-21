@@ -167,6 +167,21 @@ The loop above is the skeleton. Three things separate it from something you woul
 
 **Persist the transcript if the conversation outlives the process.** `Message` is `Serialize` and `Deserialize`, so a `Vec<Message>` goes to disk or a database and comes back without a conversion layer. Keep the reasoning parts when you do; they are part of the transcript, not decoration.
 
+## Agent runs this loop for you
+
+Everything above — the bound, the tool dispatch, sending results back, watching the status — is what `Agent` does on your behalf, and it dispatches parallel tool calls concurrently rather than one at a time. The hand-written loop stays useful: it is what to reach for when you need to see or change what happens between turns, and it is what `Agent` is built from. For the common case, though:
+
+```rust
+let agent = Agent::new(client).tools([add]).max_turns(5);
+
+let mut messages = vec![Message::text(Role::User, "What is 20 + 22?")];
+let run = agent.run(&mut messages).await?;
+
+println!("{}", run.answer);
+```
+
+`run.stop` tells you why the loop ended — `Answered`, `MaxTurns`, `Refused`, `Incomplete`, or `Failed` — and `Chat` wraps the same thing with an owned transcript for a multi-turn conversation. See `examples/agent.rs`.
+
 ## Next
 
 | | |
@@ -176,3 +191,4 @@ The loop above is the skeleton. Three things separate it from something you woul
 | Tool types in full | [Tools](reference/tools.md) |
 | Reading responses, statuses, usage | [Responses](reference/responses.md) |
 | Which errors are worth retrying | [Errors](reference/errors.md) |
+| Letting `Agent` run the loop for you | [Agent runs this loop for you](#agent-runs-this-loop-for-you) |
