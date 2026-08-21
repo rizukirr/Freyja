@@ -276,3 +276,25 @@ async fn a_failed_call_leaves_the_transcript_untouched() {
     assert!(agent.run(&mut messages).await.is_err());
     assert_eq!(messages, before);
 }
+
+#[tokio::test]
+async fn chat_carries_the_transcript_between_asks() {
+    let (base, requests) = serve_many(vec![canned(ANSWER), canned(ANSWER)]);
+    let agent = Agent::new(client(base));
+    let mut chat = agent.chat();
+
+    assert_eq!(
+        chat.ask("first question").await.unwrap().answer,
+        "the answer is 42"
+    );
+    assert_eq!(
+        chat.ask("second question").await.unwrap().answer,
+        "the answer is 42"
+    );
+
+    let _first = requests.recv().unwrap();
+    let second = requests.recv().unwrap();
+    assert!(second.contains("first question"));
+    assert!(second.contains("second question"));
+    assert_eq!(chat.messages().len(), 4);
+}

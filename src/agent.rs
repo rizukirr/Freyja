@@ -204,6 +204,46 @@ impl Agent {
             None => format!("error: unknown tool '{name}'"),
         }
     }
+
+    /// Starts a conversation that carries its own transcript.
+    pub fn chat(&self) -> Chat {
+        Chat {
+            agent: self.clone(),
+            messages: Vec::new(),
+            last: None,
+        }
+    }
+}
+
+/// A conversation that keeps its own transcript.
+///
+/// Cheaper than it looks: cloning an [`Agent`] copies refcounts and small
+/// vectors, so one agent can hand out many chats.
+#[derive(Clone)]
+pub struct Chat {
+    agent: Agent,
+    messages: Vec<Message>,
+    last: Option<Run>,
+}
+
+impl Chat {
+    /// Appends a user turn and runs the loop over the whole conversation.
+    pub async fn ask(&mut self, prompt: impl Into<String>) -> Result<&Run, Error> {
+        self.messages
+            .push(Message::text(crate::Role::User, prompt.into()));
+        let run = self.agent.run(&mut self.messages).await?;
+        Ok(self.last.insert(run))
+    }
+
+    /// Borrows the transcript, for persisting or inspecting.
+    pub fn messages(&self) -> &[Message] {
+        &self.messages
+    }
+
+    /// Takes the transcript, consuming the chat.
+    pub fn into_messages(self) -> Vec<Message> {
+        self.messages
+    }
 }
 
 #[cfg(test)]
