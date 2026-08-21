@@ -22,6 +22,7 @@ members = ["macros"]
 # and never spawns, so it pulls in no runtime of its own; the caller chooses.
 [dependencies]
 freyja-macros = { version = "0.1.1", path = "macros" }
+futures-util = { version = "0.3", default-features = false, features = ["alloc"] }
 reqwest = { version = "0.13", features = ["json"] }
 schemars = "1.2.2"
 serde = { version = "1.0.229", features = ["derive"] }
