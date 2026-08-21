@@ -84,6 +84,15 @@ fn client(base: String) -> Client {
     )
 }
 
+/// The OpenAiChat dialect never emits `OutputContent::Reasoning`, so anything
+/// testing opaque state speaks Anthropic instead.
+fn anthropic_client(base: String) -> Client {
+    Client::new(
+        EndpointConfig::new(Dialect::Anthropic, "local", base).default_model("test-model"),
+        "sk-test",
+    )
+}
+
 #[tokio::test]
 async fn the_scripted_endpoint_serves_a_sequence() {
     let body = r#"{"id":"chatcmpl-1","model":"test-model","choices":[{"index":0,"message":{"role":"assistant","content":"hello"},"finish_reason":"stop"}]}"#;
@@ -276,6 +285,29 @@ async fn a_failed_call_leaves_the_transcript_untouched() {
 
     assert!(agent.run(&mut messages).await.is_err());
     assert_eq!(messages, before);
+}
+
+/// A `thinking` block Freyja does not model, beside a tool call.
+const THINKS_THEN_CALLS: &str = r#"{"id":"msg_1","model":"test-model","stop_reason":"tool_use","content":[{"type":"thinking","thinking":"add them","signature":"sig-abc123"},{"type":"tool_use","id":"toolu_1","name":"add","input":{"a":20,"b":22}}]}"#;
+
+const ANTHROPIC_ANSWERS: &str = r#"{"id":"msg_2","model":"test-model","stop_reason":"end_turn","content":[{"type":"text","text":"42"}]}"#;
+
+#[tokio::test]
+async fn replays_opaque_reasoning_state_on_the_next_turn() {
+    let (base, requests) = serve_many(vec![canned(THINKS_THEN_CALLS), canned(ANTHROPIC_ANSWERS)]);
+    let agent = Agent::new(anthropic_client(base)).tools([add]);
+
+    let mut messages = vec![Message::text(Role::User, "What is 20 + 22?")];
+    let run = agent.run(&mut messages).await.unwrap();
+    assert_eq!(run.stop, StopReason::Answered);
+
+    // The signature is what Anthropic validates on the next request. Dropping
+    // the block, or rebuilding the assistant turn from tool_calls() alone,
+    // loses it and the real API rejects the request.
+    let _first = requests.recv().unwrap();
+    let second = requests.recv().unwrap();
+    assert!(second.contains("sig-abc123"));
+    assert!(second.contains(r#""type":"thinking""#));
 }
 
 #[tokio::test]
