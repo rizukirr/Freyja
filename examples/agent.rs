@@ -44,7 +44,8 @@ async fn main() {
     };
 
     let agent = Agent::new(client)
-        .tools([add, wait])
+        .tool(add)
+        .tool(wait)
         .request(GenerateRequest::new().message(Message::text(
             Role::System,
             "You are a concise assistant with tools. Use them when they help, \

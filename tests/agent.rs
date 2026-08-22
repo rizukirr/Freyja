@@ -6,12 +6,13 @@
 //! turn, which only the captured bodies can show.
 
 use freyja::{
-    Agent, Client, Dialect, EndpointConfig, GenerateRequest, Message, Role, StopReason, ToolChoice,
-    tool,
+    Agent, Client, Context, Dialect, EndpointConfig, GenerateRequest, Message, Role, StopReason,
+    Tool, ToolChoice, ToolDefinition, ToolError, ToolFuture, tool,
 };
 use std::io::{BufRead, BufReader, Write};
 use std::net::TcpListener;
-use std::sync::mpsc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, mpsc};
 
 #[tool(description = "adds two numbers together", strict = true)]
 fn add(a: i64, b: i64) -> i64 {
@@ -22,6 +23,58 @@ fn add(a: i64, b: i64) -> i64 {
 async fn echo(word: String) -> String {
     tokio::time::sleep(std::time::Duration::from_millis(200)).await;
     word
+}
+
+/// Per-run state a tool reads out of the [`Context`].
+struct UserId(String);
+
+#[tool(description = "names the user this run belongs to")]
+fn whoami(cx: &Context) -> Result<String, ToolError> {
+    Ok(cx.require::<UserId>()?.0.clone())
+}
+
+#[tool(description = "always fails")]
+fn sealed() -> Result<String, String> {
+    Err("the vault is sealed".to_string())
+}
+
+/// A tool that keeps state between calls, which a plain function cannot.
+struct Counter {
+    calls: Arc<AtomicUsize>,
+}
+
+impl Tool for Counter {
+    fn name(&self) -> &str {
+        "counter"
+    }
+
+    fn definition(&self) -> ToolDefinition {
+        ToolDefinition::new("counter", "counts the calls it has served")
+    }
+
+    fn call<'a>(&'a self, _arguments: &'a str, _cx: &'a Context) -> ToolFuture<'a> {
+        let served = self.calls.fetch_add(1, Ordering::SeqCst) + 1;
+        Box::pin(async move { Ok(served.to_string()) })
+    }
+}
+
+/// A tool whose name is not known until it is built.
+struct Runtime {
+    name: String,
+}
+
+impl Tool for Runtime {
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn definition(&self) -> ToolDefinition {
+        ToolDefinition::new(self.name.clone(), "defined at runtime")
+    }
+
+    fn call<'a>(&'a self, _arguments: &'a str, _cx: &'a Context) -> ToolFuture<'a> {
+        Box::pin(async move { Ok("ran the runtime tool".to_string()) })
+    }
 }
 
 /// Serves `responses` in order and returns the base URL plus every request body.
@@ -134,7 +187,7 @@ async fn answers_without_tool_calls() {
 #[tokio::test]
 async fn completes_a_full_tool_round_trip() {
     let (base, requests) = serve_many(vec![canned(CALLS_ADD), canned(ANSWER)]);
-    let agent = Agent::new(client(base)).tools([add]);
+    let agent = Agent::new(client(base)).tool(add);
 
     let mut messages = vec![Message::text(Role::User, "What is 20 + 22?")];
     let run = agent.run(&mut messages).await.unwrap();
@@ -152,7 +205,7 @@ async fn completes_a_full_tool_round_trip() {
 #[tokio::test]
 async fn stops_at_the_turn_bound() {
     let (base, _requests) = serve_many(vec![canned(CALLS_ADD), canned(CALLS_ADD)]);
-    let agent = Agent::new(client(base)).tools([add]).max_turns(2);
+    let agent = Agent::new(client(base)).tool(add).max_turns(2);
 
     let mut messages = vec![Message::text(Role::User, "loop")];
     let run = agent.run(&mut messages).await.unwrap();
@@ -165,7 +218,7 @@ async fn stops_at_the_turn_bound() {
 #[tokio::test]
 async fn sums_usage_across_turns() {
     let (base, _requests) = serve_many(vec![canned(CALLS_ADD), canned(ANSWER)]);
-    let agent = Agent::new(client(base)).tools([add]);
+    let agent = Agent::new(client(base)).tool(add);
 
     let mut messages = vec![Message::text(Role::User, "What is 20 + 22?")];
     let run = agent.run(&mut messages).await.unwrap();
@@ -180,7 +233,7 @@ const BAD_ARGS: &str = r#"{"id":"chatcmpl-1","model":"test-model","choices":[{"m
 #[tokio::test]
 async fn answers_an_unknown_tool_rather_than_skipping_it() {
     let (base, requests) = serve_many(vec![canned(UNKNOWN), canned(ANSWER)]);
-    let agent = Agent::new(client(base)).tools([add]);
+    let agent = Agent::new(client(base)).tool(add);
 
     let mut messages = vec![Message::text(Role::User, "go")];
     agent.run(&mut messages).await.unwrap();
@@ -194,7 +247,7 @@ async fn answers_an_unknown_tool_rather_than_skipping_it() {
 #[tokio::test]
 async fn feeds_a_tool_error_back_to_the_model() {
     let (base, requests) = serve_many(vec![canned(BAD_ARGS), canned(ANSWER)]);
-    let agent = Agent::new(client(base)).tools([add]);
+    let agent = Agent::new(client(base)).tool(add);
 
     let mut messages = vec![Message::text(Role::User, "go")];
     let run = agent.run(&mut messages).await.unwrap();
@@ -211,7 +264,7 @@ const CALLS_ECHO_THRICE: &str = r#"{"id":"chatcmpl-1","model":"test-model","choi
 #[tokio::test]
 async fn dispatches_parallel_calls_concurrently() {
     let (base, requests) = serve_many(vec![canned(CALLS_ECHO_THRICE), canned(ANSWER)]);
-    let agent = Agent::new(client(base)).tools([echo]);
+    let agent = Agent::new(client(base)).tool(echo);
 
     let mut messages = vec![Message::text(Role::User, "go")];
     let started = std::time::Instant::now();
@@ -261,7 +314,7 @@ async fn stops_when_the_generation_was_cut_short() {
 async fn downgrades_required_after_the_first_turn() {
     let (base, requests) = serve_many(vec![canned(CALLS_ADD), canned(ANSWER)]);
     let agent = Agent::new(client(base))
-        .tools([add])
+        .tool(add)
         .request(GenerateRequest::new().tool_choice(ToolChoice::Required));
 
     let mut messages = vec![Message::text(Role::User, "go")];
@@ -295,7 +348,7 @@ const ANTHROPIC_ANSWERS: &str = r#"{"id":"msg_2","model":"test-model","stop_reas
 #[tokio::test]
 async fn replays_opaque_reasoning_state_on_the_next_turn() {
     let (base, requests) = serve_many(vec![canned(THINKS_THEN_CALLS), canned(ANTHROPIC_ANSWERS)]);
-    let agent = Agent::new(anthropic_client(base)).tools([add]);
+    let agent = Agent::new(anthropic_client(base)).tool(add);
 
     let mut messages = vec![Message::text(Role::User, "What is 20 + 22?")];
     let run = agent.run(&mut messages).await.unwrap();
@@ -330,4 +383,101 @@ async fn chat_carries_the_transcript_between_asks() {
     assert!(second.contains("first question"));
     assert!(second.contains("second question"));
     assert_eq!(chat.messages().len(), 4);
+}
+
+const CALLS_COUNTER: &str = r#"{"id":"chatcmpl-1","model":"test-model","choices":[{"message":{"role":"assistant","content":null,"tool_calls":[{"id":"call_c1","type":"function","function":{"name":"counter","arguments":"{}"}}]},"finish_reason":"tool_calls"}]}"#;
+
+const CALLS_WHOAMI: &str = r#"{"id":"chatcmpl-1","model":"test-model","choices":[{"message":{"role":"assistant","content":null,"tool_calls":[{"id":"call_w1","type":"function","function":{"name":"whoami","arguments":"{}"}}]},"finish_reason":"tool_calls"}]}"#;
+
+const CALLS_SEALED: &str = r#"{"id":"chatcmpl-1","model":"test-model","choices":[{"message":{"role":"assistant","content":null,"tool_calls":[{"id":"call_s1","type":"function","function":{"name":"sealed","arguments":"{}"}}]},"finish_reason":"tool_calls"}]}"#;
+
+const CALLS_RUNTIME: &str = r#"{"id":"chatcmpl-1","model":"test-model","choices":[{"message":{"role":"assistant","content":null,"tool_calls":[{"id":"call_r1","type":"function","function":{"name":"lookup_v2","arguments":"{}"}}]},"finish_reason":"tool_calls"}]}"#;
+
+#[tokio::test]
+async fn a_stateful_tool_keeps_its_state_across_the_run() {
+    let (base, _requests) = serve_many(vec![canned(CALLS_COUNTER), canned(ANSWER)]);
+    let calls = Arc::new(AtomicUsize::new(0));
+    let agent = Agent::new(client(base)).tool(Counter {
+        calls: Arc::clone(&calls),
+    });
+
+    let before = calls.load(Ordering::SeqCst);
+    let mut messages = vec![Message::text(Role::User, "go")];
+    let run = agent.run(&mut messages).await.unwrap();
+
+    assert_eq!(run.stop, StopReason::Answered);
+    assert!(calls.load(Ordering::SeqCst) > before);
+}
+
+#[tokio::test]
+async fn a_tool_reads_per_run_state_out_of_the_context() {
+    let (base, requests) = serve_many(vec![canned(CALLS_WHOAMI), canned(ANSWER)]);
+    let agent = Agent::new(client(base)).tool(whoami);
+
+    let mut context = Context::new();
+    context.insert(UserId("u-42".to_string()));
+
+    let mut messages = vec![Message::text(Role::User, "who am I?")];
+    let run = agent.run_with(&mut messages, &context).await.unwrap();
+
+    assert_eq!(run.stop, StopReason::Answered);
+    let _first = requests.recv().unwrap();
+    let second = requests.recv().unwrap();
+    assert!(second.contains("call_w1"));
+    // The macro serialises with serde, so a `String` result is JSON-quoted and
+    // those quotes are escaped again inside the request body.
+    assert!(second.contains(r#"\"u-42\""#));
+}
+
+#[tokio::test]
+async fn a_missing_context_value_reaches_the_model_as_text() {
+    let (base, requests) = serve_many(vec![canned(CALLS_WHOAMI), canned(ANSWER)]);
+    let agent = Agent::new(client(base)).tool(whoami);
+
+    let mut messages = vec![Message::text(Role::User, "who am I?")];
+    // `run` supplies an empty context, so the tool fails rather than panicking.
+    let run = agent.run(&mut messages).await.unwrap();
+
+    assert_eq!(run.stop, StopReason::Answered);
+    let _first = requests.recv().unwrap();
+    let second = requests.recv().unwrap();
+    assert!(second.contains("call_w1"));
+    assert!(second.contains("context is missing a value of type"));
+    assert!(second.contains("UserId"));
+    assert!(!second.contains(r#"\"u-42\""#));
+}
+
+#[tokio::test]
+async fn a_fallible_tool_reports_its_error_as_a_tool_result() {
+    let (base, requests) = serve_many(vec![canned(CALLS_SEALED), canned(ANSWER)]);
+    let agent = Agent::new(client(base)).tool(sealed);
+
+    let mut messages = vec![Message::text(Role::User, "open it")];
+    let run = agent.run(&mut messages).await.unwrap();
+
+    assert_eq!(run.stop, StopReason::Answered);
+    let _first = requests.recv().unwrap();
+    let second = requests.recv().unwrap();
+    assert!(second.contains("call_s1"));
+    // `Display`, not `Debug`: no `Execution(..)` wrapper around the message.
+    assert!(second.contains("error: the vault is sealed"));
+}
+
+#[tokio::test]
+async fn a_runtime_named_tool_is_dispatched_by_its_name() {
+    let (base, requests) = serve_many(vec![canned(CALLS_RUNTIME), canned(ANSWER)]);
+    let name = format!("lookup_v{}", 2);
+    let tools: Vec<Arc<dyn Tool>> = vec![Arc::new(Runtime { name })];
+    let agent = Agent::new(client(base)).tools(tools);
+
+    let mut messages = vec![Message::text(Role::User, "go")];
+    let run = agent.run(&mut messages).await.unwrap();
+
+    assert_eq!(run.stop, StopReason::Answered);
+    let first = requests.recv().unwrap();
+    assert!(first.contains("lookup_v2"));
+    let second = requests.recv().unwrap();
+    // A hand-written tool returns its own string, so no serde quoting here.
+    assert!(second.contains("ran the runtime tool"));
+    assert!(!second.contains("unknown tool"));
 }

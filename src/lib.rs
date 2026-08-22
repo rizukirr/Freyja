@@ -32,12 +32,12 @@
 //!
 //! # Tool calling
 //!
-//! [`tool`] turns a typed function into a callable [`Tool`]. Its
-//! parameters generate the JSON Schema sent to the model, and [`Tool::execute`]
+//! [`tool`] turns a typed function into a type implementing [`Tool`]. Its
+//! parameters generate the JSON Schema sent to the model, and [`Tool::call`]
 //! deserializes a requested call and serializes the result:
 //!
 //! ```
-//! use freyja::{Tool, tool};
+//! use freyja::{Context, Tool, tool};
 //!
 //! #[tool(description = "adds two numbers together", strict = true)]
 //! fn add(a: i64, b: i64) -> i64 {
@@ -45,10 +45,8 @@
 //! }
 //!
 //! # tokio::runtime::Runtime::new().unwrap().block_on(async {
-//! let tools = [add];
-//! let definitions = tools.iter().map(|tool| tool.definition()).collect::<Vec<_>>();
-//! assert_eq!(definitions[0].name, "add");
-//! assert_eq!(add.execute(r#"{"a":20,"b":22}"#).await.unwrap(), "42");
+//! assert_eq!(add.definition().name, "add");
+//! assert_eq!(add.call(r#"{"a":20,"b":22}"#, &Context::new()).await.unwrap(), "42");
 //! # });
 //! ```
 //!
@@ -125,9 +123,9 @@ pub use endpoint::{Auth, EndpointConfig, EndpointPreset, TokenLimitField};
 pub use error::{Error, TransportError};
 pub use freyja_macros::tool;
 pub use model::{
-    GenerateRequest, GenerateResponse, InputContent, Message, OutputContent, ReasoningEffort,
-    ResponseFormat, ResponseStatus, Role, Tool, ToolChoice, ToolDefinition, ToolError, ToolFuture,
-    Usage, strict_schema,
+    Context, GenerateRequest, GenerateResponse, InputContent, Message, OutputContent,
+    ReasoningEffort, ResponseFormat, ResponseStatus, Role, Tool, ToolChoice, ToolDefinition,
+    ToolError, ToolFuture, Usage, strict_schema,
 };
 pub use stream::{EventStream, StreamEvent};
 

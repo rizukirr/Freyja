@@ -1,9 +1,10 @@
 //! Driving the tool-calling loop.
 
 use crate::{
-    Client, Error, GenerateRequest, Message, OutputContent, ResponseStatus, Tool, ToolChoice,
-    ToolDefinition, Usage,
+    Client, Context, Error, GenerateRequest, Message, OutputContent, ResponseStatus, Tool,
+    ToolChoice, ToolDefinition, Usage,
 };
+use std::sync::Arc;
 
 /// Runs the tool-calling loop against a set of tools.
 ///
@@ -12,7 +13,7 @@ use crate::{
 #[derive(Clone)]
 pub struct Agent {
     client: Client,
-    tools: Vec<Tool>,
+    tools: Vec<Arc<dyn Tool>>,
     definitions: Vec<ToolDefinition>,
     template: GenerateRequest,
     max_turns: usize,
@@ -60,14 +61,41 @@ impl Agent {
         }
     }
 
-    /// Sets the tools the model may call.
+    /// Adds a tool, replacing any already registered under the same name.
     ///
-    /// Their provider-facing definitions are built here, once, rather than on
-    /// every run.
-    pub fn tools(mut self, tools: impl Into<Vec<Tool>>) -> Self {
-        self.tools = tools.into();
-        self.definitions = self.tools.iter().map(|tool| tool.definition()).collect();
+    /// Its provider-facing definition is built here, once, rather than on every
+    /// run.
+    pub fn tool(mut self, tool: impl Tool + 'static) -> Self {
+        self.insert(Arc::new(tool));
         self
+    }
+
+    /// Adds tools whose types are already erased, as a runtime source hands them over.
+    ///
+    /// Each replaces any already registered under the same name.
+    pub fn tools(mut self, tools: impl IntoIterator<Item = Arc<dyn Tool>>) -> Self {
+        for tool in tools {
+            self.insert(tool);
+        }
+        self
+    }
+
+    fn insert(&mut self, tool: Arc<dyn Tool>) {
+        let definition = tool.definition();
+        match self
+            .tools
+            .iter()
+            .position(|existing| existing.name() == tool.name())
+        {
+            Some(index) => {
+                self.tools[index] = tool;
+                self.definitions[index] = definition;
+            }
+            None => {
+                self.tools.push(tool);
+                self.definitions.push(definition);
+            }
+        }
     }
 
     /// Sets the request every turn is built from: model, temperature, tool choice.
@@ -93,7 +121,9 @@ impl Agent {
     /// `ToolChoice::Required` is sent on the first turn only and downgraded to
     /// `ToolChoice::Auto` afterwards. Left in place it would force a tool call
     /// every round, and the model could never produce a final answer.
-    pub async fn run(&self, messages: &mut Vec<Message>) -> Result<Run, Error> {
+    ///
+    /// `cx` is handed to every tool call and is never sent to the model.
+    pub async fn run_with(&self, messages: &mut Vec<Message>, cx: &Context) -> Result<Run, Error> {
         let original_len = messages.len();
         let mut request = self.template.clone();
         request.messages = core::mem::take(messages);
@@ -172,7 +202,7 @@ impl Agent {
             let outputs = futures_util::future::join_all(
                 calls
                     .iter()
-                    .map(|(_, name, arguments)| self.dispatch(name, arguments)),
+                    .map(|(_, name, arguments)| self.dispatch(name, arguments, cx)),
             )
             .await;
 
@@ -194,13 +224,20 @@ impl Agent {
         })
     }
 
+    /// Runs the tool loop, extending `messages` in place.
+    ///
+    /// Equivalent to [`Agent::run_with`] with an empty context.
+    pub async fn run(&self, messages: &mut Vec<Message>) -> Result<Run, Error> {
+        self.run_with(messages, &Context::new()).await
+    }
+
     /// Runs one requested call, turning every failure into text for the model.
-    async fn dispatch(&self, name: &str, arguments: &str) -> String {
-        match self.tools.iter().copied().find(|tool| tool.name() == name) {
+    async fn dispatch(&self, name: &str, arguments: &str, cx: &Context) -> String {
+        match self.tools.iter().find(|tool| tool.name() == name) {
             Some(tool) => tool
-                .execute(arguments)
+                .call(arguments, cx)
                 .await
-                .unwrap_or_else(|error| format!("error: {error:?}")),
+                .unwrap_or_else(|error| format!("error: {error}")),
             None => format!("error: unknown tool '{name}'"),
         }
     }
@@ -229,9 +266,18 @@ pub struct Chat {
 impl Chat {
     /// Appends a user turn and runs the loop over the whole conversation.
     pub async fn ask(&mut self, prompt: impl Into<String>) -> Result<&Run, Error> {
+        self.ask_with(prompt, &Context::new()).await
+    }
+
+    /// Appends a user turn and runs the loop with per-run context.
+    pub async fn ask_with(
+        &mut self,
+        prompt: impl Into<String>,
+        cx: &Context,
+    ) -> Result<&Run, Error> {
         self.messages
             .push(Message::text(crate::Role::User, prompt.into()));
-        let run = self.agent.run(&mut self.messages).await?;
+        let run = self.agent.run_with(&mut self.messages, cx).await?;
         Ok(self.last.insert(run))
     }
 
@@ -249,14 +295,39 @@ impl Chat {
 #[cfg(test)]
 mod tests {
     use super::Agent;
-    use crate::{Client, Dialect, Tool, ToolDefinition, ToolError};
+    use crate::{Client, Context, Dialect, Tool, ToolDefinition, ToolFuture};
 
-    fn definition() -> ToolDefinition {
-        ToolDefinition::new("add", "adds two numbers")
+    struct Add;
+
+    impl Tool for Add {
+        fn name(&self) -> &str {
+            "add"
+        }
+
+        fn definition(&self) -> ToolDefinition {
+            ToolDefinition::new("add", "adds two numbers")
+        }
+
+        fn call<'a>(&'a self, _arguments: &'a str, _cx: &'a Context) -> ToolFuture<'a> {
+            Box::pin(async { Ok("42".to_string()) })
+        }
     }
 
-    fn execute(_arguments: &str) -> Result<String, ToolError> {
-        Ok("42".to_string())
+    /// A second tool under the same name, to prove registration replaces.
+    struct AddAgain;
+
+    impl Tool for AddAgain {
+        fn name(&self) -> &str {
+            "add"
+        }
+
+        fn definition(&self) -> ToolDefinition {
+            ToolDefinition::new("add", "adds two numbers, again")
+        }
+
+        fn call<'a>(&'a self, _arguments: &'a str, _cx: &'a Context) -> ToolFuture<'a> {
+            Box::pin(async { Ok("43".to_string()) })
+        }
     }
 
     fn client() -> Client {
@@ -275,8 +346,18 @@ mod tests {
 
     #[test]
     fn tools_builds_definitions_once() {
-        let agent = Agent::new(client()).tools([Tool::new("add", definition, execute)]);
+        let agent = Agent::new(client()).tool(Add);
         assert_eq!(agent.definitions.len(), agent.tools.len());
         assert_eq!(agent.definitions[0].name, "add");
+    }
+
+    #[test]
+    fn registering_the_same_name_replaces_rather_than_shadows() {
+        let agent = Agent::new(client()).tool(Add).tool(AddAgain);
+        assert_eq!(agent.tools.len(), agent.definitions.len());
+        assert_eq!(
+            agent.definitions[0].description.as_deref(),
+            Some("adds two numbers, again")
+        );
     }
 }
