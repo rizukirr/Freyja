@@ -1,5 +1,8 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::any::{Any, TypeId};
+use std::collections::HashMap;
+use std::fmt;
 use std::future::Future;
 use std::pin::Pin;
 
@@ -85,6 +88,71 @@ pub enum ToolError {
     Result(serde_json::Error),
 }
 
+impl fmt::Display for ToolError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Arguments(error) => write!(formatter, "invalid arguments: {error}"),
+            Self::Execution(message) => write!(formatter, "{message}"),
+            Self::Result(error) => write!(formatter, "result could not be serialized: {error}"),
+        }
+    }
+}
+
+impl std::error::Error for ToolError {}
+
+/// Per-run data handed to every tool call.
+///
+/// Keyed by type, so two values of the same type collide: give distinct values
+/// distinct newtypes, as `http::Extensions` requires.
+///
+/// State known when a tool is *built* — a database handle, an HTTP client, a
+/// rate limiter — belongs in the tool's own fields instead. `Context` is for
+/// state that is not known until the call arrives: a user id, a request id, a
+/// cancellation token, a tracing span.
+#[derive(Default)]
+pub struct Context {
+    map: HashMap<TypeId, Box<dyn Any + Send + Sync>>,
+}
+
+impl Context {
+    /// Creates an empty context.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Stores a value, replacing any previous value of the same type.
+    pub fn insert<T: Any + Send + Sync>(&mut self, value: T) -> &mut Self {
+        self.map.insert(TypeId::of::<T>(), Box::new(value));
+        self
+    }
+
+    /// Borrows a stored value, if one of this type was inserted.
+    pub fn get<T: Any + Send + Sync>(&self) -> Option<&T> {
+        self.map
+            .get(&TypeId::of::<T>())
+            .and_then(|value| value.downcast_ref::<T>())
+    }
+
+    /// Borrows a stored value, or fails with a message naming the missing type.
+    pub fn require<T: Any + Send + Sync>(&self) -> Result<&T, ToolError> {
+        self.get::<T>().ok_or_else(|| {
+            ToolError::Execution(format!(
+                "context is missing a value of type {}",
+                core::any::type_name::<T>()
+            ))
+        })
+    }
+}
+
+impl fmt::Debug for Context {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("Context")
+            .field("len", &self.map.len())
+            .finish()
+    }
+}
+
 /// A function the model is allowed to call.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ToolDefinition {
@@ -135,7 +203,7 @@ pub enum ToolChoice {
 
 #[cfg(test)]
 mod tests {
-    use super::{Tool, ToolDefinition, ToolError, ToolFuture};
+    use super::{Context, Tool, ToolDefinition, ToolError, ToolFuture};
 
     fn definition() -> ToolDefinition {
         ToolDefinition::new("add", "adds two numbers")
@@ -182,5 +250,41 @@ mod tests {
             tool.execute("not json").await,
             Err(ToolError::Arguments(_))
         ));
+    }
+
+    #[test]
+    fn context_round_trips_a_value_by_type() {
+        struct UserId(String);
+        let mut context = Context::new();
+        context.insert(UserId("u-1".to_string()));
+        assert_eq!(context.get::<UserId>().map(|id| id.0.as_str()), Some("u-1"));
+    }
+
+    #[test]
+    fn context_insert_replaces_the_same_type() {
+        struct UserId(String);
+        let mut context = Context::new();
+        context.insert(UserId("first".to_string()));
+        context.insert(UserId("second".to_string()));
+        assert_eq!(
+            context.get::<UserId>().map(|id| id.0.as_str()),
+            Some("second")
+        );
+    }
+
+    #[test]
+    fn require_names_the_missing_type() {
+        struct Missing;
+        let error = Context::new()
+            .require::<Missing>()
+            .err()
+            .expect("an absent type must fail");
+        assert!(error.to_string().contains("Missing"));
+    }
+
+    #[test]
+    fn tool_error_display_is_not_debug_syntax() {
+        let error = ToolError::Execution("no such user".to_string());
+        assert_eq!(error.to_string(), "no such user");
     }
 }

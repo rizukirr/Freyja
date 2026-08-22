@@ -10,6 +10,6 @@ pub use message::{InputContent, Message, ReasoningEffort, Role};
 pub use request::GenerateRequest;
 pub use response::{GenerateResponse, OutputContent, ResponseStatus, Usage};
 pub use schema::{ResponseFormat, strict_schema};
-pub use tools::{Tool, ToolChoice, ToolDefinition, ToolError, ToolFuture};
+pub use tools::{Context, Tool, ToolChoice, ToolDefinition, ToolError, ToolFuture};
 
 pub(crate) use request::merge_into;
