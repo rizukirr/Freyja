@@ -12,6 +12,11 @@ on:
 env:
   CARGO_TERM_COLOR: always
 
+# There is deliberately no publish job. crates.io is uploaded to by hand, from
+# a maintainer's machine, with `scripts/release.sh` — so no registry token
+# exists in this repository and no workflow can publish regardless of who
+# triggers it. The script carries the publish order and the retry handling.
+
 jobs:
   verify:
     name: Verify (${{ matrix.os }})
@@ -65,42 +70,3 @@ jobs:
         run: gh release upload "${{ inputs.tag || github.ref_name }}" target/package/*.crate --clobber
         env:
           GH_TOKEN: ${{ github.token }}
-
-  publish:
-    name: Publish to crates.io
-    needs: package
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ inputs.tag || github.ref }}
-      # Skipped silently when the token is not configured, so tagging a release
-      # does not fail for anyone who has not set the secret.
-      #
-      # This is a two-crate workspace and the order is not optional. `freyja`
-      # depends on `freyja-macros` by version once `cargo package` strips the
-      # path, so the macro crate has to exist on crates.io first or the root
-      # crate is rejected against a version that was never uploaded.
-      - name: Publish freyja-macros
-        if: env.CARGO_REGISTRY_TOKEN != ''
-        run: |
-          # crates.io is append-only, so a run that uploads the macro crate and
-          # then fails leaves that version permanently taken. Treat an existing
-          # version as success so re-running the workflow resumes rather than
-          # dead-ending on a version number that can never be reused. Any other
-          # failure still fails the job.
-          if output=$(cargo publish -p freyja-macros 2>&1); then
-            echo "$output"
-          else
-            echo "$output"
-            echo "$output" | grep -qE 'already (exists|uploaded)' || exit 1
-            echo "freyja-macros at this version is already published; continuing."
-          fi
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-
-      - name: Publish freyja
-        if: env.CARGO_REGISTRY_TOKEN != ''
-        run: cargo publish -p freyja
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
