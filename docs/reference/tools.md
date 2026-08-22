@@ -1,8 +1,8 @@
 # Tool calling
 
-Tool calling lets the model ask you to run a function and then use the result. In Freyja the full round trip works on every provider, and it is the foundation the agent loop will be built on.
+Tool calling lets the model ask you to run a function and then use the result. In Freyja the full round trip works on every provider, and it is what [`Agent`](../building-an-agent.md) is built on.
 
-`#[tool]` generates typed argument parsing and execution, but Freyja does not run the model loop automatically. You choose which tools are available, dispatch requested names, and feed the results back.
+`#[tool]` generates typed argument parsing and execution. You can drive the loop yourself — choose which tools are available, dispatch requested names, feed the results back — or hand the whole cycle to `Agent`. This page is the tool half; the loop is [Building an agent](../building-an-agent.md).
 
 ## The shape of a round trip
 

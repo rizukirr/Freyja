@@ -35,6 +35,10 @@ Streaming delivers the same answer incrementally, and a drained stream converts 
 | Multi-turn conversations | Yes, transcripts are plain data you own |
 | Reasoning state replay | Handled for you, see [Concepts](concepts.md#opaque-state) |
 | Automatic loop orchestration | `Agent` runs the tool-calling loop for you and dispatches parallel tool calls concurrently |
+| Tools that hold state | Implement `Tool` on a struct; its fields are per-agent state |
+| Per-run data in a tool | `Context` is handed to every call and never sent to the model |
+| Tools defined at runtime | `name` and `definition` are values, so an MCP-shaped tool needs no compile-time type |
+| Tools that fail | A `Result` return reaches the model as error text it can recover from |
 
 The round trip is the load-bearing feature. A model asks for a function, you run it, you feed the result back, and it continues. [Building an agent](building-an-agent.md) is the guide.
 

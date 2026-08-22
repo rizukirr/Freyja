@@ -130,7 +130,7 @@ The goal: everything you need to build an AI agent in Rust, with no vendor lock-
 
 **Phase 1, production-grade provider layer.** Complete. Four dialects, the dialect/endpoint split, streaming, typed errors, pre-flight checking, typed responses, and strict-mode schema rewriting.
 
-**Phase 2, the agent.** In progress. `Tool` and `#[tool]` now derive schemas from sync or async function signatures and provide typed execution, and `Agent` now drives the tool-calling loop automatically, dispatching parallel tool calls concurrently. Still planned: per-tool timeouts and approval hooks.
+**Phase 2, the agent.** In progress. `Tool` and `#[tool]` derive schemas from sync or async function signatures and provide typed execution, and `Agent` drives the tool-calling loop automatically, dispatching parallel tool calls concurrently. `Tool` is now a trait, so a tool can hold state in its fields, be built at runtime, and report failure as text the model recovers from; `Context` carries per-run data to every call without exposing it to the model. Still planned: per-tool timeouts and approval hooks.
 
 **Phase 3, memory and context.** A `Memory` trait, context-window management with truncation and summarization, persistent backends, and retrieval with embeddings and a vector store.
 
