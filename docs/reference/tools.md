@@ -407,6 +407,6 @@ What the guard does not get is the tool's parsed Rust argument struct. Parsing h
 
 ## What does not exist yet
 
-**Per-tool timeouts are out of scope, deliberately.** Racing a call against a clock needs a timer, and Freyja depends on no async runtime so it has none to reach for. Every caller already does. A wrapper tool that holds the inner one in an `Arc` and applies your runtime's timeout is a dozen lines, and wraps an erased `Arc<dyn Tool>` as readily as a tool you wrote yourself; the [`Tool`](https://docs.rs/freyja/latest/freyja/trait.Tool.html) documentation carries the implementation. A call that runs out of budget reaches the model as `error: …`, the same channel every other tool failure uses.
+**Per-tool timeouts are out of scope, deliberately.** Racing a call against a clock needs a timer, and Freyja depends on no async runtime so it has none to reach for. Every caller already does. A short wrapper tool that holds the inner one in an `Arc` and applies your runtime's timeout wraps an erased `Arc<dyn Tool>` as readily as a tool you wrote yourself; the [`Tool`](https://docs.rs/freyja/latest/freyja/trait.Tool.html) documentation carries the implementation. A call that runs out of budget reaches the model as `error: …`, the same channel every other tool failure uses.
 
-What is missing is enforcement that a result's `call_id` matches a real call. That one is a Phase 2 item on the [roadmap](../../README.md#roadmap).
+What is missing is enforcement that a result's `call_id` matches a real call. Nothing checks it today.
