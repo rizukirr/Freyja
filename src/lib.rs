@@ -116,7 +116,7 @@ pub mod model;
 pub mod stream;
 mod transport;
 
-pub use agent::{Agent, Chat, Run, StopReason};
+pub use agent::{Agent, Chat, Decision, Run, StopReason};
 pub use client::Client;
 pub use dialect::Dialect;
 pub use endpoint::{Auth, EndpointConfig, EndpointPreset, TokenLimitField};

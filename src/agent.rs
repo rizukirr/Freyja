@@ -17,6 +17,8 @@ pub struct Agent {
     definitions: Vec<ToolDefinition>,
     template: GenerateRequest,
     max_turns: usize,
+    #[allow(clippy::type_complexity)]
+    guard: Option<Arc<dyn Fn(&str, &str, &Context) -> Decision + Send + Sync>>,
 }
 
 /// What one call to [`Agent::run`] produced.
@@ -49,6 +51,19 @@ pub enum StopReason {
     Failed,
 }
 
+/// What a guard decided about one requested tool call.
+///
+/// A `Deny` reaches the model as tool-result text, so the reason is the
+/// model's only route to recovering — apologising, asking for permission, or
+/// trying something else. A denial with no usable reason burns turns.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Decision {
+    /// Run the tool.
+    Allow,
+    /// Refuse, and tell the model why.
+    Deny(String),
+}
+
 impl Agent {
     /// Creates an agent with no tools and a turn bound of five.
     pub fn new(client: Client) -> Self {
@@ -58,6 +73,7 @@ impl Agent {
             definitions: Vec::new(),
             template: GenerateRequest::new(),
             max_turns: 5,
+            guard: None,
         }
     }
 
@@ -109,6 +125,25 @@ impl Agent {
     /// Sets how many requests one run may make before giving up.
     pub fn max_turns(mut self, turns: usize) -> Self {
         self.max_turns = turns;
+        self
+    }
+
+    /// Sets a guard consulted before every tool call.
+    ///
+    /// It receives the tool name, the model's raw JSON arguments, and the run
+    /// context. Returning [`Decision::Deny`] stops the call and sends the
+    /// reason to the model instead of running anything.
+    ///
+    /// The guard sees every requested name, including names registered through
+    /// [`Agent::tools`] and names matching no tool at all, so a policy written
+    /// here cannot be bypassed by a tool someone forgot to wrap. It is
+    /// synchronous: there is nothing to await, and keeping it so keeps it out
+    /// of the boxed-future machinery.
+    pub fn guard(
+        mut self,
+        guard: impl Fn(&str, &str, &Context) -> Decision + Send + Sync + 'static,
+    ) -> Self {
+        self.guard = Some(Arc::new(guard));
         self
     }
 
@@ -231,8 +266,17 @@ impl Agent {
         self.run_with(messages, &Context::new()).await
     }
 
-    /// Runs one requested call, turning every failure into text for the model.
+    /// Runs one requested call, turning every refusal and failure into text
+    /// for the model.
+    ///
+    /// The guard runs before the lookup, so no name reaches a tool without
+    /// passing it.
     async fn dispatch(&self, name: &str, arguments: &str, cx: &Context) -> String {
+        if let Some(guard) = &self.guard
+            && let Decision::Deny(reason) = guard(name, arguments, cx)
+        {
+            return format!("denied: {reason}");
+        }
         match self.tools.iter().find(|tool| tool.name() == name) {
             Some(tool) => tool
                 .call(arguments, cx)
@@ -295,7 +339,7 @@ impl Chat {
 #[cfg(test)]
 mod tests {
     use super::Agent;
-    use crate::{Client, Context, Dialect, Tool, ToolDefinition, ToolFuture};
+    use crate::{Client, Context, Decision, Dialect, Tool, ToolDefinition, ToolFuture};
 
     struct Add;
 
@@ -359,5 +403,25 @@ mod tests {
             agent.definitions[0].description.as_deref(),
             Some("adds two numbers, again")
         );
+    }
+
+    #[test]
+    fn an_agent_without_a_guard_holds_none() {
+        assert!(Agent::new(client()).guard.is_none());
+    }
+
+    #[test]
+    fn a_guard_is_stored_and_callable() {
+        let agent = Agent::new(client()).guard(|name, _arguments, _cx| {
+            if name == "wipe" {
+                Decision::Deny("no".to_string())
+            } else {
+                Decision::Allow
+            }
+        });
+        let guard = agent.guard.as_ref().expect("a guard was set");
+        let cx = Context::new();
+        assert_eq!(guard("wipe", "{}", &cx), Decision::Deny("no".to_string()));
+        assert_eq!(guard("add", "{}", &cx), Decision::Allow);
     }
 }
