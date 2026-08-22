@@ -159,6 +159,10 @@ Each `Message::tool_result` answers exactly one call id. When the model requests
 
 A model may ask for several tools at once. `tool_calls()` yields all of them. Run them concurrently if they are independent, but send every result back before the next request; a call left unanswered is an error on most providers.
 
+### A timeout only bounds a tool that awaits
+
+Freyja has no per-tool budget, deliberately: a timer belongs to a runtime, and Freyja depends on none. You add one by wrapping the tool in another tool that applies your runtime's timeout, which the [`Tool`](https://docs.rs/freyja/latest/freyja/trait.Tool.html) documentation spells out. What the wrapper cannot do is interrupt work that never yields. A timeout fires only when the inner future returns to the executor, so a tool that blocks the thread runs to completion past its budget and starves its siblings while it does, because concurrent dispatch drives them all on one task.
+
 ## Making it real
 
 The loop above is the skeleton. Three things separate it from something you would deploy.
