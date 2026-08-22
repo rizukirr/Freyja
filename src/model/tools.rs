@@ -20,6 +20,63 @@ pub type ToolFuture<'a> = Pin<Box<dyn Future<Output = Result<String, ToolError>>
 /// Boxed rather than `async fn` in the trait: `async fn` in traits is stable but
 /// not `dyn`-compatible, and [`crate::Agent`] stores trait objects. The future is
 /// `Send` so several calls can be driven at once.
+///
+/// Composition is how behaviour Freyja does not own gets added. A budget, for
+/// instance — including for a tool you did not write, since `Arc<dyn Tool>`
+/// wraps as readily as a concrete type:
+///
+/// ```
+/// use freyja::{Context, Tool, ToolDefinition, ToolError, ToolFuture};
+/// use std::sync::Arc;
+/// use std::time::Duration;
+///
+/// struct Timeout<T: ?Sized> {
+///     inner: Arc<T>,
+///     budget: Duration,
+/// }
+///
+/// impl<T: Tool + ?Sized> Tool for Timeout<T> {
+///     fn name(&self) -> &str {
+///         self.inner.name()
+///     }
+///
+///     fn definition(&self) -> ToolDefinition {
+///         self.inner.definition()
+///     }
+///
+///     fn call<'a>(&'a self, arguments: &'a str, cx: &'a Context) -> ToolFuture<'a> {
+///         Box::pin(async move {
+///             tokio::time::timeout(self.budget, self.inner.call(arguments, cx))
+///                 .await
+///                 .unwrap_or_else(|_| {
+///                     Err(ToolError::Execution(format!(
+///                         "timed out after {:?}",
+///                         self.budget
+///                     )))
+///                 })
+///         })
+///     }
+/// }
+///
+/// # struct Slow;
+/// # impl Tool for Slow {
+/// #     fn name(&self) -> &str { "slow" }
+/// #     fn definition(&self) -> ToolDefinition { ToolDefinition::new("slow", "slow") }
+/// #     fn call<'a>(&'a self, _a: &'a str, _c: &'a Context) -> ToolFuture<'a> {
+/// #         Box::pin(async { Ok("done".to_string()) })
+/// #     }
+/// # }
+/// # fn assert_tool<T: Tool>(_t: &T) {}
+/// # let erased: Arc<dyn Tool> = Arc::new(Slow);
+/// # assert_tool(&Timeout { inner: erased, budget: Duration::from_secs(5) });
+/// # assert_tool(&Timeout { inner: Arc::new(Slow), budget: Duration::from_secs(5) });
+/// ```
+///
+/// A timed-out call reaches the model as `error: timed out after …`, the same
+/// channel every other tool failure uses, so it can react rather than the run
+/// ending. Dropping the inner future cancels it — but only work that is
+/// actually awaiting. A tool that blocks without awaiting starves its siblings
+/// under [`crate::Agent`]'s concurrent dispatch and no timer fires.
 pub trait Tool: Send + Sync {
     /// The name the model calls this tool by.
     fn name(&self) -> &str;
