@@ -395,6 +395,9 @@ const CALLS_RUNTIME: &str = r#"{"id":"chatcmpl-1","model":"test-model","choices"
 
 const CALLS_GHOST: &str = r#"{"id":"chatcmpl-1","model":"test-model","choices":[{"message":{"role":"assistant","content":null,"tool_calls":[{"id":"call_g1","type":"function","function":{"name":"ghost","arguments":"{}"}}]},"finish_reason":"tool_calls"}]}"#;
 
+/// Same tool as [`CALLS_ADD`], differing only in its arguments.
+const CALLS_ADD_99: &str = r#"{"id":"chatcmpl-1","model":"test-model","choices":[{"message":{"role":"assistant","content":null,"tool_calls":[{"id":"call_a99","type":"function","function":{"name":"add","arguments":"{\"a\":99,\"b\":1}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":5,"completion_tokens":5,"total_tokens":10}}"#;
+
 #[tokio::test]
 async fn a_stateful_tool_keeps_its_state_across_the_run() {
     let (base, _requests) = serve_many(vec![canned(CALLS_COUNTER), canned(ANSWER)]);
@@ -569,27 +572,43 @@ async fn the_guard_reads_the_context() {
     assert!(!second.contains("no user on this run"));
 }
 
+/// Refuses a call on its argument content alone, ignoring name and context.
+fn refuses_ninety_nine(_name: &str, arguments: &str, _cx: &Context) -> Decision {
+    if arguments.contains(r#""a":99"#) {
+        Decision::Deny("99 is reserved".to_string())
+    } else {
+        Decision::Allow
+    }
+}
+
 #[tokio::test]
 async fn the_guard_reads_the_raw_arguments() {
-    let (base, requests) = serve_many(vec![canned(CALLS_ADD), canned(ANSWER)]);
-    let agent =
-        Agent::new(client(base))
-            .tool(add)
-            .guard(|_name: &str, arguments: &str, _cx: &Context| {
-                if arguments.contains(r#""a":99"#) {
-                    Decision::Deny("99 is reserved".to_string())
-                } else {
-                    Decision::Allow
-                }
-            });
+    // Same tool, same guard: only the arguments decide.
+    let (denied_base, denied_requests) = serve_many(vec![canned(CALLS_ADD_99), canned(ANSWER)]);
+    let denied = Agent::new(client(denied_base))
+        .tool(add)
+        .guard(refuses_ninety_nine);
 
-    // The scripted call passes `a: 20`, so it does not match the condition.
+    let mut messages = vec![Message::text(Role::User, "What is 99 + 1?")];
+    denied.run(&mut messages).await.expect("run");
+
+    let _first = denied_requests.recv().unwrap();
+    let second = denied_requests.recv().unwrap();
+    assert!(second.contains("call_a99"));
+    assert!(second.contains("denied: 99 is reserved"));
+    assert!(!second.contains(r#""content":"100""#));
+
+    let (allowed_base, allowed_requests) = serve_many(vec![canned(CALLS_ADD), canned(ANSWER)]);
+    let allowed = Agent::new(client(allowed_base))
+        .tool(add)
+        .guard(refuses_ninety_nine);
+
     let mut messages = vec![Message::text(Role::User, "What is 20 + 22?")];
-    let run = agent.run(&mut messages).await.expect("run");
+    let run = allowed.run(&mut messages).await.expect("run");
 
     assert_eq!(run.stop, StopReason::Answered);
-    let _first = requests.recv().unwrap();
-    let second = requests.recv().unwrap();
+    let _first = allowed_requests.recv().unwrap();
+    let second = allowed_requests.recv().unwrap();
     assert!(second.contains(r#""content":"42""#));
     assert!(!second.contains("99 is reserved"));
     assert!(!second.contains("denied:"));

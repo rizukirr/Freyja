@@ -6,6 +6,9 @@ use crate::{
 };
 use std::sync::Arc;
 
+/// The closure an [`Agent`] consults before running a tool.
+type GuardFn = dyn Fn(&str, &str, &Context) -> Decision + Send + Sync;
+
 /// Runs the tool-calling loop against a set of tools.
 ///
 /// `Agent` holds configuration only. The transcript belongs to the caller, so
@@ -17,8 +20,7 @@ pub struct Agent {
     definitions: Vec<ToolDefinition>,
     template: GenerateRequest,
     max_turns: usize,
-    #[allow(clippy::type_complexity)]
-    guard: Option<Arc<dyn Fn(&str, &str, &Context) -> Decision + Send + Sync>>,
+    guard: Option<Arc<GuardFn>>,
 }
 
 /// What one call to [`Agent::run`] produced.
