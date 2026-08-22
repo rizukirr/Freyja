@@ -78,9 +78,8 @@ impl Context {
     }
 
     /// Stores a value, replacing any previous value of the same type.
-    pub fn insert<T: Any + Send + Sync>(&mut self, value: T) -> &mut Self {
+    pub fn insert<T: Any + Send + Sync>(&mut self, value: T) {
         self.map.insert(TypeId::of::<T>(), Box::new(value));
-        self
     }
 
     /// Borrows a stored value, if one of this type was inserted.
