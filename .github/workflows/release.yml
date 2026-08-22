@@ -12,6 +12,14 @@ on:
 env:
   CARGO_TERM_COLOR: always
 
+# There is deliberately no publish job. crates.io is uploaded to by hand, and
+# the order is not optional: `cargo package` strips the path from the
+# freyja-macros dependency and leaves the version, so the macro crate has to be
+# published before the root crate resolves.
+#
+#   cargo publish -p freyja-macros
+#   cargo publish -p freyja
+
 jobs:
   verify:
     name: Verify (${{ matrix.os }})
@@ -56,19 +64,3 @@ jobs:
         run: gh release upload "${{ inputs.tag || github.ref_name }}" target/package/*.crate --clobber
         env:
           GH_TOKEN: ${{ github.token }}
-
-  publish:
-    name: Publish to crates.io
-    needs: package
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ inputs.tag || github.ref }}
-      # Skipped silently when the token is not configured, so tagging a release
-      # does not fail for anyone who has not set the secret.
-      - name: Publish
-        if: env.CARGO_REGISTRY_TOKEN != ''
-        run: cargo publish
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
