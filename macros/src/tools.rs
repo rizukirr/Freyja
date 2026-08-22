@@ -55,6 +55,20 @@ pub(crate) fn expand(attributes: TokenStream, input: TokenStream) -> Result<Toke
     let mut function = syn::parse2::<ItemFn>(input)?;
 
     let is_async = function.sig.asyncness.is_some();
+    // Textual, because a proc macro sees tokens and not types. A `Result` alias
+    // is not detected and falls back to serializing the value whole, which is
+    // what every tool did before this existed.
+    let is_fallible = match &function.sig.output {
+        syn::ReturnType::Type(_, ty) => match ty.as_ref() {
+            syn::Type::Path(path) => path
+                .path
+                .segments
+                .last()
+                .is_some_and(|segment| segment.ident == "Result"),
+            _ => false,
+        },
+        syn::ReturnType::Default => false,
+    };
     if !function.sig.generics.params.is_empty() {
         return Err(Error::new_spanned(
             &function.sig.generics,
@@ -62,10 +76,11 @@ pub(crate) fn expand(attributes: TokenStream, input: TokenStream) -> Result<Toke
         ));
     }
 
-    let parameters = function
-        .sig
-        .inputs
+    let inputs: Vec<&FnArg> = function.sig.inputs.iter().collect();
+    let takes_context = inputs.first().is_some_and(|argument| is_context(argument));
+    let parameters = inputs[usize::from(takes_context)..]
         .iter()
+        .copied()
         .map(parameter)
         .collect::<Result<Vec<_>>>()?;
     let field_names = parameters.iter().map(|(name, _)| name);
@@ -77,7 +92,7 @@ pub(crate) fn expand(attributes: TokenStream, input: TokenStream) -> Result<Toke
     let implementation_name = format_ident!("__freyja_tool_{name}");
     let arguments_name = format_ident!("__Freyja{}Arguments", pascal_case(&name));
     let definition_name = format_ident!("__freyja_tool_{name}_definition");
-    let execute_name = format_ident!("__freyja_tool_{name}_execute");
+    let type_name = format_ident!("__freyja_tool_{name}_type");
     let description = attributes.description;
     let strict = attributes.strict;
 
@@ -90,35 +105,38 @@ pub(crate) fn expand(attributes: TokenStream, input: TokenStream) -> Result<Toke
         quote!(schema)
     };
 
-    let executor = if is_async {
+    let call_expression = if takes_context {
+        quote!(#implementation_name(cx, #( #invocation_names ),*))
+    } else {
+        quote!(#implementation_name( #( #invocation_names ),* ))
+    };
+    let call_expression = if is_async {
+        quote!(#call_expression.await)
+    } else {
+        call_expression
+    };
+
+    let executor_body = if is_fallible {
         quote! {
-            fn #execute_name(arguments: &str) -> ::freyja::ToolFuture {
-                let parsed = ::freyja::__private::serde_json::from_str::<#arguments_name>(arguments);
-                ::std::boxed::Box::pin(async move {
-                    let #arguments_name { #( #destructured_names, )* } =
-                        parsed.map_err(::freyja::ToolError::Arguments)?;
-                    let result = #implementation_name( #( #invocation_names ),* ).await;
-                    ::freyja::__private::serde_json::to_string(&result)
-                        .map_err(::freyja::ToolError::Result)
-                })
+            match #call_expression {
+                Ok(value) => ::freyja::__private::serde_json::to_string(&value)
+                    .map_err(::freyja::ToolError::Result),
+                Err(error) => Err(::freyja::ToolError::Execution(
+                    ::std::string::ToString::to_string(&error),
+                )),
             }
         }
     } else {
         quote! {
-            fn #execute_name(arguments: &str) -> ::core::result::Result<::std::string::String, ::freyja::ToolError> {
-                let #arguments_name { #( #destructured_names, )* } =
-                    ::freyja::__private::serde_json::from_str(arguments)
-                        .map_err(::freyja::ToolError::Arguments)?;
-                let result = #implementation_name( #( #invocation_names ),* );
-                ::freyja::__private::serde_json::to_string(&result)
-                    .map_err(::freyja::ToolError::Result)
-            }
+            ::freyja::__private::serde_json::to_string(&#call_expression)
+                .map_err(::freyja::ToolError::Result)
         }
     };
-    let constructor = if is_async {
-        quote!(::freyja::Tool::new_async)
+
+    let context_binding = if takes_context {
+        quote!(cx: &'__freyja ::freyja::Context)
     } else {
-        quote!(::freyja::Tool::new)
+        quote!(_cx: &'__freyja ::freyja::Context)
     };
 
     Ok(quote! {
@@ -144,15 +162,56 @@ pub(crate) fn expand(attributes: TokenStream, input: TokenStream) -> Result<Toke
                 .strict(#strict)
         }
 
-        #executor
+        #[allow(non_camel_case_types)]
+        struct #type_name;
+
+        impl ::freyja::Tool for #type_name {
+            fn name(&self) -> &str {
+                stringify!(#name)
+            }
+
+            fn definition(&self) -> ::freyja::ToolDefinition {
+                #definition_name()
+            }
+
+            fn call<'__freyja>(
+                &'__freyja self,
+                arguments: &'__freyja str,
+                #context_binding,
+            ) -> ::freyja::ToolFuture<'__freyja> {
+                let parsed =
+                    ::freyja::__private::serde_json::from_str::<#arguments_name>(arguments);
+                ::std::boxed::Box::pin(async move {
+                    let #arguments_name { #( #destructured_names, )* } =
+                        parsed.map_err(::freyja::ToolError::Arguments)?;
+                    #executor_body
+                })
+            }
+        }
 
         #[allow(non_upper_case_globals)]
-        const #name: ::freyja::Tool = #constructor(
-            stringify!(#name),
-            #definition_name,
-            #execute_name,
-        );
+        const #name: #type_name = #type_name;
     })
+}
+
+/// Whether a parameter is the optional leading `&Context`.
+///
+/// Recognised by type and only in first position, so the rule is one sentence:
+/// a tool's first parameter may be `&Context`, and it is hidden from the model.
+fn is_context(argument: &FnArg) -> bool {
+    let FnArg::Typed(argument) = argument else {
+        return false;
+    };
+    let syn::Type::Reference(reference) = argument.ty.as_ref() else {
+        return false;
+    };
+    let syn::Type::Path(path) = reference.elem.as_ref() else {
+        return false;
+    };
+    path.path
+        .segments
+        .last()
+        .is_some_and(|segment| segment.ident == "Context")
 }
 
 fn parameter(argument: &FnArg) -> Result<(&Ident, &syn::Type)> {
@@ -276,7 +335,40 @@ mod tests {
             ),
         )
         .expect("async function expands");
-        assert!(output.to_string().contains("new_async"));
+        assert!(output.to_string().contains("impl :: freyja :: Tool"));
+        syn::parse2::<syn::File>(output).expect("expansion is valid Rust");
+    }
+
+    #[test]
+    fn expansion_accepts_fallible_functions() {
+        let output = expand(
+            quote!(description = "divides"),
+            quote!(
+                fn divide(a: i64, b: i64) -> Result<i64, String> {
+                    if b == 0 {
+                        Err("division by zero".to_string())
+                    } else {
+                        Ok(a / b)
+                    }
+                }
+            ),
+        )
+        .expect("fallible function expands");
+        syn::parse2::<syn::File>(output).expect("expansion is valid Rust");
+    }
+
+    #[test]
+    fn expansion_accepts_a_leading_context_parameter() {
+        let output = expand(
+            quote!(description = "greets"),
+            quote!(
+                fn greet(cx: &Context, name: String) -> String {
+                    let _ = cx;
+                    name
+                }
+            ),
+        )
+        .expect("context function expands");
         syn::parse2::<syn::File>(output).expect("expansion is valid Rust");
     }
 }

@@ -134,7 +134,7 @@ async fn answers_without_tool_calls() {
 #[tokio::test]
 async fn completes_a_full_tool_round_trip() {
     let (base, requests) = serve_many(vec![canned(CALLS_ADD), canned(ANSWER)]);
-    let agent = Agent::new(client(base)).tools([add]);
+    let agent = Agent::new(client(base)).tool(add);
 
     let mut messages = vec![Message::text(Role::User, "What is 20 + 22?")];
     let run = agent.run(&mut messages).await.unwrap();
@@ -152,7 +152,7 @@ async fn completes_a_full_tool_round_trip() {
 #[tokio::test]
 async fn stops_at_the_turn_bound() {
     let (base, _requests) = serve_many(vec![canned(CALLS_ADD), canned(CALLS_ADD)]);
-    let agent = Agent::new(client(base)).tools([add]).max_turns(2);
+    let agent = Agent::new(client(base)).tool(add).max_turns(2);
 
     let mut messages = vec![Message::text(Role::User, "loop")];
     let run = agent.run(&mut messages).await.unwrap();
@@ -165,7 +165,7 @@ async fn stops_at_the_turn_bound() {
 #[tokio::test]
 async fn sums_usage_across_turns() {
     let (base, _requests) = serve_many(vec![canned(CALLS_ADD), canned(ANSWER)]);
-    let agent = Agent::new(client(base)).tools([add]);
+    let agent = Agent::new(client(base)).tool(add);
 
     let mut messages = vec![Message::text(Role::User, "What is 20 + 22?")];
     let run = agent.run(&mut messages).await.unwrap();
@@ -180,7 +180,7 @@ const BAD_ARGS: &str = r#"{"id":"chatcmpl-1","model":"test-model","choices":[{"m
 #[tokio::test]
 async fn answers_an_unknown_tool_rather_than_skipping_it() {
     let (base, requests) = serve_many(vec![canned(UNKNOWN), canned(ANSWER)]);
-    let agent = Agent::new(client(base)).tools([add]);
+    let agent = Agent::new(client(base)).tool(add);
 
     let mut messages = vec![Message::text(Role::User, "go")];
     agent.run(&mut messages).await.unwrap();
@@ -194,7 +194,7 @@ async fn answers_an_unknown_tool_rather_than_skipping_it() {
 #[tokio::test]
 async fn feeds_a_tool_error_back_to_the_model() {
     let (base, requests) = serve_many(vec![canned(BAD_ARGS), canned(ANSWER)]);
-    let agent = Agent::new(client(base)).tools([add]);
+    let agent = Agent::new(client(base)).tool(add);
 
     let mut messages = vec![Message::text(Role::User, "go")];
     let run = agent.run(&mut messages).await.unwrap();
@@ -211,7 +211,7 @@ const CALLS_ECHO_THRICE: &str = r#"{"id":"chatcmpl-1","model":"test-model","choi
 #[tokio::test]
 async fn dispatches_parallel_calls_concurrently() {
     let (base, requests) = serve_many(vec![canned(CALLS_ECHO_THRICE), canned(ANSWER)]);
-    let agent = Agent::new(client(base)).tools([echo]);
+    let agent = Agent::new(client(base)).tool(echo);
 
     let mut messages = vec![Message::text(Role::User, "go")];
     let started = std::time::Instant::now();
@@ -261,7 +261,7 @@ async fn stops_when_the_generation_was_cut_short() {
 async fn downgrades_required_after_the_first_turn() {
     let (base, requests) = serve_many(vec![canned(CALLS_ADD), canned(ANSWER)]);
     let agent = Agent::new(client(base))
-        .tools([add])
+        .tool(add)
         .request(GenerateRequest::new().tool_choice(ToolChoice::Required));
 
     let mut messages = vec![Message::text(Role::User, "go")];
@@ -295,7 +295,7 @@ const ANTHROPIC_ANSWERS: &str = r#"{"id":"msg_2","model":"test-model","stop_reas
 #[tokio::test]
 async fn replays_opaque_reasoning_state_on_the_next_turn() {
     let (base, requests) = serve_many(vec![canned(THINKS_THEN_CALLS), canned(ANTHROPIC_ANSWERS)]);
-    let agent = Agent::new(anthropic_client(base)).tools([add]);
+    let agent = Agent::new(anthropic_client(base)).tool(add);
 
     let mut messages = vec![Message::text(Role::User, "What is 20 + 22?")];
     let run = agent.run(&mut messages).await.unwrap();

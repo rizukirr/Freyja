@@ -2,14 +2,18 @@
 //!
 //! Freyja spawns nothing and depends on no async runtime, so the caller
 //! picks one — this example picks Tokio. That means concurrency is the
-//! caller's job too: `Tool::execute` borrows its arguments, so a task that
-//! outlives the call must own its id and its arguments before it is spawned.
+//! caller's job too: `Tool::call` borrows the tool, its arguments and the run
+//! context, so a task that outlives the call must own all of them — a cloned
+//! `Arc<dyn Tool>` and owned strings — before it is spawned.
 //!
 //! ```sh
 //! cargo run --example async_tools
 //! ```
 
-use freyja::{Client, EndpointPreset, GenerateRequest, Message, OutputContent, Role, tool};
+use freyja::{
+    Client, Context, EndpointPreset, GenerateRequest, Message, OutputContent, Role, Tool, tool,
+};
+use std::sync::Arc;
 
 /// Two async tools. Each sleeps to stand in for real I/O: an HTTP call, a
 /// database query, a file read.
@@ -35,7 +39,7 @@ async fn main() {
         return;
     };
 
-    let tools = [fetch_user, fetch_orders];
+    let tools: Vec<Arc<dyn Tool>> = vec![Arc::new(fetch_user), Arc::new(fetch_orders)];
     let definitions = tools
         .iter()
         .map(|tool| tool.definition())
@@ -82,13 +86,17 @@ async fn main() {
         let mut handles = Vec::new();
         for (id, name, arguments) in response.tool_calls() {
             let (id, arguments) = (id.to_owned(), arguments.to_owned());
-            let tool = tools.iter().copied().find(|tool| tool.name() == name);
+            let tool = tools
+                .iter()
+                .find(|tool| tool.name() == name)
+                .map(Arc::clone);
             handles.push(tokio::spawn(async move {
+                let cx = Context::new();
                 let output = match tool {
                     Some(tool) => tool
-                        .execute(&arguments)
+                        .call(&arguments, &cx)
                         .await
-                        .unwrap_or_else(|error| format!("error: {error:?}")),
+                        .unwrap_or_else(|error| format!("error: {error}")),
                     None => "error: unknown tool".to_string(),
                 };
                 (id, output)

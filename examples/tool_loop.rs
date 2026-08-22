@@ -11,7 +11,10 @@
 //! same code against a different vendor. Nothing else changes, which is the
 //! point of the neutral model.
 
-use freyja::{Client, EndpointPreset, GenerateRequest, Message, OutputContent, Role, Tool, tool};
+use freyja::{
+    Client, Context, EndpointPreset, GenerateRequest, Message, OutputContent, Role, Tool, tool,
+};
+use std::sync::Arc;
 
 /// The tools this example exposes to the model.
 #[tool(description = "adds two numbers together", strict = true)]
@@ -28,12 +31,12 @@ async fn wait(milliseconds: u64) -> String {
 }
 
 /// Runs a tool call and returns the output to send back to the model.
-async fn dispatch(tools: &[Tool], name: &str, arguments: &str) -> String {
-    match tools.iter().copied().find(|tool| tool.name() == name) {
+async fn dispatch(tools: &[Arc<dyn Tool>], name: &str, arguments: &str, cx: &Context) -> String {
+    match tools.iter().find(|tool| tool.name() == name) {
         Some(tool) => tool
-            .execute(arguments)
+            .call(arguments, cx)
             .await
-            .unwrap_or_else(|error| format!("error: {error:?}")),
+            .unwrap_or_else(|error| format!("error: {error}")),
         None => format!("error: unknown tool '{name}'"),
     }
 }
@@ -48,7 +51,8 @@ async fn main() {
         return;
     };
 
-    let tools = [add, wait];
+    let tools: Vec<Arc<dyn Tool>> = vec![Arc::new(add), Arc::new(wait)];
+    let cx = Context::new();
     let definitions = tools
         .iter()
         .map(|tool| tool.definition())
@@ -92,7 +96,7 @@ async fn main() {
 
         let mut results: Vec<Message> = Vec::new();
         for (id, name, arguments) in response.tool_calls() {
-            let output = dispatch(&tools, name, arguments).await;
+            let output = dispatch(&tools, name, arguments, &cx).await;
             println!("tool result: {output}");
             results.push(Message::tool_result(id, output));
         }
