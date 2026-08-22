@@ -2,7 +2,7 @@
 
 Notable changes per release. Freyja is pre-1.0, so a minor version may break.
 
-## Unreleased
+## 0.2.1
 
 ### Added
 
