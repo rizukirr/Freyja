@@ -17,6 +17,31 @@ Notable changes per release. Freyja is pre-1.0, so a minor version may break.
   and names matching no tool at all. An agent without a guard is
   unchanged.
 
+- **`examples/guarded_tools.rs`**, the first runnable example of the
+  0.2.0 tool capabilities: a hand-written tool holding state, a `#[tool]`
+  reading a newtype out of `Context` under `run_with`, a fallible tool
+  whose `Err` the model recovers from, and a guard. The same agent runs
+  twice over two contexts, so allow and deny come from one policy.
+
+### Documentation
+
+- **Per-tool timeouts are out of scope, deliberately**, and no longer
+  listed as planned. Racing a call against a clock needs a timer, and
+  Freyja depends on no async runtime so it has none to reach for. Every
+  caller already does, and a short wrapper tool holding the inner one in
+  an `Arc` applies your runtime's timeout — wrapping an erased
+  `Arc<dyn Tool>` as readily as a tool you wrote. The `Tool`
+  documentation carries the implementation as a compiled doctest, so it
+  cannot drift from the trait it wraps. A call that runs out of budget
+  reaches the model as `error: …`, like any other tool failure.
+
+  The caveat is written down alongside it: a budget bounds a *slow* tool,
+  not a *blocking* one. A timeout resolves only when the inner future
+  yields, and tool calls are polled on the caller's task, so a tool that
+  never awaits starves its siblings and no timer fires.
+
+  This closes Phase 2 of the roadmap.
+
 ## 0.2.0
 
 The published `0.1.1` predates most of the current API: its `src/` held a
