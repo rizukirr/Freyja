@@ -375,9 +375,39 @@ All four native formats are documented in full, so you do not have to read vendo
 
 Two things differ per provider in the tool arguments themselves. OpenAI sends `arguments` as a JSON string, while Gemini and Anthropic both want a structured object, and Freyja converts in each direction so `OutputContent::ToolCall::arguments` is a string everywhere. Anthropic additionally requires that object to be a real object, so a tool call whose arguments are a bare number fails locally with `InvalidRequest` rather than at the API.
 
+## Refusing a call
+
+`Agent::guard` takes a closure consulted before every tool call. It is handed the requested name, the model's raw JSON arguments and the run's `Context`, and answers `Decision::Allow` or `Decision::Deny`:
+
+```rust
+use freyja::{Agent, Context, Decision};
+
+let agent = Agent::new(client)
+    .tool(add)
+    .guard(|name: &str, _arguments: &str, cx: &Context| match name {
+        "wipe" => Decision::Deny("destructive tools are off in this run".to_string()),
+        _ if cx.get::<UserId>().is_none() => Decision::Deny("no user on this run".to_string()),
+        _ => Decision::Allow,
+    });
+```
+
+The guard runs before the lookup, so it sees every name the model asks for: tools registered up front, tools handed to `Agent::tools` at runtime, and names matching no tool at all. Deny a name nothing answers to and the model reads your reason; the `error: unknown tool '…'` it would otherwise have got never happens.
+
+A `Deny(reason)` reaches the model as the tool result `denied: {reason}`, on the same channel it already reads `error: {error}` and `error: unknown tool '{name}'` from. Nothing else moves: parallel calls are still dispatched concurrently, the guard simply being the first thing each dispatch does, and an agent with no guard behaves exactly as it did before.
+
+It is a closure rather than a trait, so whatever state a policy needs it captures. It is also synchronous. There is no pause for a human to approve a call, and a policy that has to ask a database first is a different feature, one that does not exist.
+
+Two consequences are better read here than discovered in a bill.
+
+**A denied call still costs a turn.** The guard stops the tool, not the loop. A model that keeps asking for the same forbidden tool is stopped by `max_turns`, never by the guard, so the bound stays load-bearing.
+
+**The reason is the model's only way out.** It is everything the model learns about why the call failed. `"denied"` teaches it nothing and it will ask again; `"wipe is disabled, use archive instead"` gets you a different call next turn. A reason the model cannot act on spends the turns you just paid for.
+
+What the guard does not get is the tool's parsed Rust argument struct. Parsing happens inside the tool, after the guard has already decided, so a policy that turns on a field reads the raw JSON and pulls the field out itself. That is the price of one chokepoint that also covers the tools you did not write, whose argument types you do not have.
+
 ## What does not exist yet
 
-- No per tool timeouts or approval hooks
+- No per tool timeouts
 - No enforcement that a result's `call_id` matches a real call
 
 These are Phase 2 items on the [roadmap](../../README.md#roadmap).

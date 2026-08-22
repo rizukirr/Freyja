@@ -2,6 +2,21 @@
 
 Notable changes per release. Freyja is pre-1.0, so a minor version may break.
 
+## Unreleased
+
+### Added
+
+- **`Agent::guard`** takes a closure consulted before every tool call,
+  receiving the requested name, the model's raw JSON arguments and the
+  run's `Context`, and returning the new `Decision` enum. `Allow` runs
+  the tool; `Deny(reason)` does not, and sends the model
+  `denied: {reason}` as the tool result instead — the same channel it
+  reads `error: {error}` from, so a refusal is something it can recover
+  from rather than a failure. The guard runs before the tool lookup, so
+  it sees every name requested, including tools registered at runtime
+  and names matching no tool at all. An agent without a guard is
+  unchanged.
+
 ## 0.2.0
 
 The published `0.1.1` predates most of the current API: its `src/` held a

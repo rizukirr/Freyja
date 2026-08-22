@@ -182,6 +182,18 @@ let run = agent.run(&mut messages).await?;
 println!("{}", run.answer);
 ```
 
+A guard goes on the same builder. `.guard(|name, _arguments, _cx| ...)` is consulted before every call, and returning `Decision::Deny(reason)` sends the model `denied: {reason}` instead of running the tool — which is how you keep a tool registered for the cases it is meant for while refusing the rest. See [Refusing a call](reference/tools.md#refusing-a-call).
+
+```rust
+let agent = Agent::new(client)
+    .tool(add)
+    .guard(|name: &str, _arguments: &str, _cx: &Context| match name {
+        "add" => Decision::Deny("arithmetic is off limits".to_string()),
+        _ => Decision::Allow,
+    })
+    .max_turns(5);
+```
+
 `run.stop` tells you why the loop ended — `Answered`, `MaxTurns`, `Refused`, `Incomplete`, or `Failed` — and `Chat` wraps the same thing with an owned transcript for a multi-turn conversation. See `examples/agent.rs`.
 
 ## Next
