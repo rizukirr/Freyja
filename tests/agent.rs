@@ -6,8 +6,8 @@
 //! turn, which only the captured bodies can show.
 
 use freyja::{
-    Agent, Client, Context, Dialect, EndpointConfig, GenerateRequest, Message, Role, StopReason,
-    Tool, ToolChoice, ToolDefinition, ToolError, ToolFuture, tool,
+    Agent, Client, Context, Decision, Dialect, EndpointConfig, GenerateRequest, Message, Role,
+    StopReason, Tool, ToolChoice, ToolDefinition, ToolError, ToolFuture, tool,
 };
 use std::io::{BufRead, BufReader, Write};
 use std::net::TcpListener;
@@ -393,6 +393,8 @@ const CALLS_SEALED: &str = r#"{"id":"chatcmpl-1","model":"test-model","choices":
 
 const CALLS_RUNTIME: &str = r#"{"id":"chatcmpl-1","model":"test-model","choices":[{"message":{"role":"assistant","content":null,"tool_calls":[{"id":"call_r1","type":"function","function":{"name":"lookup_v2","arguments":"{}"}}]},"finish_reason":"tool_calls"}]}"#;
 
+const CALLS_GHOST: &str = r#"{"id":"chatcmpl-1","model":"test-model","choices":[{"message":{"role":"assistant","content":null,"tool_calls":[{"id":"call_g1","type":"function","function":{"name":"ghost","arguments":"{}"}}]},"finish_reason":"tool_calls"}]}"#;
+
 #[tokio::test]
 async fn a_stateful_tool_keeps_its_state_across_the_run() {
     let (base, _requests) = serve_many(vec![canned(CALLS_COUNTER), canned(ANSWER)]);
@@ -479,5 +481,139 @@ async fn a_runtime_named_tool_is_dispatched_by_its_name() {
     let second = requests.recv().unwrap();
     // A hand-written tool returns its own string, so no serde quoting here.
     assert!(second.contains("ran the runtime tool"));
+    assert!(!second.contains("unknown tool"));
+}
+
+/// Allows a call only when the run carries a [`UserId`].
+fn needs_a_user(_name: &str, _arguments: &str, cx: &Context) -> Decision {
+    match cx.get::<UserId>() {
+        Some(_) => Decision::Allow,
+        None => Decision::Deny("no user on this run".to_string()),
+    }
+}
+
+#[tokio::test]
+async fn a_denial_reaches_the_model_as_a_tool_result() {
+    let (base, requests) = serve_many(vec![canned(CALLS_ADD), canned(ANSWER)]);
+    let agent =
+        Agent::new(client(base))
+            .tool(add)
+            .guard(|name: &str, _arguments: &str, _cx: &Context| match name {
+                "add" => Decision::Deny("arithmetic is off limits".to_string()),
+                _ => Decision::Allow,
+            });
+
+    let mut messages = vec![Message::text(Role::User, "What is 20 + 22?")];
+    let run = agent.run(&mut messages).await.expect("run");
+
+    assert_eq!(run.stop, StopReason::Answered);
+    let _first = requests.recv().unwrap();
+    let second = requests.recv().unwrap();
+    assert!(second.contains("call_1"));
+    assert!(second.contains("arithmetic is off limits"));
+}
+
+#[tokio::test]
+async fn a_denied_tool_never_runs() {
+    let (base, _requests) = serve_many(vec![canned(CALLS_COUNTER), canned(ANSWER)]);
+    let calls = Arc::new(AtomicUsize::new(0));
+    let agent = Agent::new(client(base))
+        .tool(Counter {
+            calls: Arc::clone(&calls),
+        })
+        .guard(|_name: &str, _arguments: &str, _cx: &Context| {
+            Decision::Deny("nothing counts today".to_string())
+        });
+
+    let mut messages = vec![Message::text(Role::User, "go")];
+    let run = agent.run(&mut messages).await.expect("run");
+
+    assert_eq!(run.stop, StopReason::Answered);
+    // The load-bearing assertion: denial text in the transcript would still
+    // appear if the guard had returned it *and* let the tool run.
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn the_guard_reads_the_context() {
+    let (denied_base, denied_requests) = serve_many(vec![canned(CALLS_WHOAMI), canned(ANSWER)]);
+    let denied = Agent::new(client(denied_base))
+        .tool(whoami)
+        .guard(needs_a_user);
+
+    let mut messages = vec![Message::text(Role::User, "who am I?")];
+    denied.run(&mut messages).await.expect("run");
+
+    let _first = denied_requests.recv().unwrap();
+    let second = denied_requests.recv().unwrap();
+    assert!(second.contains("no user on this run"));
+    assert!(!second.contains(r#"\"u-42\""#));
+
+    let (allowed_base, allowed_requests) = serve_many(vec![canned(CALLS_WHOAMI), canned(ANSWER)]);
+    let allowed = Agent::new(client(allowed_base))
+        .tool(whoami)
+        .guard(needs_a_user);
+
+    let mut context = Context::new();
+    context.insert(UserId("u-42".to_string()));
+
+    let mut messages = vec![Message::text(Role::User, "who am I?")];
+    allowed
+        .run_with(&mut messages, &context)
+        .await
+        .expect("run_with");
+
+    let _first = allowed_requests.recv().unwrap();
+    let second = allowed_requests.recv().unwrap();
+    assert!(second.contains(r#"\"u-42\""#));
+    assert!(!second.contains("no user on this run"));
+}
+
+#[tokio::test]
+async fn the_guard_reads_the_raw_arguments() {
+    let (base, requests) = serve_many(vec![canned(CALLS_ADD), canned(ANSWER)]);
+    let agent =
+        Agent::new(client(base))
+            .tool(add)
+            .guard(|_name: &str, arguments: &str, _cx: &Context| {
+                if arguments.contains(r#""a":99"#) {
+                    Decision::Deny("99 is reserved".to_string())
+                } else {
+                    Decision::Allow
+                }
+            });
+
+    // The scripted call passes `a: 20`, so it does not match the condition.
+    let mut messages = vec![Message::text(Role::User, "What is 20 + 22?")];
+    let run = agent.run(&mut messages).await.expect("run");
+
+    assert_eq!(run.stop, StopReason::Answered);
+    let _first = requests.recv().unwrap();
+    let second = requests.recv().unwrap();
+    assert!(second.contains(r#""content":"42""#));
+    assert!(!second.contains("99 is reserved"));
+    assert!(!second.contains("denied:"));
+}
+
+#[tokio::test]
+async fn the_guard_sees_a_name_no_tool_answers_to() {
+    let (base, requests) = serve_many(vec![canned(CALLS_GHOST), canned(ANSWER)]);
+    let agent =
+        Agent::new(client(base))
+            .tool(add)
+            .guard(|name: &str, _arguments: &str, _cx: &Context| match name {
+                "ghost" => Decision::Deny("no such thing".to_string()),
+                _ => Decision::Allow,
+            });
+
+    let mut messages = vec![Message::text(Role::User, "go")];
+    let run = agent.run(&mut messages).await.expect("run");
+
+    assert_eq!(run.stop, StopReason::Answered);
+    let _first = requests.recv().unwrap();
+    let second = requests.recv().unwrap();
+    assert!(second.contains("call_g1"));
+    // The guard runs before the lookup, so its reason replaces the miss.
+    assert!(second.contains("no such thing"));
     assert!(!second.contains("unknown tool"));
 }
