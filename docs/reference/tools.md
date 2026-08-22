@@ -32,23 +32,25 @@ let request = GenerateRequest::new()
     .tools(definitions);
 ```
 
-The macro replaces the function item with a same-named `Tool` value. Its typed parameters generate the object schema, `description` tells the model when to use it, and `strict` defaults to `false`. `Tool::execute` deserializes the model's JSON arguments, calls the original function, and serializes the return value as JSON.
+The macro keeps your function and adds a same-named value whose type implements `Tool`. Its typed parameters generate the object schema, `description` tells the model when to use it, and `strict` defaults to `false`. `Tool::call` deserializes the model's JSON arguments, calls the original function, and serializes the return value as JSON.
 
 Supported functions are free functions, sync or `async fn`, with explicit types and simple identifier parameters. Methods with `self`, generics, and destructured parameters produce compile errors. Argument types must support serde deserialization and `schemars::JsonSchema`; return values must support serde serialization.
 
-```rust
-pub struct Tool {
-    // private generated function pointers
-}
+`Tool` is a trait, so a tool is any type that answers three questions: what it is called, what the model should be told about it, and what happens when it is called.
 
-impl Tool {
-    pub const fn name(self) -> &'static str;
-    pub fn definition(self) -> ToolDefinition;
-    pub async fn execute(self, arguments: &str) -> Result<String, ToolError>;
+```rust
+pub type ToolFuture<'a> = Pin<Box<dyn Future<Output = Result<String, ToolError>> + Send + 'a>>;
+
+pub trait Tool: Send + Sync {
+    fn name(&self) -> &str;
+    fn definition(&self) -> ToolDefinition;
+    fn call<'a>(&'a self, arguments: &'a str, cx: &'a Context) -> ToolFuture<'a>;
 }
 ```
 
-`ToolError::Arguments` means the model's JSON did not match the Rust parameters. `ToolError::Result` means the return value could not be serialized. `ToolError::Execution` is available for runtime tool failures.
+The future is boxed rather than written as `async fn` in the trait. `async fn` in traits is stable, but it is not `dyn`-compatible, and `Agent` keeps its tools as `Arc<dyn Tool>`. It is `Send` so a turn's calls can be driven at once, and it borrows the tool, the arguments and the context — so a call you spawn onto its own task has to own all three first: clone the `Arc<dyn Tool>` and the argument string before spawning.
+
+`ToolError::Arguments` means the model's JSON did not match the Rust parameters. `ToolError::Result` means the return value could not be serialized. `ToolError::Execution` carries a runtime failure. `ToolError` implements `Display` and `std::error::Error`, so format it with `{error}` rather than `{error:?}`: `Execution` then renders as its bare message, which is the text you want the model to read.
 
 ## Declaring a raw definition
 
@@ -87,18 +89,131 @@ let request = GenerateRequest::new()
 
 The description is what the model reads to decide when to call the tool. Write it for the model, not for other developers. Raw and generated definitions use the same provider-neutral request path.
 
-A `Tool` can also be built by hand from a raw function pointer, without going through `#[tool]`. `Tool::new` wraps a synchronous `fn(&str) -> Result<String, ToolError>`. `Tool::new_async` wraps an async one, `fn(&str) -> ToolFuture`. Both take `definition` as a factory function, not a `ToolDefinition` value, so the same definition can be rebuilt on demand:
+## Implementing the trait by hand
+
+`#[tool]` covers a plain function. Write the impl yourself when the tool needs something a function cannot hold — a counter, a connection pool, a client with its own rate limiter:
 
 ```rust
-pub type ToolFuture = Pin<Box<dyn Future<Output = Result<String, ToolError>> + Send + 'static>>;
+use freyja::{Context, Tool, ToolDefinition, ToolFuture};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
-impl Tool {
-    pub const fn new(name: &'static str, definition: fn() -> ToolDefinition, execute: fn(&str) -> Result<String, ToolError>) -> Tool;
-    pub const fn new_async(name: &'static str, definition: fn() -> ToolDefinition, execute: fn(&str) -> ToolFuture) -> Tool;
+struct Counter {
+    calls: Arc<AtomicUsize>,
+}
+
+impl Tool for Counter {
+    fn name(&self) -> &str {
+        "counter"
+    }
+
+    fn definition(&self) -> ToolDefinition {
+        ToolDefinition::new("counter", "counts the calls it has served")
+    }
+
+    fn call<'a>(&'a self, _arguments: &'a str, _cx: &'a Context) -> ToolFuture<'a> {
+        let served = self.calls.fetch_add(1, Ordering::SeqCst) + 1;
+        Box::pin(async move { Ok(served.to_string()) })
+    }
 }
 ```
 
-Both constructors are `const fn`, and the resulting `Tool` is `Clone + Copy` either way. `Tool::execute` dispatches on which variant it holds: a sync tool resolves without yielding, an async tool awaits the boxed future.
+Note where the work sits. Anything touching `&self` synchronously happens before `Box::pin`, and the future is left owning what it needs. Parsing the arguments outside the future and moving the parsed value in is the same trick, and it is what the macro generates.
+
+## Where state goes
+
+Two kinds of state, two homes, and picking the wrong one is the usual source of lifetime pain.
+
+State known when the tool is *built* goes in the struct's fields, as `Counter` holds its `AtomicUsize`. It belongs to the tool, and it lives as long as the agent does.
+
+State that does not exist until a request arrives — a user id, a tenant, a cancellation token, a tracing span — goes in a `Context`, which is handed to every call of one run:
+
+```rust
+struct UserId(String);
+
+let mut cx = Context::new();
+cx.insert(UserId("u_42".to_string()));
+
+let run = agent.run_with(&mut messages, &cx).await?;
+```
+
+`Chat::ask_with` takes the same context. `Agent::run` and `Chat::ask` are the same calls with an empty one.
+
+`Context` is keyed by type, the way `http::Extensions` is, so two values of one type collide and the second replaces the first. Give distinct values distinct newtypes — `UserId(String)` above, never a bare `String`. `get::<T>()` returns `Option<&T>`; `require::<T>()` returns a `ToolError::Execution` naming the missing type, which is usually what a tool wants, since that message is what the model ends up reading.
+
+A `#[tool]` function reaches the context by taking `cx: &Context` as its **first** parameter:
+
+```rust
+#[tool(description = "names the user this run belongs to")]
+fn whoami(cx: &Context) -> Result<String, ToolError> {
+    Ok(cx.require::<UserId>()?.0.clone())
+}
+```
+
+It is recognised by type, and only in first position. It is excluded from the generated schema, so the model sees `whoami` as a tool that takes no arguments and cannot be talked into supplying its own user id.
+
+## Fallible tools
+
+If the last path segment of the return type *as you wrote it* is `Result`, the macro maps `Err(e)` to `ToolError::Execution(e.to_string())`. The error type only has to implement `Display`:
+
+```rust
+#[tool(description = "opens the vault")]
+fn unseal(code: String) -> Result<String, String> {
+    Err("the vault is sealed".to_string())
+}
+```
+
+The model reads `error: the vault is sealed`. `ToolError::Execution` displays as its bare message, and `Agent` formats a failed call with `{error}`.
+
+The detection is textual, because a macro runs before name resolution and cannot see through an alias. So this one is *not* fallible:
+
+```rust
+type Outcome = Result<String, String>;
+
+#[tool(description = "opens the vault")]
+fn unseal(code: String) -> Outcome {
+    Err("the vault is sealed".to_string())
+}
+```
+
+It succeeds and serializes the whole `Result` as JSON — `{"Err":"the vault is sealed"}` — which is the behaviour every tool had before the mapping existed. Write `Result<T, E>` out in the signature if you want the mapping.
+
+## Tools defined at runtime
+
+A tool whose name and schema are not known until the program runs — read from configuration, or fetched from a remote registry — is a struct with those values in fields:
+
+```rust
+struct Runtime {
+    name: String,
+}
+
+impl Tool for Runtime {
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn definition(&self) -> ToolDefinition {
+        ToolDefinition::new(self.name.clone(), "defined at runtime")
+    }
+
+    fn call<'a>(&'a self, _arguments: &'a str, _cx: &'a Context) -> ToolFuture<'a> {
+        Box::pin(async move { Ok("ran the runtime tool".to_string()) })
+    }
+}
+
+let tools: Vec<Arc<dyn Tool>> = vec![Arc::new(Runtime { name })];
+let agent = Agent::new(client).tools(tools);
+```
+
+`Agent::tool` takes any `impl Tool + 'static`, which covers `#[tool]` functions and hand-written structs alike. `Agent::tools` takes `IntoIterator<Item = Arc<dyn Tool>>`, for exactly the case above where something else already erased the types. It is not a bulk form of `tool`: `.tools([add, wait])` does not compile, because `#[tool]` gives each function its own type and those two cannot share an array. Write `.tool(add).tool(wait)`.
+
+There is deliberately no `from_fn` constructor. A closure would have to be higher-ranked over both the argument and the context lifetime *and* return a future borrowing both, which inference handles badly enough that every call site ends up annotating its way out. A struct is a few lines and always works.
+
+## Names are unique
+
+Registering two tools under one name replaces rather than shadows: the later registration wins, and the earlier tool and its definition are gone. Overriding a built-in by name is therefore just registering yours after it, and a duplicate name is one tool rather than an ambiguous dispatch.
+
+`definition()` is called once, when the tool is registered, never per run. The schema the model sees is fixed for the life of the agent, so a definition cannot depend on run data — that is what `Context` is for, and `Context` only reaches `call`.
 
 ## Constraining the choice
 
@@ -188,6 +303,9 @@ Order matters too. The assistant turn has to come before the results.
 This is the pattern in `examples/tool_loop.rs`, reduced to its essentials:
 
 ```rust
+let tools: Vec<Arc<dyn Tool>> = vec![Arc::new(add), Arc::new(wait)];
+let cx = Context::new();
+
 let mut request = GenerateRequest::new()
     .message(Message::text(Role::User, "What is 20 + 22?"))
     .tools(tools.iter().map(|tool| tool.definition()).collect::<Vec<_>>());
@@ -202,11 +320,11 @@ for _ in 0..5 {
 
     let mut results: Vec<Message> = Vec::new();
     for (id, name, arguments) in response.tool_calls() {
-        let output = match tools.iter().copied().find(|tool| tool.name() == name) {
+        let output = match tools.iter().find(|tool| tool.name() == name) {
             Some(tool) => tool
-                .execute(arguments)
+                .call(arguments, &cx)
                 .await
-                .unwrap_or_else(|error| format!("error: {error:?}")),
+                .unwrap_or_else(|error| format!("error: {error}")),
             None => format!("error: unknown tool '{name}'"),
         };
         results.push(Message::tool_result(id, output));
@@ -218,6 +336,8 @@ for _ in 0..5 {
 }
 ```
 
+Two tools of different types share one collection only once they are erased, hence `Vec<Arc<dyn Tool>>`. A loop with a single tool can hold it concretely and skip the `Arc`.
+
 The bound is not optional. A model can keep requesting tools indefinitely, and without a cap the loop can run until your budget is gone.
 
 The same loop works while streaming. Drain the stream, call `into_response()`, and everything from `has_tool_calls()` onwards is unchanged. See [Streaming](streaming.md#a-streaming-tool-loop).
@@ -228,12 +348,14 @@ A failed tool is not an error in your program. Report it as the tool's output an
 
 ```rust
 let output = add
-    .execute(arguments)
+    .call(arguments, &cx)
     .await
-    .unwrap_or_else(|error| format!("error: {error:?}"));
+    .unwrap_or_else(|error| format!("error: {error}"));
 ```
 
 Never unwrap on arguments. They come from a model, and a schema is guidance rather than a guarantee, even with `strict` set.
+
+This is why a tool returns `Err` rather than encoding the failure in its success value: `ToolError::Execution` displays as the message you wrote, so the same `{error}` formatting hands it to the model as text.
 
 ## Result formatting
 
@@ -255,8 +377,6 @@ Two things differ per provider in the tool arguments themselves. OpenAI sends `a
 
 ## What does not exist yet
 
-- No built-in name registry
-- No injected application state
 - No per tool timeouts or approval hooks
 - No enforcement that a result's `call_id` matches a real call
 

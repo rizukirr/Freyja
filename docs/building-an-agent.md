@@ -17,10 +17,11 @@ The model never runs anything. It asks, you execute, you report back. That bound
 
 ## Step 1: declare the tool
 
-`#[tool]` turns a synchronous typed function into a `Tool` value. The function name becomes the model-visible name, its parameters become a JSON Schema, and its return value is serialized as JSON.
+`#[tool]` turns a typed function into a value implementing `Tool`. The function name becomes the model-visible name, its parameters become a JSON Schema, and its return value is serialized as JSON.
 
 ```rust
-use freyja::{Tool, tool};
+use freyja::{Context, Tool, tool};
+use std::sync::Arc;
 
 #[tool(
     description = "adds two numbers together; use this instead of doing arithmetic yourself",
@@ -30,7 +31,8 @@ fn add(a: i64, b: i64) -> i64 {
     a + b
 }
 
-let tools = [add];
+let tools: Vec<Arc<dyn Tool>> = vec![Arc::new(add)];
+let cx = Context::new();
 ```
 
 **The description is a prompt, not a comment.** It is the only thing the model reads when deciding whether this tool applies. Write it for the model. Say when to call it, not just what it does: "adds two numbers together" is weaker than "adds two numbers together; use this instead of doing arithmetic yourself".
@@ -41,25 +43,27 @@ The macro accepts free functions with explicit parameter types and simple identi
 
 ## Step 2: dispatch requested names
 
-Keep the tools in an array and look up the name requested by the model. `Tool::execute` validates the JSON against the Rust parameter types, calls the function, and serializes its result.
+Keep the tools in a collection and look up the name requested by the model. `Tool::call` validates the JSON against the Rust parameter types, calls the function, and serializes its result.
 
 ```rust
-async fn dispatch(tools: &[Tool], name: &str, arguments: &str) -> String {
-    match tools.iter().copied().find(|tool| tool.name() == name) {
+async fn dispatch(tools: &[Arc<dyn Tool>], name: &str, arguments: &str, cx: &Context) -> String {
+    match tools.iter().find(|tool| tool.name() == name) {
         Some(tool) => tool
-            .execute(arguments)
+            .call(arguments, cx)
             .await
-            .unwrap_or_else(|error| format!("error: {error:?}")),
+            .unwrap_or_else(|error| format!("error: {error}")),
         None => format!("error: unknown tool '{name}'"),
     }
 }
 ```
 
+`Arc<dyn Tool>` rather than an array of concrete tools: `#[tool]` gives every function its own type, so two tools only share a collection once they are erased. The `Context` carries per-run state your tools may read — a user id, a request id — and an empty `Context::new()` is fine until you have any. See [Tools](reference/tools.md#where-state-goes).
+
 Two rules here, and both matter more than they look.
 
-**Do not unwrap `Tool::execute`.** Arguments came from a model. A schema is guidance rather than a guarantee, even with `strict` set.
+**Do not unwrap `Tool::call`.** Arguments came from a model. A schema is guidance rather than a guarantee, even with `strict` set.
 
-**Return errors as output, not as `Err`.** A tool that fails has not broken your program; it has produced information. Hand the model the error text and it will usually correct itself, ask a clarifying question, or try another approach. Propagating the error instead ends the conversation over something recoverable.
+**Let a failing tool return `Err`, then turn it into output.** A tool that fails has not broken your program; it has produced information. `ToolError::Execution` displays as the message the tool wrote, so the `{error}` formatting above hands that text straight to the model, and it will usually correct itself, ask a clarifying question, or try another approach. What must not happen is the error escaping `dispatch` with `?` and ending the conversation over something recoverable.
 
 ## Step 3: the first call
 
@@ -92,13 +96,11 @@ if response.has_tool_calls() {
 Two turns go back for each round, and the order is not optional.
 
 ```rust
-let results: Vec<Message> = response
-    .tool_calls()
-    .map(|(id, name, arguments)| {
-        let output = dispatch(&tools, name, arguments);
-        Message::tool_result(id, output)
-    })
-    .collect();
+let mut results: Vec<Message> = Vec::new();
+for (id, name, arguments) in response.tool_calls() {
+    let output = dispatch(&tools, name, arguments, &cx).await;
+    results.push(Message::tool_result(id, output));
+}
 
 request = request
     .message(response.to_message())   // 1. what the model asked for
@@ -112,6 +114,7 @@ If you remember one thing from this page, make it that line.
 ## The complete loop
 
 ```rust
+let cx = Context::new();
 let mut request = GenerateRequest::new()
     .message(Message::text(Role::User, "What is 20 + 22?"))
     .tools(tools.iter().map(|tool| tool.definition()).collect::<Vec<_>>());
@@ -124,12 +127,11 @@ for _ in 0..5 {
         break;
     }
 
-    let results: Vec<Message> = response
-        .tool_calls()
-        .map(|(id, name, arguments)| {
-            Message::tool_result(id, dispatch(&tools, name, arguments))
-        })
-        .collect();
+    let mut results: Vec<Message> = Vec::new();
+    for (id, name, arguments) in response.tool_calls() {
+        let output = dispatch(&tools, name, arguments, &cx).await;
+        results.push(Message::tool_result(id, output));
+    }
 
     request = request
         .message(response.to_message())
@@ -151,7 +153,7 @@ Every tool result becomes part of the prompt on the next round, and is billed as
 
 ### One result per call
 
-Each `Message::tool_result` answers exactly one call id. When the model requests three tools in one turn, you send three result messages. The example's `.map().collect()` already does this.
+Each `Message::tool_result` answers exactly one call id. When the model requests three tools in one turn, you send three result messages. The loop over `tool_calls()` already does this.
 
 ### Parallel calls arrive together
 
@@ -172,7 +174,7 @@ The loop above is the skeleton. Three things separate it from something you woul
 Everything above — the bound, the tool dispatch, sending results back, watching the status — is what `Agent` does on your behalf, and it dispatches parallel tool calls concurrently rather than one at a time. The hand-written loop stays useful: it is what to reach for when you need to see or change what happens between turns, and it is what `Agent` is built from. For the common case, though:
 
 ```rust
-let agent = Agent::new(client).tools([add]).max_turns(5);
+let agent = Agent::new(client).tool(add).max_turns(5);
 
 let mut messages = vec![Message::text(Role::User, "What is 20 + 22?")];
 let run = agent.run(&mut messages).await?;
