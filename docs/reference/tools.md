@@ -83,11 +83,19 @@ let request = GenerateRequest::new()
 
 | Method | Effect |
 |---|---|
-| `ToolDefinition::new(name, description)` | Creates a tool with `parameters` set to `Value::Null` |
+| `ToolDefinition::new(name, description)` | Creates a tool taking no arguments, with `parameters` set to the empty object schema |
 | `.parameters(Value)` | Sets the JSON Schema for the arguments |
 | `.strict(bool)` | Asks the provider to enforce the schema exactly |
 
 The description is what the model reads to decide when to call the tool. Write it for the model, not for other developers. Raw and generated definitions use the same provider-neutral request path.
+
+### A tool taking no arguments still has a schema
+
+`ToolDefinition::new` leaves `parameters` at `{"type": "object", "properties": {}}` rather than at `null`, because a tool with no arguments is a tool whose arguments are an empty object. That distinction is not cosmetic: every dialect sends this field, and none of the four providers accepts `null` in it. OpenAI answers `expected an object, but got null`, and Anthropic requires `input_schema` to be an object.
+
+`parameters` is a public field, so it can still be set to something unusable by hand. Freyja substitutes the empty object schema on the way to the wire for anything that is not a JSON object, so a definition cannot produce a body the provider rejects on this ground.
+
+`Client::check` says nothing about this. It reports what the *dialect* can carry, and a schema is a value the endpoint judges. See [the capability model](../internals/capability-model.md).
 
 ## Implementing the trait by hand
 
