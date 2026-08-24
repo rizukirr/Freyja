@@ -1,5 +1,6 @@
 //! Errors returned while preparing, sending, or decoding a generation request.
 
+use std::borrow::Cow;
 use std::fmt;
 use std::sync::Arc;
 use std::time::Duration;
@@ -44,7 +45,17 @@ impl TransportError {
 }
 
 /// Everything that can go wrong on the way to a generation response.
-#[derive(Debug)]
+///
+/// # Printing one
+///
+/// Both `Display` and `Debug` trim the endpoint's response body to
+/// [`BODY_IN_MESSAGE`] bytes and say how much they left out. A rejected request
+/// is usually logged rather than read, and a provider that quotes the whole
+/// offending request back turns one 400 into a log line thousands of characters
+/// wide.
+///
+/// Nothing is lost: the fields are public, and [`Error::body`] reaches the
+/// untrimmed body without matching on the variant.
 #[non_exhaustive]
 #[allow(missing_docs)]
 pub enum Error {
@@ -109,6 +120,35 @@ pub enum Error {
 }
 
 const QUOTA_MARKER: &str = "insufficient_quota";
+
+/// How much of a response body a printed [`Error`] carries.
+///
+/// Two kilobytes holds every provider error message seen in practice with room
+/// to spare. What it excludes is the case that made this necessary: a body that
+/// quotes the whole rejected request back, which is normal for a 400 and which
+/// no log line should have to hold.
+pub const BODY_IN_MESSAGE: usize = 2048;
+
+/// Trims `value` to [`BODY_IN_MESSAGE`] bytes, naming what it dropped.
+///
+/// Borrows when nothing needs dropping, which is the common case: this runs on
+/// every printed error and most bodies are a sentence.
+fn capped(value: &str) -> Cow<'_, str> {
+    if value.len() <= BODY_IN_MESSAGE {
+        return Cow::Borrowed(value);
+    }
+    // Never split a codepoint: the cut lands mid-character often enough, and
+    // slicing there panics.
+    let mut end = BODY_IN_MESSAGE;
+    while !value.is_char_boundary(end) {
+        end -= 1;
+    }
+    Cow::Owned(format!(
+        "{}… ({} more bytes)",
+        &value[..end],
+        value.len() - end
+    ))
+}
 
 impl Error {
     pub(crate) fn from_status(
@@ -183,6 +223,23 @@ impl Error {
             _ => None,
         }
     }
+    /// The endpoint's raw response body, untrimmed, when the error has one.
+    ///
+    /// What [`Display`](fmt::Display) and [`Debug`](fmt::Debug) shorten. Reach
+    /// for this when a provider's rejection runs past [`BODY_IN_MESSAGE`] and
+    /// the part that matters is not in the first two kilobytes.
+    pub fn body(&self) -> Option<&str> {
+        match self {
+            Self::BadRequest { body, .. }
+            | Self::Unauthorized { body, .. }
+            | Self::NotFound { body, .. }
+            | Self::RateLimit { body, .. }
+            | Self::QuotaExceeded { body, .. }
+            | Self::ServerError { body, .. }
+            | Self::Api { body, .. } => Some(body),
+            _ => None,
+        }
+    }
     /// The configured endpoint name.
     pub fn endpoint(&self) -> &str {
         match self {
@@ -219,7 +276,7 @@ impl fmt::Display for Error {
                 message,
             } => write!(f, "{endpoint} {}: {message}", kind.as_str()),
             Self::BadRequest { endpoint, body } => {
-                write!(f, "{endpoint} rejected the request: {body}")
+                write!(f, "{endpoint} rejected the request: {}", capped(body))
             }
             Self::Unauthorized {
                 endpoint,
@@ -227,10 +284,15 @@ impl fmt::Display for Error {
                 body,
             } => write!(
                 f,
-                "{endpoint} refused the credential (HTTP {status}): {body}"
+                "{endpoint} refused the credential (HTTP {status}): {}",
+                capped(body)
             ),
             Self::NotFound { endpoint, body } => {
-                write!(f, "{endpoint} has no such model or endpoint: {body}")
+                write!(
+                    f,
+                    "{endpoint} has no such model or endpoint: {}",
+                    capped(body)
+                )
             }
             Self::RateLimit {
                 endpoint,
@@ -239,26 +301,31 @@ impl fmt::Display for Error {
             } => match retry_after {
                 Some(wait) => write!(
                     f,
-                    "{endpoint} rate limited the request, retry after {}s: {body}",
-                    wait.as_secs()
+                    "{endpoint} rate limited the request, retry after {}s: {}",
+                    wait.as_secs(),
+                    capped(body)
                 ),
-                None => write!(f, "{endpoint} rate limited the request: {body}"),
+                None => write!(f, "{endpoint} rate limited the request: {}", capped(body)),
             },
             Self::QuotaExceeded {
                 endpoint,
                 status,
                 body,
-            } => write!(f, "{endpoint} quota exhausted (HTTP {status}): {body}"),
+            } => write!(
+                f,
+                "{endpoint} quota exhausted (HTTP {status}): {}",
+                capped(body)
+            ),
             Self::ServerError {
                 endpoint,
                 status,
                 body,
-            } => write!(f, "{endpoint} failed with HTTP {status}: {body}"),
+            } => write!(f, "{endpoint} failed with HTTP {status}: {}", capped(body)),
             Self::Api {
                 endpoint,
                 status,
                 body,
-            } => write!(f, "{endpoint} returned HTTP {status}: {body}"),
+            } => write!(f, "{endpoint} returned HTTP {status}: {}", capped(body)),
             Self::InvalidResponse { endpoint, message } => {
                 write!(f, "invalid {endpoint} response: {message}")
             }
@@ -280,4 +347,218 @@ impl fmt::Display for Error {
         }
     }
 }
+/// Mirrors the derived output, with the body and the model's text trimmed.
+///
+/// Hand-written for the reason [`Display`](fmt::Display) caps: `{:?}` in a
+/// logging macro is at least as common as `{}`, so capping only one of the two
+/// leaves the case that made this worth doing wide open.
+impl fmt::Debug for Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::UnsupportedCapability {
+                endpoint,
+                capability,
+            } => f
+                .debug_struct("UnsupportedCapability")
+                .field("endpoint", endpoint)
+                .field("capability", capability)
+                .finish(),
+            Self::InvalidRequest { endpoint, message } => f
+                .debug_struct("InvalidRequest")
+                .field("endpoint", endpoint)
+                .field("message", message)
+                .finish(),
+            Self::Http {
+                endpoint,
+                kind,
+                message,
+            } => f
+                .debug_struct("Http")
+                .field("endpoint", endpoint)
+                .field("kind", kind)
+                .field("message", message)
+                .finish(),
+            Self::BadRequest { endpoint, body } => f
+                .debug_struct("BadRequest")
+                .field("endpoint", endpoint)
+                .field("body", &capped(body))
+                .finish(),
+            Self::Unauthorized {
+                endpoint,
+                status,
+                body,
+            } => f
+                .debug_struct("Unauthorized")
+                .field("endpoint", endpoint)
+                .field("status", status)
+                .field("body", &capped(body))
+                .finish(),
+            Self::NotFound { endpoint, body } => f
+                .debug_struct("NotFound")
+                .field("endpoint", endpoint)
+                .field("body", &capped(body))
+                .finish(),
+            Self::RateLimit {
+                endpoint,
+                retry_after,
+                body,
+            } => f
+                .debug_struct("RateLimit")
+                .field("endpoint", endpoint)
+                .field("retry_after", retry_after)
+                .field("body", &capped(body))
+                .finish(),
+            Self::QuotaExceeded {
+                endpoint,
+                status,
+                body,
+            } => f
+                .debug_struct("QuotaExceeded")
+                .field("endpoint", endpoint)
+                .field("status", status)
+                .field("body", &capped(body))
+                .finish(),
+            Self::ServerError {
+                endpoint,
+                status,
+                body,
+            } => f
+                .debug_struct("ServerError")
+                .field("endpoint", endpoint)
+                .field("status", status)
+                .field("body", &capped(body))
+                .finish(),
+            Self::Api {
+                endpoint,
+                status,
+                body,
+            } => f
+                .debug_struct("Api")
+                .field("endpoint", endpoint)
+                .field("status", status)
+                .field("body", &capped(body))
+                .finish(),
+            Self::InvalidResponse { endpoint, message } => f
+                .debug_struct("InvalidResponse")
+                .field("endpoint", endpoint)
+                .field("message", message)
+                .finish(),
+            // `text` is the model's whole answer, which is exactly as large as
+            // a generation is allowed to be, so it is capped for the same
+            // reason a body is. `Display` never printed it at all.
+            Self::OutputMismatch {
+                endpoint,
+                message,
+                text,
+                truncated,
+            } => f
+                .debug_struct("OutputMismatch")
+                .field("endpoint", endpoint)
+                .field("message", message)
+                .field("text", &capped(text))
+                .field("truncated", truncated)
+                .finish(),
+            Self::Stream { endpoint, message } => f
+                .debug_struct("Stream")
+                .field("endpoint", endpoint)
+                .field("message", message)
+                .finish(),
+        }
+    }
+}
+
 impl std::error::Error for Error {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A body of `size` bytes that quotes caller content back, which is what a
+    /// real 400 does and the reason any of this is capped.
+    fn rejection(size: usize) -> Error {
+        let mut body = String::from(r#"{"error":{"message":"Invalid value: "#);
+        while body.len() < size {
+            body.push_str("what the user typed ");
+        }
+        body.push_str(r#""}}"#);
+        Error::from_status("OpenAI".into(), 400, None, body)
+    }
+
+    #[test]
+    fn a_short_body_is_printed_whole() {
+        let error = Error::from_status("OpenAI".into(), 400, None, "too many tokens".into());
+
+        assert_eq!(
+            error.to_string(),
+            "OpenAI rejected the request: too many tokens"
+        );
+        assert!(format!("{error:?}").contains("too many tokens"));
+        assert!(!error.to_string().contains("more bytes"));
+    }
+
+    #[test]
+    fn a_long_body_is_trimmed_in_both_renderings() {
+        let error = rejection(9000);
+        let full = error.body().expect("a 400 carries its body");
+
+        for rendered in [error.to_string(), format!("{error:?}")] {
+            assert!(
+                rendered.len() < full.len() / 2,
+                "still {} chars: {}",
+                rendered.len(),
+                &rendered[..80]
+            );
+            assert!(rendered.contains("more bytes"), "says what it dropped");
+            // The part a reader needs is the front of the body, and it
+            // survives. Matched without the quoting, since `Debug` escapes it.
+            assert!(rendered.contains("Invalid value:"));
+            assert!(rendered.contains("what the user typed"));
+        }
+    }
+
+    #[test]
+    fn the_untrimmed_body_is_still_reachable() {
+        let error = rejection(9000);
+
+        assert!(error.body().expect("a body").len() > 9000);
+        // And the variants that never had one say so rather than inventing it.
+        assert!(
+            Error::Stream {
+                endpoint: "OpenAI".into(),
+                message: "closed".into(),
+            }
+            .body()
+            .is_none()
+        );
+    }
+
+    #[test]
+    fn trimming_never_splits_a_codepoint() {
+        // A cut landing mid-character panics on slicing, and the boundary is
+        // hit by any body of multi-byte text at the wrong length.
+        for pad in 0..8 {
+            let mut body = "é".repeat(BODY_IN_MESSAGE);
+            body.insert_str(0, &"x".repeat(pad));
+            let error = Error::from_status("OpenAI".into(), 400, None, body);
+
+            assert!(error.to_string().contains("more bytes"));
+            assert!(format!("{error:?}").contains("more bytes"));
+        }
+    }
+
+    #[test]
+    fn the_model_answer_is_trimmed_too() {
+        // `Display` never printed it, but `Debug` did, and it is as large as a
+        // generation is allowed to be.
+        let error = Error::OutputMismatch {
+            endpoint: "OpenAI".into(),
+            message: "expected an object".into(),
+            text: "n".repeat(9000),
+            truncated: false,
+        };
+
+        let rendered = format!("{error:?}");
+        assert!(rendered.len() < 4000, "still {} chars", rendered.len());
+        assert!(rendered.contains("more bytes"));
+    }
+}

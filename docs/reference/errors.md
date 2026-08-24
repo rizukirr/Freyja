@@ -32,6 +32,8 @@ pub enum Error {
 
 Implements `Debug`, `Display`, and `std::error::Error`, so it works with `?`, `anyhow`, `thiserror`, and anything else expecting a standard error.
 
+Both `Debug` and `Display` are written by hand, and both trim the endpoint's response body. See [Printing an error](#printing-an-error).
+
 The enum is `#[non_exhaustive]`, so a `match` on it needs a catch-all arm. Variants added later will not break your build.
 
 Every variant carries the endpoint's configured name, reachable with `error.endpoint()`, so an error from a multi-provider application says which backend produced it. It is the endpoint rather than the dialect, so a failure against a Claude-compatible gateway reports that gateway and not "Anthropic".
@@ -46,14 +48,15 @@ The `Api` variant remains as the fallback, so a status Freyja does not classify 
 
 ## The helpers
 
-Four methods answer the questions a caller actually has, so the knowledge does not have to be rebuilt per vendor at every call site:
+Five methods answer the questions a caller actually has, so the knowledge does not have to be rebuilt per vendor at every call site:
 
 | Method | Returns |
 |---|---|
 | `is_retryable()` | Whether repeating the identical request could plausibly succeed |
 | `retry_after()` | The endpoint's own `Retry-After` delay, when it sent one |
 | `status()` | The HTTP status, for the errors that have one |
-| `provider()` | The endpoint's configured name, on every variant |
+| `body()` | The endpoint's raw response body, untrimmed, for the errors that have one |
+| `endpoint()` | The endpoint's configured name, on every variant |
 
 `is_retryable()` returning `false` means the request will fail the same way every time until something outside it changes: the key, the model name, the request body, or the account balance.
 
@@ -209,6 +212,8 @@ invalid OpenAI response: missing field `id`; body: {...}
 
 This means the vendor changed something Freyja models as required. Unknown fields, unknown output types, and unknown status strings are all tolerated already, so this only fires on a genuine break. Retrying will not help. Report it as a bug.
 
+It also carries the one case that is not a parse failure: a response body that grew past 64 MiB, abandoned rather than buffered whole. The read timeout bounds silence and not volume, so an endpoint that keeps sending forever is never late. See [Size limits](streaming.md#size-limits) for the streaming equivalent.
+
 ### OutputMismatch
 
 The call succeeded and the model's answer did not match the type [`generate_as`](client.md#generate_as) was asked for. Only that method raises it.
@@ -248,6 +253,32 @@ It is distinct from the status-bearing variants, which report an answer that nev
 `is_retryable()` reports `false` for it, which is a deliberate understatement: the provider's error frame is not parsed, so Freyja cannot tell a transient overload from the `into_response` misuse, and the safe default is not to encourage a retry it cannot justify. Overload and rate limit conditions genuinely do arrive this way once the connection is open, so read the message and decide.
 
 A stream that simply stops, with no error frame, is not this variant. It ends normally, and the `Done` event carries `ResponseStatus::Incomplete` because no terminal frame set anything else. Check `status` on `Done`, or on the response from `into_response()`, before treating a short answer as a complete one. See [Streaming](../reference/streaming.md).
+
+## Printing an error
+
+Both renderings trim the endpoint's body to `BODY_IN_MESSAGE` bytes, which is 2048, and say how much they dropped:
+
+```
+OpenAI rejected the request: {"error":{"message":"Invalid value for 'messages[1].
+content': expected a string, got null. Offending value: …… (5096 more bytes)
+```
+
+The reason is that a rejected request is usually logged rather than read, and providers routinely quote the entire offending request back in a 400. One real OpenAI rejection produced a 7144 byte body, so `error.to_string()` was a single 7173 character log line describing one failed call. It is now 2098.
+
+`Debug` is capped for the same reason and to the same length. Capping only `Display` would have missed most of the problem, since `tracing::error!(?error)` is at least as common as `"{error}"`. `Debug` also trims `OutputMismatch`'s `text`, which is the model's whole answer and therefore as large as a generation is allowed to be.
+
+Nothing is lost. The fields are public, and `error.body()` reaches the untrimmed body without matching on the variant:
+
+```rust
+Err(error) => {
+    tracing::error!("{error}");                    // 2 KiB, for the log
+    if let Some(body) = error.body() {
+        std::fs::write("rejection.json", body)?;   // all of it, for you
+    }
+}
+```
+
+One thing the cap does not do: it bounds the *size* of what reaches your logs, not the *content*. A provider quoting your user's text back puts that text in the first few hundred bytes, well inside the cap. If your prompts carry data your logs should not hold, log `error.endpoint()` and `error.status()` rather than the error itself.
 
 ## Handling errors
 
