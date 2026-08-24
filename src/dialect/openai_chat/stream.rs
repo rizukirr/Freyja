@@ -108,7 +108,13 @@ impl StreamDecoder for Decoder {
                 model,
                 status,
                 usage,
-                provider_metadata: Some(value.clone()),
+                // Moved, not cloned. Every chunk in this dialect carries `id`
+                // and `model`, so the guard above is true once per token, and
+                // cloning here deep-copied the whole frame once per token for
+                // a field the assembler overwrites on the next one. The three
+                // other decoders attach metadata once per stream; this one had
+                // to hand over what it already owns instead.
+                provider_metadata: Some(value),
             });
         }
         Ok(())
