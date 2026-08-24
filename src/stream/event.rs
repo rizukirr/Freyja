@@ -179,6 +179,7 @@ impl EventStream {
                 match chunk {
                     Some(bytes) => {
                         self.buffer.push(&bytes);
+                        self.check_buffer()?;
                         Ok(true)
                     }
                     None => Ok(false),
@@ -188,11 +189,30 @@ impl EventStream {
             Body::Recorded(chunks) => match chunks.pop_front() {
                 Some(bytes) => {
                     self.buffer.push(&bytes);
+                    self.check_buffer()?;
                     Ok(true)
                 }
                 None => Ok(false),
             },
         }
+    }
+
+    /// Fails the stream when one frame has grown past any plausible size.
+    ///
+    /// An endpoint that never emits a frame separator would otherwise be
+    /// buffered whole, and the read timeout does not catch it: it bounds
+    /// silence, and this endpoint is not silent.
+    fn check_buffer(&self) -> Result<(), Error> {
+        if self.buffer.overflowed() {
+            return Err(Error::Stream {
+                endpoint: self.endpoint.clone(),
+                message: format!(
+                    "a single event grew past {} bytes without ending",
+                    super::sse::MAX_FRAME_BYTES
+                ),
+            });
+        }
+        Ok(())
     }
 
     #[cfg(test)]

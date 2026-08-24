@@ -44,6 +44,42 @@ pub(crate) async fn post<T: Serialize>(
         .map_err(|error| Error::transport(config.name.clone(), &error))
 }
 
+/// The most one response body may occupy before the read is abandoned.
+///
+/// Generously above any real generation, and there to bound a body Freyja has
+/// no other bound on: `read_timeout` limits silence, not volume, so an endpoint
+/// that keeps sending forever is never late. The same reasoning as
+/// `stream::sse::MAX_FRAME_BYTES`, one layer up.
+pub(crate) const MAX_BODY_BYTES: usize = 64 * 1024 * 1024;
+
+/// Reads a whole response body, refusing to grow past [`MAX_BODY_BYTES`].
+///
+/// Stands in for `Response::text`, which has no ceiling. JSON is UTF-8 by
+/// specification, so the charset negotiation `text` does buys nothing here.
+pub(crate) async fn read_body(
+    response: reqwest::Response,
+    endpoint: &std::sync::Arc<str>,
+) -> Result<String, Error> {
+    let mut response = response;
+    let mut body: Vec<u8> = Vec::new();
+
+    while let Some(chunk) = response
+        .chunk()
+        .await
+        .map_err(|error| Error::transport(endpoint.clone(), &error))?
+    {
+        if body.len() + chunk.len() > MAX_BODY_BYTES {
+            return Err(Error::InvalidResponse {
+                endpoint: endpoint.clone(),
+                message: format!("response body grew past {MAX_BODY_BYTES} bytes"),
+            });
+        }
+        body.extend_from_slice(&chunk);
+    }
+
+    Ok(String::from_utf8_lossy(&body).into_owned())
+}
+
 pub(crate) fn parse_retry_after(headers: &reqwest::header::HeaderMap) -> Option<Duration> {
     headers
         .get(reqwest::header::RETRY_AFTER)?

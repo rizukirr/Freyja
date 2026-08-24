@@ -11,10 +11,14 @@ Derives `Clone`. Cloning is cheap for the HTTP client, since `reqwest::Client` i
 `Debug` is implemented by hand rather than derived, and **redacts the API key**:
 
 ```
-Client { config: EndpointConfig { .. }, api_key: "<redacted>", http: .. }
+Client { config: EndpointConfig { .. }, api_key: "<redacted>", http: "<reqwest::Client>" }
 ```
 
 A derived `Debug` would print the key verbatim, so one `tracing::debug!(?client)` would put a live credential in your logs. The redaction still distinguishes `"<redacted>"` from `"<none>"`, since which one you have is the usual explanation for a 401.
+
+The HTTP client is named rather than printed, for the same reason one field over. `reqwest::Client` prints its `default_headers` in full, so a client you built with an auth header and passed to [`Client::with_http_client`](#clientwith_http_client) used to leak that header here, past every other redaction in the struct. Note that this covers what Freyja prints. A `tracing::debug!(?http)` on your own `reqwest::Client` still prints its headers, so mark a credential header sensitive with `HeaderValue::set_sensitive` if you log the client yourself.
+
+Credentials belong in `api_key` or in [`EndpointConfig::auth`](../providers/custom.md#auth), which are redacted unconditionally. A credential left in `EndpointConfig::extra_headers` is redacted only when its name gives it away.
 
 ## Constructors
 

@@ -170,6 +170,18 @@ let client = Client::with_http_client(EndpointPreset::OpenAi, api_key, http);
 
 `timeout` on a streaming request is a deadline for the whole response body, which for streaming is a deadline on how long the model is allowed to talk.
 
+## Size limits
+
+A timeout bounds silence. It does not bound volume, and an endpoint that keeps sending is never late, so there is a second bound underneath it: one server-sent event may buffer 16 MiB before the stream fails with `Error::Stream`.
+
+```
+probe stream failed: a single event grew past 16777216 bytes without ending
+```
+
+An event is a JSON object, and the largest any provider sends is a terminal object carrying the whole interaction, so the ceiling is orders of magnitude above anything real. What it catches is an endpoint that never emits a frame separator, which would otherwise be buffered whole until the process runs out of memory. Freyja is built to be pointed at gateways it has never met, so this is not hypothetical.
+
+Non-streaming responses have the same protection at 64 MiB, reported as `Error::InvalidResponse`.
+
 ## Errors
 
 Everything that can fail before the first byte surfaces from `stream`, classified by cause: `RateLimit`, `Unauthorized`, `ServerError`, and the rest of the status-bearing variants. After that, failures surface from `next`: `Error::Stream` for the provider's own mid-stream error frame, `Error::Http` with a `Body` kind for the connection dropping underneath.
