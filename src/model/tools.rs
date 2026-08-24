@@ -178,9 +178,9 @@ pub struct ToolDefinition {
     /// Every dialect sends this to the wire, and none of them accepts `null`
     /// there, so a tool taking no arguments needs the empty object schema
     /// rather than nothing. [`ToolDefinition::new`] starts you there, and
-    /// [`ToolDefinition::schema`] substitutes it for anything that is not a
-    /// JSON object, so setting this field by hand cannot produce a body the
-    /// provider rejects.
+    /// anything that is not a JSON object is replaced by that same schema on
+    /// the way out, so setting this field by hand cannot produce a body the
+    /// provider rejects on this ground.
     pub parameters: Value,
     /// Whether the endpoint must enforce `parameters` exactly.
     pub strict: Option<bool>,
