@@ -226,7 +226,7 @@ impl Request {
                 .map(|tool| ToolWire {
                     name: tool.name.clone(),
                     description: tool.description.clone(),
-                    input_schema: tool.parameters.clone(),
+                    input_schema: tool.schema(),
                     strict: tool.strict,
                 })
                 .collect(),

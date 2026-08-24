@@ -138,6 +138,15 @@ impl Request {
                 Role::Tool => "tool",
             };
 
+            // Which of the two renderings this turn gets is decided by whether
+            // an image is in it, and that is knowable up front. Building both
+            // and discarding one cloned every text part twice, on every
+            // message, on every turn of an agent loop.
+            let has_image = message
+                .content
+                .iter()
+                .any(|part| matches!(part, InputContent::ImageUrl(_)));
+
             let mut text = Vec::new();
             let mut parts = Vec::new();
             let mut tool_calls = Vec::new();
@@ -146,10 +155,13 @@ impl Request {
             for part in &message.content {
                 match part {
                     InputContent::Text(value) => {
-                        text.push(value.clone());
-                        parts.push(PartWire::Text {
-                            text: value.clone(),
-                        });
+                        if has_image {
+                            parts.push(PartWire::Text {
+                                text: value.clone(),
+                            });
+                        } else {
+                            text.push(value.clone());
+                        }
                     }
                     // Every role takes one. Verified live: an image part on an
                     // assistant turn and on a tool turn both returned
@@ -184,14 +196,17 @@ impl Request {
                             });
                         }
                         tool_call_id = Some(call_id.clone());
-                        text.push(output.clone());
-                        // Into both, because the two are alternative renderings
-                        // of the same turn and an image elsewhere in it decides
-                        // which one is sent. Pushing only to `text` would drop
-                        // this output whenever the parts form won.
-                        parts.push(PartWire::Text {
-                            text: output.clone(),
-                        });
+                        // Into whichever rendering this turn is getting. An
+                        // image elsewhere in it decides that, and putting the
+                        // output in only `text` would drop it whenever the
+                        // parts form won.
+                        if has_image {
+                            parts.push(PartWire::Text {
+                                text: output.clone(),
+                            });
+                        } else {
+                            text.push(output.clone());
+                        }
                     }
                     // No standard place for opaque reasoning state in this
                     // format, and no replay requirement either, so it is left
@@ -199,10 +214,6 @@ impl Request {
                     InputContent::Reasoning { .. } => {}
                 }
             }
-
-            let has_image = parts
-                .iter()
-                .any(|part| matches!(part, PartWire::Image { .. }));
 
             let content = if has_image {
                 Some(ContentWire::Parts(parts))
@@ -269,7 +280,7 @@ impl Request {
                     function: FunctionWire {
                         name: tool.name.clone(),
                         description: tool.description.clone(),
-                        parameters: tool.parameters.clone(),
+                        parameters: tool.schema(),
                         strict: tool.strict,
                     },
                 })

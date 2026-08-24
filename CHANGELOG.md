@@ -2,6 +2,82 @@
 
 Notable changes per release. Freyja is pre-1.0, so a minor version may break.
 
+## Unreleased
+
+### Security
+
+- **`Client`'s `Debug` no longer prints the HTTP client**, which leaked
+  credentials past every other redaction in the struct.
+  `reqwest::Client` prints its `default_headers` in full, so a client
+  built with an auth header and handed to `Client::with_http_client`, the
+  documented way to share a pool or carry a second credential, put that
+  header in the logs on one `tracing::debug!(?client)`. It now renders as
+  `"<reqwest::Client>"`. This covers what Freyja prints. Logging your own
+  `reqwest::Client` still prints its headers, so mark a credential header
+  with `HeaderValue::set_sensitive` if you do that.
+
+- **One streaming event may buffer 16 MiB, and one response body 64 MiB**,
+  after which the read is abandoned with `Error::Stream` or
+  `Error::InvalidResponse`. Neither had a ceiling before. The read timeout
+  bounds silence rather than volume, so an endpoint that never ends a
+  frame, or never stops sending, was buffered whole until the process ran
+  out of memory. Both limits sit orders of magnitude above anything a
+  provider sends.
+
+### Fixed
+
+- **A tool taking no arguments is now sendable.** `ToolDefinition::new`
+  left `parameters` at `Value::Null`, and all four dialects sent that to
+  the wire, where every provider rejects it: OpenAI answers
+  `expected an object, but got null`, and Anthropic requires
+  `input_schema` to be an object. The constructor now starts at
+  `{"type": "object", "properties": {}}`, and because the field is public,
+  the dialects substitute the same schema for anything that is not a JSON
+  object. `#[tool]` was never affected, since it always generated a
+  schema. `Client::check` still passes such a request, correctly: a schema
+  is a value the endpoint judges, not a capability the dialect lacks.
+
+- **The Chat Completions streaming decoder no longer deep-copies every
+  frame.** It cloned the whole parsed frame into `provider_metadata`, and
+  since every chunk in this dialect carries `id` and `model`, that ran
+  once per token for a field the assembler overwrites on the next one. It
+  now hands over the value it already owns. The other three decoders
+  attach metadata once per stream and were never affected.
+
+- **Server-sent event framing is no longer quadratic in frame size.** Each
+  arriving chunk rescanned the whole accumulated buffer from the start. A
+  cursor now resumes the scan where the last one ended, reaching back
+  three bytes so a separator straddling a chunk boundary is still found.
+  Small text deltas hid this. A large reasoning blob did not.
+
+- **The Chat Completions request builder no longer clones every text part
+  twice.** It built both the string and the array rendering of each turn
+  and discarded one. Which rendering a turn gets depends only on whether
+  an image is in it, which is knowable up front, so it now builds one. An
+  agent loop rebuilds the whole transcript every turn, so the saving
+  scales with both.
+
+### Changed
+
+- **`Error`'s `Display` and `Debug` trim the endpoint's response body** to
+  `BODY_IN_MESSAGE` bytes, 2048, and say how much they dropped. Providers
+  routinely quote the entire offending request back in a 400: one real
+  OpenAI rejection turned `error.to_string()` into a single 7173 character
+  log line, now 2098. `Debug` is capped too, since `tracing::error!(?error)`
+  is at least as common as `"{error}"`, and it also trims
+  `OutputMismatch`'s `text`, which is the model's whole answer.
+
+  This bounds the size of what reaches your logs, not the content. A
+  provider quoting your user's text back puts it well inside the cap.
+
+  `Error` no longer derives `Debug`. The hand-written impl reproduces the
+  derived shape, so this is only visible if you were matching on that
+  output.
+
+- **`Error::body`** returns the untrimmed response body on the seven
+  status-bearing variants, and `None` on the rest, so nothing the
+  renderings drop is out of reach.
+
 ## 0.2.1
 
 ### Added

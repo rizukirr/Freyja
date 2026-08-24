@@ -213,7 +213,7 @@ impl Request {
                     kind: "function",
                     name: tool.name.clone(),
                     description: tool.description.clone(),
-                    parameters: tool.parameters.clone(),
+                    parameters: tool.schema(),
                     strict: tool.strict,
                 })
                 .collect(),

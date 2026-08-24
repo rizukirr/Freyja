@@ -174,19 +174,47 @@ pub struct ToolDefinition {
     /// What the tool does.
     pub description: Option<String>,
     /// JSON Schema for tool arguments.
+    ///
+    /// Every dialect sends this to the wire, and none of them accepts `null`
+    /// there, so a tool taking no arguments needs the empty object schema
+    /// rather than nothing. [`ToolDefinition::new`] starts you there, and
+    /// anything that is not a JSON object is replaced by that same schema on
+    /// the way out, so setting this field by hand cannot produce a body the
+    /// provider rejects on this ground.
     pub parameters: Value,
     /// Whether the endpoint must enforce `parameters` exactly.
     pub strict: Option<bool>,
 }
 
+/// The schema for a tool that takes no arguments.
+///
+/// Not `Value::Null`: OpenAI answers `expected an object, but got null`, and
+/// Anthropic requires `input_schema` to be an object. A tool with no arguments
+/// still has a shape, and this is it.
+fn empty_schema() -> Value {
+    serde_json::json!({"type": "object", "properties": {}})
+}
+
 impl ToolDefinition {
-    /// Creates a tool definition with no parameter schema.
+    /// Creates a tool definition whose tool takes no arguments.
     pub fn new(name: impl Into<String>, description: impl Into<String>) -> Self {
         Self {
             name: name.into(),
             description: Some(description.into()),
-            parameters: Value::Null,
+            parameters: empty_schema(),
             strict: None,
+        }
+    }
+
+    /// The schema as it goes to the wire.
+    ///
+    /// Substitutes the empty object schema for anything that is not a JSON
+    /// object, since [`ToolDefinition::parameters`] is public and no dialect
+    /// accepts `null` in that position.
+    pub(crate) fn schema(&self) -> Value {
+        match &self.parameters {
+            object @ Value::Object(_) => object.clone(),
+            _ => empty_schema(),
         }
     }
     /// Sets the argument JSON Schema.
@@ -249,6 +277,30 @@ mod tests {
         let tool = Add { offset: 0 };
         assert_eq!(tool.name(), "add");
         assert_eq!(tool.definition().name, "add");
+    }
+
+    #[test]
+    fn a_tool_taking_no_arguments_still_has_a_schema() {
+        // `null` here reached the wire on all four dialects and every one of
+        // them answers 400. A tool with no arguments has a shape, and the
+        // no-parameters constructor has to produce it.
+        let definition = ToolDefinition::new("now", "the current time");
+        assert_eq!(definition.parameters["type"], "object");
+        assert!(definition.parameters["properties"].is_object());
+    }
+
+    #[test]
+    fn a_schema_set_by_hand_is_only_substituted_when_unusable() {
+        use serde_json::{Value, json};
+
+        let mine = json!({"type": "object", "properties": {"a": {"type": "integer"}}});
+        let kept = ToolDefinition::new("add", "adds").parameters(mine.clone());
+        assert_eq!(kept.schema(), mine);
+
+        // The field is public, so it can still be emptied out.
+        let mut cleared = ToolDefinition::new("add", "adds");
+        cleared.parameters = Value::Null;
+        assert_eq!(cleared.schema()["type"], "object");
     }
 
     #[tokio::test]

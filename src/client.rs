@@ -37,6 +37,13 @@ pub struct Client {
 ///
 /// Deriving `Debug` here would print the key verbatim, so a single
 /// `tracing::debug!(?client)` would put a live credential in the logs.
+///
+/// The HTTP client is named rather than printed, for the same reason one field
+/// over. `reqwest::Client`'s own `Debug` prints `default_headers` verbatim, so
+/// a client built by the caller and handed to [`Client::with_http_client`] --
+/// the documented way to share a pool or add a second credential -- would
+/// otherwise leak whatever auth header it was built with, and leak it past the
+/// name heuristic that guards [`EndpointConfig::extra_headers`].
 impl fmt::Debug for Client {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Client")
@@ -48,7 +55,7 @@ impl fmt::Debug for Client {
                     None => "<none>",
                 },
             )
-            .field("http", &self.http)
+            .field("http", &"<reqwest::Client>")
             .finish()
     }
 }
@@ -360,10 +367,7 @@ impl Client {
             // Read before `text()`, which consumes the response and takes the
             // headers with it.
             let retry_after = crate::transport::parse_retry_after(response.headers());
-            let body = response
-                .text()
-                .await
-                .map_err(|error| Error::transport(self.config.name.clone(), &error))?;
+            let body = crate::transport::read_body(response, &self.config.name).await?;
             return Err(Error::from_status(
                 self.config.name.clone(),
                 status.as_u16(),
@@ -399,10 +403,7 @@ impl Client {
 
         let status = response.status();
         let retry_after = crate::transport::parse_retry_after(response.headers());
-        let body = response
-            .text()
-            .await
-            .map_err(|error| Error::transport(self.config.name.clone(), &error))?;
+        let body = crate::transport::read_body(response, &self.config.name).await?;
 
         if !status.is_success() {
             return Err(Error::from_status(
@@ -459,6 +460,31 @@ mod tests {
         // everything would make the field useless for the job it exists for.
         assert!(rendered.contains("x-gateway-token"), "{rendered}");
         assert!(rendered.contains("abc123"), "{rendered}");
+    }
+
+    #[test]
+    fn debug_redacts_a_credential_on_a_caller_supplied_http_client() {
+        // The redaction has to reach here too. `reqwest::Client` prints its
+        // `default_headers` in full, and `with_http_client` is how a caller
+        // shares a pool or carries a second credential, so printing the client
+        // undid every other redaction in this impl.
+        let mut headers = reqwest::header::HeaderMap::new();
+        headers.insert(
+            "x-api-key",
+            reqwest::header::HeaderValue::from_static("sk-second-secret"),
+        );
+        let http = reqwest::Client::builder()
+            .default_headers(headers)
+            .build()
+            .expect("the TLS backend could not be initialized");
+
+        let rendered = format!(
+            "{:?}",
+            Client::with_http_client(EndpointPreset::OpenAi, "sk-primary", http)
+        );
+
+        assert!(!rendered.contains("sk-second-secret"), "{rendered}");
+        assert!(!rendered.contains("sk-primary"), "{rendered}");
     }
 
     #[test]
