@@ -40,6 +40,8 @@ Streaming delivers the same answer incrementally, and a drained stream converts 
 | Per-run data in a tool | `Context` is handed to every call and never sent to the model |
 | Tools defined at runtime | `name` and `definition` are values, so an MCP-shaped tool needs no compile-time type |
 | Tools that fail | A `Result` return reaches the model as error text it can recover from |
+| Bounding a transcript | `Memory` decides what reaches the model each turn, and `Window::groups` keeps pinned turns and the most recent turn groups |
+| Memory written elsewhere | `Memory` is one method over public types, so a third-party crate implements it with no change here |
 
 The round trip is the load-bearing feature. A model asks for a function, you run it, you feed the result back, and it continues. [Building an agent](building-an-agent.md) is the guide.
 
@@ -75,7 +77,8 @@ Be sure none of these is on your critical path before adopting.
 | **Per-tool timeouts** | Out of scope, deliberately | Racing a call against a clock needs a timer, and Freyja depends on no runtime. A wrapper tool that holds the inner one and applies your runtime's timeout gets there in a dozen lines, for a tool you did not write as much as one you did. The [`Tool`](https://docs.rs/freyja/latest/freyja/trait.Tool.html) documentation has the whole implementation. |
 | **Structured-output schema derivation** | Not implemented | `#[tool]` derives argument schemas, but `ResponseFormat::JsonSchema` still takes an explicit schema. Generate one with `schemars` and pass it through `strict_schema()`. |
 | **Capability tables** | Not planned | `Client::check` answers the same question by running the conversion, so there is nothing to keep in sync. It needs a request in hand, which a table would not. |
-| **Embeddings, memory, RAG** | Not implemented | Freyja is a generation client today. |
+| **Token-aware windows and summarization** | Not implemented | `Window::groups` bounds a transcript by turn group, which needs no tokenizer. Counting tokens needs an estimate calibrated from `Usage`, and summarizing needs a model call. Both attach to `Memory` without changing it. |
+| **Embeddings and RAG** | Not implemented | An embeddings endpoint is a request shape no dialect covers, so it is a wire format of its own rather than a feature on top of one. |
 
 ## Per-provider gaps
 

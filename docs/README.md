@@ -66,4 +66,4 @@ Samples that make a network call are written as if inside an `async fn` returnin
 
 ## Status
 
-Phases 0 and 1 are complete and Phase 2 has started. Typed tools, the provider-neutral round trip, and streaming are implemented; automatic orchestration is not. Retries remain deliberately caller-owned. [Features](features.md) has the honest boundary; the [roadmap](../README.md#roadmap) has what is planned.
+Phases 0 through 2 are complete and Phase 3 has started. Typed tools, the provider-neutral round trip, streaming, and transcript selection through `Memory` are implemented. Multi-agent orchestration is not, and retries remain deliberately caller-owned. [Features](features.md) has the honest boundary, and the [roadmap](../README.md#roadmap) has what is planned.

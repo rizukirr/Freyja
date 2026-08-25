@@ -88,6 +88,7 @@ cargo run --example images           # an image in a prompt, by URL or data URI
 cargo run --example async_tools      # several tool calls running at once
 cargo run --example agent            # the loop driven by Agent
 cargo run --example guarded_tools    # tool state, run context, failures, and a guard
+cargo run --example memory           # bounding what reaches the model, transcript kept whole
 ```
 
 ## Documentation
@@ -106,7 +107,7 @@ Then [providers](docs/providers/README.md), the [API reference](docs/README.md#r
 
 ## Status
 
-Phases 0 and 1 are complete, and Phase 2 has started: the neutral core is stable, four wire dialects are implemented, tool calling works end to end, typed `#[tool]` functions derive their schemas and dispatchers and may be sync or async, every dialect streams, and failures are classified by cause.
+Phases 0 through 2 are complete, and Phase 3 has started: the neutral core is stable, four wire dialects are implemented, tool calling works end to end, typed `#[tool]` functions derive their schemas and dispatchers and may be sync or async, every dialect streams, failures are classified by cause, and `Memory` decides what part of a transcript reaches the model on each turn.
 
 | Area | State |
 |---|---|
