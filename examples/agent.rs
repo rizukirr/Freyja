@@ -15,7 +15,7 @@
 //!
 //! Type a message and press enter. `/reset` starts over, `/exit` quits.
 
-use freyja::{Agent, Client, EndpointPreset, GenerateRequest, Message, Role, StopReason, tool};
+use freyja::{Agent, Client, EndpointPreset, Message, Role, StopReason, tool};
 use std::io::{BufRead, Write};
 
 /// A sync tool: no `.await` anywhere in its body.
@@ -46,11 +46,10 @@ async fn main() {
     let agent = Agent::new(client)
         .tool(add)
         .tool(wait)
-        .request(GenerateRequest::new().message(Message::text(
-            Role::System,
+        .system(
             "You are a concise assistant with tools. Use them when they help, \
              then answer in two sentences at most.",
-        )))
+        )
         .max_turns(5);
 
     // The transcript is ours to keep: `Agent` holds no state across calls, so

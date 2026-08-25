@@ -6,8 +6,9 @@
 //! turn, which only the captured bodies can show.
 
 use freyja::{
-    Agent, Client, Context, Decision, Dialect, EndpointConfig, GenerateRequest, Message, Role,
-    StopReason, Tool, ToolChoice, ToolDefinition, ToolError, ToolFuture, tool,
+    Agent, Client, Context, Decision, Dialect, EndpointConfig, GenerateRequest, Message,
+    ReasoningEffort, Role, StopReason, Tool, ToolChoice, ToolDefinition, ToolError, ToolFuture,
+    tool,
 };
 use std::io::{BufRead, BufReader, Write};
 use std::net::TcpListener;
@@ -315,7 +316,7 @@ async fn downgrades_required_after_the_first_turn() {
     let (base, requests) = serve_many(vec![canned(CALLS_ADD), canned(ANSWER)]);
     let agent = Agent::new(client(base))
         .tool(add)
-        .request(GenerateRequest::new().tool_choice(ToolChoice::Required));
+        .tool_choice(ToolChoice::Required);
 
     let mut messages = vec![Message::text(Role::User, "go")];
     agent.run(&mut messages).await.unwrap();
@@ -635,4 +636,92 @@ async fn the_guard_sees_a_name_no_tool_answers_to() {
     // The guard runs before the lookup, so its reason replaces the miss.
     assert!(second.contains("no such thing"));
     assert!(!second.contains("unknown tool"));
+}
+
+#[tokio::test]
+async fn the_system_instruction_is_sent_and_stays_out_of_the_transcript() {
+    let (base, requests) = serve_many(vec![canned(ANSWER), canned(ANSWER)]);
+    let agent = Agent::new(client(base)).system("SENTINEL-SYSTEM");
+
+    let mut messages = vec![Message::text(Role::User, "first")];
+    agent.run(&mut messages).await.expect("first run");
+    let original_len = messages.len();
+    messages.push(Message::text(Role::User, "second"));
+    agent.run(&mut messages).await.expect("second run");
+
+    // Sent on every turn, not just the first.
+    let first = requests.recv().expect("first request");
+    let second = requests.recv().expect("second request");
+    assert!(first.contains("SENTINEL-SYSTEM"), "{first}");
+    assert!(second.contains("SENTINEL-SYSTEM"), "{second}");
+    assert!(first.contains("\"role\":\"system\""), "{first}");
+
+    // Never enters the caller's transcript: the second run added one user turn
+    // and one assistant turn on top of what the first run left behind.
+    assert_eq!(messages.len(), original_len + 2);
+    assert!(messages.iter().all(|m| m.role != Role::System));
+}
+
+#[tokio::test]
+async fn a_memory_policy_cannot_drop_the_system_instruction() {
+    let (base, requests) = serve_many(vec![canned(ANSWER)]);
+    // A policy that discards everything it is given.
+    let agent = Agent::new(client(base))
+        .system("SENTINEL-SYSTEM")
+        .memory(|_: &[Message]| Vec::new());
+
+    let mut messages = vec![Message::text(Role::User, "first")];
+    agent.run(&mut messages).await.expect("run");
+
+    let sent = requests.recv().expect("request");
+    assert!(sent.contains("SENTINEL-SYSTEM"), "{sent}");
+    assert!(
+        !sent.contains("first"),
+        "the policy dropped the turn: {sent}"
+    );
+}
+
+#[tokio::test]
+async fn the_settings_reach_the_wire() {
+    let (base, requests) = serve_many(vec![canned(ANSWER)]);
+    let agent = Agent::new(client(base))
+        .model("sentinel-model")
+        .max_tokens(123)
+        .temperature(0.25)
+        .top_p(0.5)
+        .reasoning_effort(ReasoningEffort::High);
+
+    let mut messages = vec![Message::text(Role::User, "go")];
+    agent.run(&mut messages).await.expect("run");
+
+    // Asserted as key and value together. The captured string is the whole
+    // request including its headers, so a bare value can match something the
+    // test did not set, such as a content length.
+    let sent = requests.recv().expect("captured request");
+    assert!(sent.contains(r#""model":"sentinel-model""#), "{sent}");
+    // The client in this file leaves `EndpointConfig::token_limit_field` at
+    // its default, `TokenLimitField::MaxTokens`, so the wire key is
+    // `max_tokens` rather than `max_completion_tokens`.
+    assert!(sent.contains(r#""max_tokens":123"#), "{sent}");
+    assert!(sent.contains(r#""temperature":0.25"#), "{sent}");
+    assert!(sent.contains(r#""top_p":0.5"#), "{sent}");
+    assert!(sent.contains(r#""reasoning_effort":"high""#), "{sent}");
+}
+
+#[tokio::test]
+async fn extra_for_reaches_the_wire() {
+    let (base, requests) = serve_many(vec![canned(ANSWER)]);
+    let agent = Agent::new(client(base)).extra_for(
+        Dialect::OpenAiChat,
+        serde_json::json!({"sentinel_field": "sentinel-value"}),
+    );
+
+    let mut messages = vec![Message::text(Role::User, "go")];
+    agent.run(&mut messages).await.expect("run");
+
+    let sent = requests.recv().expect("captured request");
+    assert!(
+        sent.contains(r#""sentinel_field":"sentinel-value""#),
+        "{sent}"
+    );
 }

@@ -1,9 +1,10 @@
 //! Driving the tool-calling loop.
 
 use crate::{
-    Client, Context, Error, GenerateRequest, Memory, Message, OutputContent, ResponseStatus, Tool,
-    ToolChoice, ToolDefinition, Usage,
+    Client, Context, Dialect, Error, GenerateRequest, Memory, Message, OutputContent,
+    ReasoningEffort, ResponseStatus, Tool, ToolChoice, ToolDefinition, Usage,
 };
+use serde_json::Value;
 use std::sync::Arc;
 
 /// The closure an [`Agent`] consults before running a tool.
@@ -13,6 +14,12 @@ type GuardFn = dyn Fn(&str, &str, &Context) -> Decision + Send + Sync;
 ///
 /// `Agent` holds configuration only. The transcript belongs to the caller, so
 /// one `Agent` can serve any number of conversations at once.
+///
+/// `previous_response_id` is deliberately unreachable from here: it means the
+/// vendor holds the conversation, and an `Agent` run holds it in the caller's
+/// vector, so setting both would give one run two disagreeing transcripts.
+/// `metadata` and `response_format` are simply not exposed yet, and adding
+/// either later breaks nothing.
 #[derive(Clone)]
 pub struct Agent {
     client: Client,
@@ -22,6 +29,7 @@ pub struct Agent {
     max_turns: usize,
     guard: Option<Arc<GuardFn>>,
     memory: Vec<Arc<dyn Memory>>,
+    system: Option<String>,
 }
 
 /// What one call to [`Agent::run`] produced.
@@ -78,6 +86,7 @@ impl Agent {
             max_turns: 5,
             guard: None,
             memory: Vec::new(),
+            system: None,
         }
     }
 
@@ -118,11 +127,70 @@ impl Agent {
         }
     }
 
-    /// Sets the request every turn is built from: model, temperature, tool choice.
+    /// Sets the model every turn asks for.
     ///
-    /// Any messages or tools on the template are replaced by [`Agent::run`].
-    pub fn request(mut self, template: GenerateRequest) -> Self {
-        self.template = template;
+    /// Leaving it unset uses the endpoint's default model.
+    pub fn model(mut self, model: impl Into<String>) -> Self {
+        self.template = core::mem::take(&mut self.template).model(model);
+        self
+    }
+
+    /// Caps the tokens the model may generate on each turn.
+    pub fn max_tokens(mut self, value: u32) -> Self {
+        self.template = core::mem::take(&mut self.template).max_tokens(value);
+        self
+    }
+
+    /// Sets the sampling temperature for every turn.
+    pub fn temperature(mut self, value: f32) -> Self {
+        self.template = core::mem::take(&mut self.template).temperature(value);
+        self
+    }
+
+    /// Sets nucleus sampling for every turn.
+    pub fn top_p(mut self, value: f32) -> Self {
+        self.template = core::mem::take(&mut self.template).top_p(value);
+        self
+    }
+
+    /// Sets how much internal reasoning the model spends before answering.
+    pub fn reasoning_effort(mut self, effort: ReasoningEffort) -> Self {
+        self.template = core::mem::take(&mut self.template).reasoning_effort(effort);
+        self
+    }
+
+    /// Constrains which tools the model may call.
+    ///
+    /// [`ToolChoice::Required`] is sent on the first turn only and downgraded
+    /// to [`ToolChoice::Auto`] afterwards. Left in place it would force a tool
+    /// call every round and the model could never produce a final answer.
+    pub fn tool_choice(mut self, choice: ToolChoice) -> Self {
+        self.template = core::mem::take(&mut self.template).tool_choice(choice);
+        self
+    }
+
+    /// Adds dialect-scoped fields deep-merged into the wire body of every turn.
+    ///
+    /// Reaching a vendor-only field without forking, for an agent as much as
+    /// for a single request.
+    ///
+    /// # Panics
+    ///
+    /// Panics when `fields` is not a JSON object, matching
+    /// [`GenerateRequest::extra_for`].
+    pub fn extra_for(mut self, dialect: Dialect, fields: Value) -> Self {
+        self.template = core::mem::take(&mut self.template).extra_for(dialect, fields);
+        self
+    }
+
+    /// Sets a system instruction sent ahead of the transcript on every turn.
+    ///
+    /// It is not part of the caller's transcript, so it is never returned by
+    /// [`Agent::run`] and never counted in the caller's vector. It is prepended
+    /// after any [`Memory`] policy has run, so a policy can neither drop it nor
+    /// see it.
+    pub fn system(mut self, instruction: impl Into<String>) -> Self {
+        self.system = Some(instruction.into());
         self
     }
 
@@ -198,9 +266,17 @@ impl Agent {
             // returns, whether it succeeded or failed, so an error path never
             // hands the caller a trimmed vector.
             let mut saved = None;
-            if !self.memory.is_empty() {
-                match crate::memory::apply(&self.memory, &request.messages, cx).await {
-                    Ok(chosen) => {
+            if !self.memory.is_empty() || self.system.is_some() {
+                let selected = if self.memory.is_empty() {
+                    Ok(request.messages.clone())
+                } else {
+                    crate::memory::apply(&self.memory, &request.messages, cx).await
+                };
+                match selected {
+                    Ok(mut chosen) => {
+                        if let Some(system) = &self.system {
+                            chosen.insert(0, Message::text(crate::Role::System, system.clone()));
+                        }
                         saved = Some(core::mem::replace(&mut request.messages, chosen));
                     }
                     Err(error) => {
