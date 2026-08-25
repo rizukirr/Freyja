@@ -315,7 +315,7 @@ async fn downgrades_required_after_the_first_turn() {
     let (base, requests) = serve_many(vec![canned(CALLS_ADD), canned(ANSWER)]);
     let agent = Agent::new(client(base))
         .tool(add)
-        .request(GenerateRequest::new().tool_choice(ToolChoice::Required));
+        .tool_choice(ToolChoice::Required);
 
     let mut messages = vec![Message::text(Role::User, "go")];
     agent.run(&mut messages).await.unwrap();
@@ -680,9 +680,20 @@ async fn a_memory_policy_cannot_drop_the_system_instruction() {
     );
 }
 
-#[test]
-#[should_panic(expected = "messages on an Agent template are ignored")]
-fn a_debug_build_refuses_messages_on_the_template() {
-    let _ = Agent::new(client("http://127.0.0.1:1".to_string()))
-        .request(GenerateRequest::new().message(Message::text(Role::System, "ignored")));
+#[tokio::test]
+async fn the_settings_reach_the_wire() {
+    let (base, requests) = serve_many(vec![canned(ANSWER)]);
+    let agent = Agent::new(client(base))
+        .model("sentinel-model")
+        .temperature(0.25);
+
+    let mut messages = vec![Message::text(Role::User, "go")];
+    agent.run(&mut messages).await.expect("run");
+
+    // Asserted as key and value together. The captured string is the whole
+    // request including its headers, so a bare value can match something the
+    // test did not set, such as a content length.
+    let sent = requests.recv().expect("captured request");
+    assert!(sent.contains(r#""model":"sentinel-model""#), "{sent}");
+    assert!(sent.contains(r#""temperature":0.25"#), "{sent}");
 }
