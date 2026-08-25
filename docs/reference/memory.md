@@ -45,7 +45,43 @@ impl Window {
 }
 ```
 
-`Window::groups(n)` keeps every pinned turn, meaning `Role::System` and `Role::Developer`, plus the most recent `n` turn groups. A group is an assistant turn together with every tool result answering it, since a result may only answer a call that already happened and the two cannot be split.
+`Window::groups(n)` keeps every pinned turn, meaning `Role::System` and `Role::Developer`, plus the most recent `n` groups.
+
+### What a group is
+
+Grouping is by tool call id, and by nothing else. A pinned turn is set aside and belongs to no group. Every other message starts a new group, with one exception: a tool result whose `call_id` matches a `ToolCall` in the group currently open joins that group instead of starting one.
+
+That rule protects exactly one invariant. A tool result may only answer a call that already happened, and sending a result whose call is missing is rejected by every provider. No provider objects to a question with no answer, or an answer with no question, so nothing else is fused.
+
+The consequence is that a group is usually a single message. Only a call and the results answering it are ever grouped together.
+
+### A worked example
+
+This nine-message transcript is six groups:
+
+| # | Message | Group |
+|---|---|---|
+| 0 | `System` | pinned, no group |
+| 1 | `User "weather?"` | 1 |
+| 2 | `Assistant` requesting `call_1` | 2 |
+| 3 | `Tool` result for `call_1` | 2, it answers the open call |
+| 4 | `Assistant "it is raining"` | 3 |
+| 5 | `User "and tomorrow?"` | 4 |
+| 6 | `Assistant` requesting `call_2` | 5 |
+| 7 | `Tool` result for `call_2` | 5 |
+| 8 | `Assistant "sunny"` | 6 |
+
+`Window::groups(2)` keeps groups 5 and 6, so the request carries messages 0, 6, 7 and 8. Messages 1 to 5 are not sent, and they are not removed: your `Vec<Message>` still holds all nine.
+
+The window re-decides from the whole transcript on every turn rather than remembering what it dropped, so it slides forward as the conversation grows.
+
+### Choosing `n`
+
+Count what one exchange costs. Without tools an exchange is a question and an answer, so two groups. With tools it is a question, a call with its results, and an answer, so three groups, and more if the model calls tools twice before answering.
+
+So `n` is roughly three times the number of exchanges you want the model to remember, for a tool-using agent. `Window::groups(10)` keeps about three exchanges, not ten.
+
+A small `n` cuts inside an exchange. In the table above, `groups(2)` hands the model a tool result and an answer with no question, because the user turn at index 5 is its own group and falls outside the window. Every provider accepts that request and the repair pass has nothing to fix, but the model is answering with no idea what was asked. Start at six and adjust down only if you check what is actually being sent.
 
 It counts groups, not tokens. That makes it cheap, since it needs no tokenizer and no knowledge of the target model's limit, but it only bounds how fast a transcript grows. It does not guarantee the result fits the provider's context window. A transcript with unusually long messages inside a small number of groups can still overflow. A token-aware policy is a separate feature that does not exist yet, described below.
 
