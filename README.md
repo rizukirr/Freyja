@@ -22,6 +22,8 @@ Update imports and error matching with this rename table:
 | `ProviderError` | `Error` |
 | error field `provider` | error field `endpoint` |
 | `error.provider()` | `error.endpoint()` |
+| `Agent::request(GenerateRequest::new().model(..))` | `Agent::model(..)`, and the same for `max_tokens`, `temperature`, `top_p`, `reasoning_effort`, `tool_choice`, `extra_for` |
+| a system prompt on an `Agent` template | `Agent::system(..)` |
 
 You write one request. Freyja translates it into whatever wire format the model you picked actually speaks, sends it, and translates the answer back. Changing vendor is changing one line.
 

@@ -180,13 +180,19 @@ The loop above is the skeleton. Three things separate it from something you woul
 Everything above — the bound, the tool dispatch, sending results back, watching the status — is what `Agent` does on your behalf, and it dispatches parallel tool calls concurrently rather than one at a time. The hand-written loop stays useful: it is what to reach for when you need to see or change what happens between turns, and it is what `Agent` is built from. For the common case, though:
 
 ```rust
-let agent = Agent::new(client).tool(add).max_turns(5);
+let agent = Agent::new(client)
+    .model("gpt-4o")
+    .temperature(0.2)
+    .tool(add)
+    .max_turns(5);
 
 let mut messages = vec![Message::text(Role::User, "What is 20 + 22?")];
 let run = agent.run(&mut messages).await?;
 
 println!("{}", run.answer);
 ```
+
+Model and sampling settings live on the builder alongside the tools. The transcript does not: it is the vector you hand to `run`, which is why there is no way to put messages into an agent's configuration.
 
 A guard goes on the same builder. `.guard(|name, _arguments, _cx| ...)` is consulted before every call, and returning `Decision::Deny(reason)` sends the model `denied: {reason}` instead of running the tool — which is how you keep a tool registered for the cases it is meant for while refusing the rest. See [Refusing a call](reference/tools.md#refusing-a-call).
 
