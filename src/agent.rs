@@ -1,7 +1,7 @@
 //! Driving the tool-calling loop.
 
 use crate::{
-    Client, Context, Error, GenerateRequest, Message, OutputContent, ResponseStatus, Tool,
+    Client, Context, Error, GenerateRequest, Memory, Message, OutputContent, ResponseStatus, Tool,
     ToolChoice, ToolDefinition, Usage,
 };
 use std::sync::Arc;
@@ -21,6 +21,7 @@ pub struct Agent {
     template: GenerateRequest,
     max_turns: usize,
     guard: Option<Arc<GuardFn>>,
+    memory: Vec<Arc<dyn Memory>>,
 }
 
 /// What one call to [`Agent::run`] produced.
@@ -76,6 +77,7 @@ impl Agent {
             template: GenerateRequest::new(),
             max_turns: 5,
             guard: None,
+            memory: Vec::new(),
         }
     }
 
@@ -149,6 +151,20 @@ impl Agent {
         self
     }
 
+    /// Adds a policy consulted before every request.
+    ///
+    /// Policies run in the order added, each receiving the previous one's
+    /// output, so a token budget and a redaction pass compose without either
+    /// knowing about the other. The caller's transcript is untouched: a policy
+    /// only decides what goes on the wire.
+    ///
+    /// With no policy installed the whole transcript is sent, which is the
+    /// behaviour of every release before this one.
+    pub fn memory(mut self, memory: impl Memory + 'static) -> Self {
+        self.memory.push(Arc::new(memory));
+        self
+    }
+
     /// Runs the tool loop, extending `messages` in place.
     ///
     /// The caller's vector is moved in and moved back out, so no copy of the
@@ -176,7 +192,35 @@ impl Agent {
         let mut turns = 0usize;
 
         for turn in 0..self.max_turns {
-            let response = match self.client.generate(&request).await {
+            // Swaps the full transcript out for the policy's choice rather than
+            // cloning `request` a second time on top of `apply`'s own copy. The
+            // full transcript is restored immediately after the request
+            // returns, whether it succeeded or failed, so an error path never
+            // hands the caller a trimmed vector.
+            let mut saved = None;
+            if !self.memory.is_empty() {
+                match crate::memory::apply(&self.memory, &request.messages, cx).await {
+                    Ok(chosen) => {
+                        saved = Some(core::mem::replace(&mut request.messages, chosen));
+                    }
+                    Err(error) => {
+                        *messages = core::mem::take(&mut request.messages);
+                        messages.truncate(original_len);
+                        return Err(Error::InvalidRequest {
+                            endpoint: self.client.config().name.clone(),
+                            message: format!("memory policy: {error}"),
+                        });
+                    }
+                }
+            }
+
+            let response = self.client.generate(&request).await;
+
+            if let Some(saved) = saved {
+                request.messages = saved;
+            }
+
+            let response = match response {
                 Ok(response) => response,
                 Err(error) => {
                     *messages = core::mem::take(&mut request.messages);
@@ -341,7 +385,7 @@ impl Chat {
 #[cfg(test)]
 mod tests {
     use super::Agent;
-    use crate::{Client, Context, Decision, Dialect, Tool, ToolDefinition, ToolFuture};
+    use crate::{Client, Context, Decision, Dialect, Message, Tool, ToolDefinition, ToolFuture};
 
     struct Add;
 
@@ -425,5 +469,18 @@ mod tests {
         let cx = Context::new();
         assert_eq!(guard("wipe", "{}", &cx), Decision::Deny("no".to_string()));
         assert_eq!(guard("add", "{}", &cx), Decision::Allow);
+    }
+
+    #[test]
+    fn an_agent_starts_with_no_policy() {
+        assert!(Agent::new(client()).memory.is_empty());
+    }
+
+    #[test]
+    fn policies_are_kept_in_the_order_added() {
+        let agent = Agent::new(client())
+            .memory(|h: &[Message]| h.to_vec())
+            .memory(|h: &[Message]| h.to_vec());
+        assert_eq!(agent.memory.len(), 2);
     }
 }

@@ -37,6 +37,7 @@ Look these up rather than reading them through. Generated rustdoc is on [docs.rs
 | [Requests](reference/requests.md) | `GenerateRequest` and every builder method |
 | [Messages](reference/messages.md) | `Message`, `Role`, `InputContent` |
 | [Tools](reference/tools.md) | `#[tool]`, `Tool`, `ToolDefinition`, dispatch, and the full round trip |
+| [Memory](reference/memory.md) | `Memory`, `Window`, and what reaches the model each turn |
 | [Responses](reference/responses.md) | `GenerateResponse`, `OutputContent`, `ResponseStatus`, `Usage` |
 | [Streaming](reference/streaming.md) | `Client::stream`, `EventStream`, `StreamEvent`, `into_response` |
 | [Errors](reference/errors.md) | `Error` and how to handle each variant |
