@@ -151,6 +151,8 @@ It forces a tool call on **every** round, so the model can never produce a final
 
 Every tool result becomes part of the prompt on the next round, and is billed as input tokens on every round after that. A verbose tool is a recurring cost, not a one-time one. Return what the model needs and nothing more.
 
+Trimming what a tool returns bounds the cost of one round. It does not bound the conversation, which grows until the provider rejects it outright. `Agent::memory` installs a policy that decides what reaches the model each turn, and `Window::groups` is the one that ships. Your transcript stays whole either way. See [Memory](reference/memory.md).
+
 ### One result per call
 
 Each `Message::tool_result` answers exactly one call id. When the model requests three tools in one turn, you send three result messages. The loop over `tool_calls()` already does this.

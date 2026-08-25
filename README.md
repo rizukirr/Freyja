@@ -88,6 +88,7 @@ cargo run --example images           # an image in a prompt, by URL or data URI
 cargo run --example async_tools      # several tool calls running at once
 cargo run --example agent            # the loop driven by Agent
 cargo run --example guarded_tools    # tool state, run context, failures, and a guard
+cargo run --example memory           # bounding what reaches the model, transcript kept whole
 ```
 
 ## Documentation
@@ -106,7 +107,7 @@ Then [providers](docs/providers/README.md), the [API reference](docs/README.md#r
 
 ## Status
 
-Phases 0 and 1 are complete, and Phase 2 has started: the neutral core is stable, four wire dialects are implemented, tool calling works end to end, typed `#[tool]` functions derive their schemas and dispatchers and may be sync or async, every dialect streams, and failures are classified by cause.
+Phases 0 through 2 are complete, and Phase 3 has started: the neutral core is stable, four wire dialects are implemented, tool calling works end to end, typed `#[tool]` functions derive their schemas and dispatchers and may be sync or async, every dialect streams, failures are classified by cause, and `Memory` decides what part of a transcript reaches the model on each turn.
 
 | Area | State |
 |---|---|
@@ -132,7 +133,7 @@ The goal: everything you need to build an AI agent in Rust, with no vendor lock-
 
 **Phase 2, the agent.** Complete. `Tool` and `#[tool]` derive schemas from sync or async function signatures and provide typed execution, and `Agent` drives the tool-calling loop automatically, dispatching parallel tool calls concurrently. `Tool` is now a trait, so a tool can hold state in its fields, be built at runtime, and report failure as text the model recovers from; `Context` carries per-run data to every call without exposing it to the model. `Agent::guard` vets every requested call before dispatch, so a policy can refuse one and the model reads why.
 
-**Phase 3, memory and context.** A `Memory` trait, context-window management with truncation and summarization, persistent backends, and retrieval with embeddings and a vector store.
+**Phase 3, memory and context.** Started. `Memory` decides what reaches the model each turn and `Window` bounds a conversation by turn group, with the caller's transcript kept whole. Token-aware windows, summarization, persistent backends, and retrieval with embeddings and a vector store are not built.
 
 **Phase 4, orchestration.** The namesake. Multi-agent handoff, workflow primitives for chains and fan-out, shared state, propagated cancellation and budgets, and human-in-the-loop pause and resume.
 

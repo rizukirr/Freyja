@@ -37,6 +37,7 @@ Look these up rather than reading them through. Generated rustdoc is on [docs.rs
 | [Requests](reference/requests.md) | `GenerateRequest` and every builder method |
 | [Messages](reference/messages.md) | `Message`, `Role`, `InputContent` |
 | [Tools](reference/tools.md) | `#[tool]`, `Tool`, `ToolDefinition`, dispatch, and the full round trip |
+| [Memory](reference/memory.md) | `Memory`, `Window`, and what reaches the model each turn |
 | [Responses](reference/responses.md) | `GenerateResponse`, `OutputContent`, `ResponseStatus`, `Usage` |
 | [Streaming](reference/streaming.md) | `Client::stream`, `EventStream`, `StreamEvent`, `into_response` |
 | [Errors](reference/errors.md) | `Error` and how to handle each variant |
@@ -65,4 +66,4 @@ Samples that make a network call are written as if inside an `async fn` returnin
 
 ## Status
 
-Phases 0 and 1 are complete and Phase 2 has started. Typed tools, the provider-neutral round trip, and streaming are implemented; automatic orchestration is not. Retries remain deliberately caller-owned. [Features](features.md) has the honest boundary; the [roadmap](../README.md#roadmap) has what is planned.
+Phases 0 through 2 are complete and Phase 3 has started. Typed tools, the provider-neutral round trip, streaming, and transcript selection through `Memory` are implemented. Multi-agent orchestration is not, and retries remain deliberately caller-owned. [Features](features.md) has the honest boundary, and the [roadmap](../README.md#roadmap) has what is planned.
