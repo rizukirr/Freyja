@@ -6,8 +6,9 @@
 //! turn, which only the captured bodies can show.
 
 use freyja::{
-    Agent, Client, Context, Decision, Dialect, EndpointConfig, GenerateRequest, Message, Role,
-    StopReason, Tool, ToolChoice, ToolDefinition, ToolError, ToolFuture, tool,
+    Agent, Client, Context, Decision, Dialect, EndpointConfig, GenerateRequest, Message,
+    ReasoningEffort, Role, StopReason, Tool, ToolChoice, ToolDefinition, ToolError, ToolFuture,
+    tool,
 };
 use std::io::{BufRead, BufReader, Write};
 use std::net::TcpListener;
@@ -685,7 +686,10 @@ async fn the_settings_reach_the_wire() {
     let (base, requests) = serve_many(vec![canned(ANSWER)]);
     let agent = Agent::new(client(base))
         .model("sentinel-model")
-        .temperature(0.25);
+        .max_tokens(123)
+        .temperature(0.25)
+        .top_p(0.5)
+        .reasoning_effort(ReasoningEffort::High);
 
     let mut messages = vec![Message::text(Role::User, "go")];
     agent.run(&mut messages).await.expect("run");
@@ -695,5 +699,29 @@ async fn the_settings_reach_the_wire() {
     // test did not set, such as a content length.
     let sent = requests.recv().expect("captured request");
     assert!(sent.contains(r#""model":"sentinel-model""#), "{sent}");
+    // The client in this file leaves `EndpointConfig::token_limit_field` at
+    // its default, `TokenLimitField::MaxTokens`, so the wire key is
+    // `max_tokens` rather than `max_completion_tokens`.
+    assert!(sent.contains(r#""max_tokens":123"#), "{sent}");
     assert!(sent.contains(r#""temperature":0.25"#), "{sent}");
+    assert!(sent.contains(r#""top_p":0.5"#), "{sent}");
+    assert!(sent.contains(r#""reasoning_effort":"high""#), "{sent}");
+}
+
+#[tokio::test]
+async fn extra_for_reaches_the_wire() {
+    let (base, requests) = serve_many(vec![canned(ANSWER)]);
+    let agent = Agent::new(client(base)).extra_for(
+        Dialect::OpenAiChat,
+        serde_json::json!({"sentinel_field": "sentinel-value"}),
+    );
+
+    let mut messages = vec![Message::text(Role::User, "go")];
+    agent.run(&mut messages).await.expect("run");
+
+    let sent = requests.recv().expect("captured request");
+    assert!(
+        sent.contains(r#""sentinel_field":"sentinel-value""#),
+        "{sent}"
+    );
 }
