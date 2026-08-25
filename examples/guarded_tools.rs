@@ -12,8 +12,8 @@
 //! ```
 
 use freyja::{
-    Agent, Client, Context, Decision, EndpointPreset, GenerateRequest, Message, Role, StopReason,
-    Tool, ToolDefinition, ToolError, ToolFuture, tool,
+    Agent, Client, Context, Decision, EndpointPreset, Message, Role, StopReason, Tool,
+    ToolDefinition, ToolError, ToolFuture, tool,
 };
 use serde_json::{Value, json};
 use std::sync::{Arc, Mutex};
@@ -128,12 +128,11 @@ async fn main() {
         .tool(on_duty)
         .tool(order_total)
         .guard(refunds_need_authority)
-        .request(GenerateRequest::new().message(Message::text(
-            Role::System,
+        .system(
             "You work a refund desk. Look up what an order is worth before \
              refunding it, and say who authorised the refund. If a tool turns \
              you down, report what it said instead of trying again.",
-        )))
+        )
         .max_turns(6);
 
     // The same agent, the same tools, the same question. Only the context

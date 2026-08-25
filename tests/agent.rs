@@ -636,3 +636,53 @@ async fn the_guard_sees_a_name_no_tool_answers_to() {
     assert!(second.contains("no such thing"));
     assert!(!second.contains("unknown tool"));
 }
+
+#[tokio::test]
+async fn the_system_instruction_is_sent_and_stays_out_of_the_transcript() {
+    let (base, requests) = serve_many(vec![canned(ANSWER), canned(ANSWER)]);
+    let agent = Agent::new(client(base)).system("SENTINEL-SYSTEM");
+
+    let mut messages = vec![Message::text(Role::User, "first")];
+    agent.run(&mut messages).await.expect("first run");
+    let original_len = messages.len();
+    messages.push(Message::text(Role::User, "second"));
+    agent.run(&mut messages).await.expect("second run");
+
+    // Sent on every turn, not just the first.
+    let first = requests.recv().expect("first request");
+    let second = requests.recv().expect("second request");
+    assert!(first.contains("SENTINEL-SYSTEM"), "{first}");
+    assert!(second.contains("SENTINEL-SYSTEM"), "{second}");
+    assert!(first.contains("\"role\":\"system\""), "{first}");
+
+    // Never enters the caller's transcript: the second run added one user turn
+    // and one assistant turn on top of what the first run left behind.
+    assert_eq!(messages.len(), original_len + 2);
+    assert!(messages.iter().all(|m| m.role != Role::System));
+}
+
+#[tokio::test]
+async fn a_memory_policy_cannot_drop_the_system_instruction() {
+    let (base, requests) = serve_many(vec![canned(ANSWER)]);
+    // A policy that discards everything it is given.
+    let agent = Agent::new(client(base))
+        .system("SENTINEL-SYSTEM")
+        .memory(|_: &[Message]| Vec::new());
+
+    let mut messages = vec![Message::text(Role::User, "first")];
+    agent.run(&mut messages).await.expect("run");
+
+    let sent = requests.recv().expect("request");
+    assert!(sent.contains("SENTINEL-SYSTEM"), "{sent}");
+    assert!(
+        !sent.contains("first"),
+        "the policy dropped the turn: {sent}"
+    );
+}
+
+#[test]
+#[should_panic(expected = "messages on an Agent template are ignored")]
+fn a_debug_build_refuses_messages_on_the_template() {
+    let _ = Agent::new(client("http://127.0.0.1:1".to_string()))
+        .request(GenerateRequest::new().message(Message::text(Role::System, "ignored")));
+}

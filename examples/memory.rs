@@ -9,7 +9,7 @@
 //! cargo run --example memory
 //! ```
 
-use freyja::{Agent, Client, EndpointPreset, GenerateRequest, Message, Role, Window};
+use freyja::{Agent, Client, EndpointPreset, Message, Role, Window};
 
 #[tokio::main]
 async fn main() {
@@ -22,10 +22,7 @@ async fn main() {
     };
 
     let agent = Agent::new(client)
-        .request(GenerateRequest::new().message(Message::text(
-            Role::System,
-            "You are a concise assistant. Answer in one sentence.",
-        )))
+        .system("You are a concise assistant. Answer in one sentence.")
         .memory(Window::groups(2));
 
     let mut messages: Vec<Message> = Vec::new();
@@ -46,8 +43,8 @@ async fn main() {
         }
     }
 
-    // Every turn is still here. The last request carried only the pinned system
-    // message and the most recent groups, which is why the model could not
-    // answer the last question.
+    // Every turn is still here. The last request carried the system
+    // instruction and the most recent groups only, which is why the model could
+    // not answer the last question.
     println!("transcript still holds {} messages", messages.len());
 }

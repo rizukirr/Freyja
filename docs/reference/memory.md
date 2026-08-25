@@ -85,6 +85,12 @@ A small `n` cuts inside an exchange. In the table above, `groups(2)` hands the m
 
 It counts groups, not tokens. That makes it cheap, since it needs no tokenizer and no knowledge of the target model's limit, but it only bounds how fast a transcript grows. It does not guarantee the result fits the provider's context window. A transcript with unusually long messages inside a small number of groups can still overflow. A token-aware policy is a separate feature that does not exist yet, described below.
 
+## `Agent::system` is not part of this
+
+A system instruction set with `Agent::system` is prepended after every policy has run, so a policy never sees it and cannot drop it. It is not part of the caller's transcript either, so it is never returned by `Agent::run`.
+
+`Window` pins `Role::System` and `Role::Developer` turns that are in the transcript, which is a separate mechanism for a separate case: instructions you put in the conversation yourself, rather than the one standing instruction the agent carries.
+
 ## The repair pass
 
 After the last policy runs, `Agent` drops any tool result whose originating call is absent from what the policy returned. A window cut at an arbitrary message boundary is the ordinary way to produce a transcript like this, and it looks correct until the provider rejects it with an error that mentions nothing about the cut. Repair runs unconditionally, once, after every policy has had its turn, so a hand-written policy that trims history without knowing about tool pairing cannot produce a request that fails this way. `Window` never triggers the repair pass, because it only ever cuts on group boundaries, but a policy built any other way can, and does not need to guard against it itself.

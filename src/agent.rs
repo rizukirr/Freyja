@@ -22,6 +22,7 @@ pub struct Agent {
     max_turns: usize,
     guard: Option<Arc<GuardFn>>,
     memory: Vec<Arc<dyn Memory>>,
+    system: Option<String>,
 }
 
 /// What one call to [`Agent::run`] produced.
@@ -78,6 +79,7 @@ impl Agent {
             max_turns: 5,
             guard: None,
             memory: Vec::new(),
+            system: None,
         }
     }
 
@@ -120,9 +122,30 @@ impl Agent {
 
     /// Sets the request every turn is built from: model, temperature, tool choice.
     ///
-    /// Any messages or tools on the template are replaced by [`Agent::run`].
+    /// The transcript and the tools do not come from here. `messages` is
+    /// supplied by [`Agent::run`] and `tools` by [`Agent::tool`], so both
+    /// fields are ignored on the template. Setting a system prompt with
+    /// `.request(GenerateRequest::new().message(..))` therefore does nothing,
+    /// which is what [`Agent::system`] exists for. A debug build asserts
+    /// rather than dropping it quietly.
     pub fn request(mut self, template: GenerateRequest) -> Self {
+        debug_assert!(
+            template.messages.is_empty(),
+            "messages on an Agent template are ignored: the transcript comes from Agent::run, \
+             and a system prompt goes through Agent::system"
+        );
         self.template = template;
+        self
+    }
+
+    /// Sets a system instruction sent ahead of the transcript on every turn.
+    ///
+    /// It is not part of the caller's transcript, so it is never returned by
+    /// [`Agent::run`] and never counted in the caller's vector. It is prepended
+    /// after any [`Memory`] policy has run, so a policy can neither drop it nor
+    /// see it.
+    pub fn system(mut self, instruction: impl Into<String>) -> Self {
+        self.system = Some(instruction.into());
         self
     }
 
@@ -198,9 +221,17 @@ impl Agent {
             // returns, whether it succeeded or failed, so an error path never
             // hands the caller a trimmed vector.
             let mut saved = None;
-            if !self.memory.is_empty() {
-                match crate::memory::apply(&self.memory, &request.messages, cx).await {
-                    Ok(chosen) => {
+            if !self.memory.is_empty() || self.system.is_some() {
+                let selected = if self.memory.is_empty() {
+                    Ok(request.messages.clone())
+                } else {
+                    crate::memory::apply(&self.memory, &request.messages, cx).await
+                };
+                match selected {
+                    Ok(mut chosen) => {
+                        if let Some(system) = &self.system {
+                            chosen.insert(0, Message::text(crate::Role::System, system.clone()));
+                        }
                         saved = Some(core::mem::replace(&mut request.messages, chosen));
                     }
                     Err(error) => {
