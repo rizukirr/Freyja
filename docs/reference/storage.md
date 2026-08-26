@@ -56,6 +56,8 @@ This nine-message transcript is six groups.
 
 A window of 2 keeps groups 5 and 6, so `load` returns messages 0, 6, 7 and 8. Messages 1 to 5 are not sent, and they are not removed, since `InMemoryStorage::all` still returns all nine.
 
+Pinned turns are hoisted to the front of what `load` returns, ahead of every group, regardless of where they were appended. `all` keeps the order things were appended in, so once a window is set the two disagree about order: a `Developer` message written in the middle of a conversation comes back last from `all` but first from `load`. That matches how most vendors treat system instructions, which they hoist into a field of their own, but it means an instruction meant to apply only from the point it was written onward will instead frame the whole conversation sent to the model.
+
 Count what one exchange costs to choose a window size. Without tools an exchange is a question and an answer, so two groups. With tools it is a question, a call with its results, and an answer, so three groups, and more if the model calls tools twice before answering. So `window(20)` keeps roughly seven exchanges for a tool-using agent, not twenty, and rather fewer if any exchange calls tools more than once.
 
 ## `split` and `window_by_groups`

@@ -14,6 +14,13 @@ use std::collections::HashSet;
 /// separately and never aged out. Everything else is returned as groups, in
 /// order.
 ///
+/// Pinned turns are returned first and separately, so a caller that
+/// reassembles them ahead of the groups changes their position: a `Developer`
+/// message written mid-conversation reaches the model at the front. That
+/// matches how most vendors treat system instructions, which they hoist into a
+/// field of their own, and it means an instruction meant to apply from one
+/// point onward will instead frame the whole conversation.
+///
 /// Public so a storage backend written elsewhere can trim on safe boundaries
 /// without reimplementing this.
 pub fn split(history: &[Message]) -> (Vec<&Message>, Vec<&[Message]>) {
@@ -49,6 +56,9 @@ pub fn split(history: &[Message]) -> (Vec<&Message>, Vec<&[Message]>) {
 /// the results answering it are one group. So an exchange costs two groups
 /// without tools and three with them: `keep` of 20 retains roughly seven
 /// exchanges, not twenty.
+///
+/// Pinned turns are emitted first, so this reorders a `System` or `Developer`
+/// message written mid-conversation to the front. See [`split`].
 pub fn window_by_groups(history: &[Message], keep: usize) -> Vec<Message> {
     let (pinned, groups) = split(history);
     let from = groups.len().saturating_sub(keep);

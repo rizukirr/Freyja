@@ -177,4 +177,31 @@ mod tests {
         assert_eq!(sent, vec![Message::text(Role::User, "newest")]);
         assert_eq!(storage.all().len(), 2);
     }
+
+    #[tokio::test]
+    async fn a_window_hoists_a_pinned_turn_written_mid_conversation() {
+        let storage = InMemoryStorage::new().window(10);
+        storage
+            .append(vec![
+                Message::text(Role::User, "first"),
+                Message::text(Role::Developer, "mid-conversation"),
+                Message::text(Role::User, "second"),
+            ])
+            .await
+            .unwrap();
+
+        // `all` keeps the order it was appended in.
+        let held: Vec<Role> = storage.all().iter().map(|m| m.role).collect();
+        assert_eq!(held, vec![Role::User, Role::Developer, Role::User]);
+
+        // `load` puts the pinned turn first, which is the documented hoist.
+        let sent: Vec<Role> = storage
+            .load()
+            .await
+            .unwrap()
+            .iter()
+            .map(|m| m.role)
+            .collect();
+        assert_eq!(sent, vec![Role::Developer, Role::User, Role::User]);
+    }
 }
