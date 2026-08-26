@@ -123,7 +123,7 @@ pub use client::Client;
 pub use dialect::Dialect;
 pub use endpoint::{Auth, EndpointConfig, EndpointPreset, TokenLimitField};
 pub use error::{BODY_IN_MESSAGE, Error, TransportError};
-pub use filter::{Filter, FilterError, FilterFuture, Window};
+pub use filter::{Filter, FilterError, FilterFuture, Window, split, window_by_groups};
 pub use freyja_macros::tool;
 pub use model::{
     Context, GenerateRequest, GenerateResponse, InputContent, Message, OutputContent,

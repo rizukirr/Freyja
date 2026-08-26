@@ -47,16 +47,20 @@ where
     }
 }
 
-/// Splits a transcript into the spans that may be evicted as one unit.
+/// Splits a transcript into the spans that must be evicted as one unit.
 ///
 /// A tool result may only answer a call that already happened, so an assistant
-/// turn and every result answering it are inseparable.
+/// turn and every result answering it are inseparable. Cutting between them
+/// produces a transcript every provider rejects, with an error mentioning
+/// nothing about trimming.
 ///
-/// Pinned turns are not groups: they are returned separately and never aged
-/// out, because most vendors hoist them into a field of their own, so dropping
-/// one silently changes the model's instructions rather than shortening the
-/// conversation.
-fn split(history: &[Message]) -> (Vec<&Message>, Vec<&[Message]>) {
+/// Pinned turns, meaning `Role::System` and `Role::Developer`, are returned
+/// separately and never aged out. Everything else is returned as groups, in
+/// order.
+///
+/// Public so a storage backend written elsewhere can trim on safe boundaries
+/// without reimplementing this.
+pub fn split(history: &[Message]) -> (Vec<&Message>, Vec<&[Message]>) {
     let mut pinned = Vec::new();
     let mut groups: Vec<&[Message]> = Vec::new();
     let mut start: Option<usize> = None;
@@ -79,6 +83,28 @@ fn split(history: &[Message]) -> (Vec<&Message>, Vec<&[Message]>) {
         groups.push(&history[from..]);
     }
     (pinned, groups)
+}
+
+/// Pinned turns plus the most recent `keep` groups.
+///
+/// Cuts only on group boundaries, so its output never needs repairing.
+///
+/// A group is a message, except that an assistant turn requesting tools and
+/// the results answering it are one group. So an exchange costs two groups
+/// without tools and three with them: `keep` of 20 retains roughly seven
+/// exchanges, not twenty.
+pub fn window_by_groups(history: &[Message], keep: usize) -> Vec<Message> {
+    let (pinned, groups) = split(history);
+    let from = groups.len().saturating_sub(keep);
+    pinned
+        .into_iter()
+        .cloned()
+        .chain(
+            groups[from..]
+                .iter()
+                .flat_map(|group| group.iter().cloned()),
+        )
+        .collect()
 }
 
 /// Whether `message` answers a call made earlier in `span`.
@@ -174,20 +200,7 @@ impl Window {
 
 impl Filter for Window {
     fn select<'a>(&'a self, history: &'a [Message], _cx: &'a Context) -> FilterFuture<'a> {
-        Box::pin(async move {
-            let (pinned, groups) = split(history);
-            let from = groups.len().saturating_sub(self.groups);
-            let selected = pinned
-                .into_iter()
-                .cloned()
-                .chain(
-                    groups[from..]
-                        .iter()
-                        .flat_map(|group| group.iter().cloned()),
-                )
-                .collect();
-            Ok(selected)
-        })
+        Box::pin(async move { Ok(window_by_groups(history, self.groups)) })
     }
 }
 
