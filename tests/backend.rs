@@ -4,7 +4,8 @@
 mod common;
 use common::serve_once;
 use freyja::{
-    Agent, Client, Dialect, EndpointConfig, Message, Storage, StorageFuture, window_by_groups,
+    Agent, Client, Dialect, EndpointConfig, InputContent, Message, Role, Storage, StorageFuture,
+    split, window_by_groups,
 };
 use std::sync::Mutex;
 
@@ -61,4 +62,50 @@ async fn a_backend_can_trim_with_the_public_grouping_function() {
 
     let sent = requests.recv().expect("request");
     assert!(sent.contains("SENTINEL-NEW"), "{sent}");
+}
+
+/// A backend author reaches for `split` when they want to group a transcript
+/// themselves instead of calling `window_by_groups`. This checks the shape
+/// they get back is usable: every message is accounted for exactly once,
+/// no group is empty, and a call stays fused with the result answering it.
+#[test]
+fn split_groups_a_transcript_for_a_caller_outside_the_crate() {
+    let history = vec![
+        Message::text(Role::System, "pinned"),
+        Message::text(Role::User, "weather?"),
+        Message::new(
+            Role::Assistant,
+            vec![InputContent::ToolCall {
+                id: "call_1".into(),
+                name: "get_weather".into(),
+                arguments: "{}".into(),
+            }],
+        ),
+        Message::tool_result("call_1", "raining"),
+        Message::text(Role::Assistant, "it is raining"),
+    ];
+
+    let (pinned, groups) = split(&history);
+
+    assert_eq!(pinned.len(), 1);
+    assert_eq!(pinned[0].role, Role::System);
+
+    let grouped: usize = groups.iter().map(|group| group.len()).sum();
+    assert_eq!(pinned.len() + grouped, history.len());
+    assert!(groups.iter().all(|group| !group.is_empty()));
+
+    let call_and_result = groups
+        .iter()
+        .find(|group| group.len() > 1)
+        .expect("the call and its result should share a group");
+    assert!(call_and_result.iter().any(|message| {
+        message
+            .content
+            .iter()
+            .any(|content| matches!(content, InputContent::ToolCall { id, .. } if id == "call_1"))
+    }));
+    assert!(call_and_result.iter().any(|message| message
+        .content
+        .iter()
+        .any(|content| matches!(content, InputContent::ToolResult { call_id, .. } if call_id == "call_1"))));
 }
