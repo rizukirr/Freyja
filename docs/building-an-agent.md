@@ -151,7 +151,7 @@ It forces a tool call on **every** round, so the model can never produce a final
 
 Every tool result becomes part of the prompt on the next round, and is billed as input tokens on every round after that. A verbose tool is a recurring cost, not a one-time one. Return what the model needs and nothing more.
 
-Trimming what a tool returns bounds the cost of one round. It does not bound the conversation, which grows until the provider rejects it outright. `Agent::filter` installs a policy that decides what reaches the model each turn, and `Window::groups` is the one that ships. Your transcript stays whole either way. `Agent::memory` installs where the conversation lives between calls to `Agent::message`, a separate concern. See [Filter](reference/filter.md) and [Storage](reference/storage.md).
+Trimming what a tool returns bounds the cost of one round. It does not bound the conversation, which grows until the provider rejects it outright. `Agent::memory` installs where the conversation lives between calls to `Agent::message`, and `InMemoryStorage::window` is the one shipped backend that also bounds what reaches the model each turn, keeping pinned turns and the most recent turn groups. See [Storage](reference/storage.md).
 
 ### One result per call
 

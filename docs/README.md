@@ -37,7 +37,6 @@ Look these up rather than reading them through. Generated rustdoc is on [docs.rs
 | [Requests](reference/requests.md) | `GenerateRequest` and every builder method |
 | [Messages](reference/messages.md) | `Message`, `Role`, `InputContent` |
 | [Tools](reference/tools.md) | `#[tool]`, `Tool`, `ToolDefinition`, dispatch, and the full round trip |
-| [Filter](reference/filter.md) | `Filter`, `Window`, and what reaches the model each turn |
 | [Storage](reference/storage.md) | `Storage`, `InMemoryStorage`, and where a conversation lives between calls |
 | [Responses](reference/responses.md) | `GenerateResponse`, `OutputContent`, `ResponseStatus`, `Usage` |
 | [Streaming](reference/streaming.md) | `Client::stream`, `EventStream`, `StreamEvent`, `into_response` |
@@ -67,4 +66,4 @@ Samples that make a network call are written as if inside an `async fn` returnin
 
 ## Status
 
-Phases 0 through 2 are complete and Phase 3 has started. Typed tools, the provider-neutral round trip, streaming, transcript selection through `Filter`, and a conversation held between calls through `Storage` are implemented. Multi-agent orchestration is not, and retries remain deliberately caller-owned. [Features](features.md) has the honest boundary, and the [roadmap](../README.md#roadmap) has what is planned.
+Phases 0 through 2 are complete and Phase 3 has started. Typed tools, the provider-neutral round trip, streaming, and a conversation held between calls through `Storage`, with windowing built into `InMemoryStorage`, are implemented. Multi-agent orchestration is not, and retries remain deliberately caller-owned. [Features](features.md) has the honest boundary, and the [roadmap](../README.md#roadmap) has what is planned.

@@ -40,8 +40,8 @@ Streaming delivers the same answer incrementally, and a drained stream converts 
 | Per-run data in a tool | `Context` is handed to every call and never sent to the model |
 | Tools defined at runtime | `name` and `definition` are values, so an MCP-shaped tool needs no compile-time type |
 | Tools that fail | A `Result` return reaches the model as error text it can recover from |
-| Bounding a transcript | `Filter` decides what reaches the model each turn, and `Window::groups` keeps pinned turns and the most recent turn groups |
-| Filters and storage written elsewhere | `Filter` and `Storage` are each one method or a handful over public types, so a third-party crate implements either with no change here |
+| Bounding a transcript | `InMemoryStorage::window` keeps pinned turns and the most recent turn groups, and `window_by_groups` is the free function it is built on |
+| Storage written elsewhere | `Storage` is three methods over public types, so a third-party crate implements it with no change here, reusing `split` and `window_by_groups` if it wants turn-group trimming |
 
 The round trip is the load-bearing feature. A model asks for a function, you run it, you feed the result back, and it continues. [Building an agent](building-an-agent.md) is the guide.
 
@@ -77,7 +77,7 @@ Be sure none of these is on your critical path before adopting.
 | **Per-tool timeouts** | Out of scope, deliberately | Racing a call against a clock needs a timer, and Freyja depends on no runtime. A wrapper tool that holds the inner one and applies your runtime's timeout gets there in a dozen lines, for a tool you did not write as much as one you did. The [`Tool`](https://docs.rs/freyja/latest/freyja/trait.Tool.html) documentation has the whole implementation. |
 | **Structured-output schema derivation** | Not implemented | `#[tool]` derives argument schemas, but `ResponseFormat::JsonSchema` still takes an explicit schema. Generate one with `schemars` and pass it through `strict_schema()`. |
 | **Capability tables** | Not planned | `Client::check` answers the same question by running the conversion, so there is nothing to keep in sync. It needs a request in hand, which a table would not. |
-| **Token-aware windows, summarization, and persistent storage** | Not implemented | `Window::groups` bounds a transcript by turn group, which needs no tokenizer. Counting tokens needs an estimate calibrated from `Usage`, and summarizing needs a model call. Both attach to `Filter` without changing it. `InMemoryStorage` is the only `Storage` Freyja ships; a backend that survives a restart needs nothing from this crate beyond the trait, since `Message` already derives `Serialize` and `Deserialize`. |
+| **Token-aware windows, summarization, and persistent storage** | Not implemented | `InMemoryStorage::window` bounds a transcript by turn group, which needs no tokenizer. Counting tokens needs an estimate calibrated from `Usage`, and summarizing needs a model call. Both are things a `Storage` backend can do inside its own `load`, without any change to the trait. `InMemoryStorage` is the only `Storage` Freyja ships; a backend that survives a restart needs nothing from this crate beyond the trait, since `Message` already derives `Serialize` and `Deserialize`. |
 | **Embeddings and RAG** | Not implemented | An embeddings endpoint is a request shape no dialect covers, so it is a wire format of its own rather than a feature on top of one. |
 
 ## Per-provider gaps
