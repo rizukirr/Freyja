@@ -111,11 +111,11 @@ mod client;
 pub mod dialect;
 pub mod endpoint;
 pub mod error;
-mod filter;
 pub mod model;
 mod storage;
 /// Types and utilities for consuming streaming provider responses.
 pub mod stream;
+mod transcript;
 mod transport;
 
 pub use agent::{Agent, Decision, Run, StopReason};
@@ -123,7 +123,6 @@ pub use client::Client;
 pub use dialect::Dialect;
 pub use endpoint::{Auth, EndpointConfig, EndpointPreset, TokenLimitField};
 pub use error::{BODY_IN_MESSAGE, Error, TransportError};
-pub use filter::{Filter, FilterError, FilterFuture, Window, split, window_by_groups};
 pub use freyja_macros::tool;
 pub use model::{
     Context, GenerateRequest, GenerateResponse, InputContent, Message, OutputContent,
@@ -132,6 +131,7 @@ pub use model::{
 };
 pub use storage::{InMemoryStorage, Storage, StorageError, StorageFuture};
 pub use stream::{EventStream, StreamEvent};
+pub use transcript::{split, window_by_groups};
 
 /// Private dependencies used by generated code.
 #[doc(hidden)]

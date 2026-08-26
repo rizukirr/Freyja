@@ -7,8 +7,8 @@
 
 use freyja::{
     Agent, Client, Context, Decision, Dialect, EndpointConfig, GenerateRequest, InMemoryStorage,
-    Message, ReasoningEffort, Role, StopReason, Storage, Tool, ToolChoice, ToolDefinition,
-    ToolError, ToolFuture, tool,
+    Message, ReasoningEffort, Role, StopReason, Storage, StorageFuture, Tool, ToolChoice,
+    ToolDefinition, ToolError, ToolFuture, tool,
 };
 use std::io::{BufRead, BufReader, Write};
 use std::net::TcpListener;
@@ -640,23 +640,37 @@ async fn the_system_instruction_is_sent_and_stays_out_of_the_transcript() {
     assert!(messages.iter().all(|m| m.role != Role::System));
 }
 
-#[tokio::test]
-async fn a_filter_cannot_drop_the_system_instruction() {
-    let (base, requests) = serve_many(vec![canned(ANSWER)]);
-    // A filter that discards everything it is given.
-    let agent = Agent::new(client(base))
-        .system("SENTINEL-SYSTEM")
-        .filter(|_: &[Message]| Vec::new());
+/// A backend that returns a tool result whose call it dropped, which is what
+/// `Agent` must repair before sending.
+struct Orphaning;
 
-    let mut messages = vec![Message::text(Role::User, "first")];
-    agent.messages(&mut messages).await.expect("run");
+impl Storage for Orphaning {
+    fn load(&self) -> StorageFuture<'_, Vec<Message>> {
+        Box::pin(async {
+            Ok(vec![
+                Message::text(Role::User, "earlier"),
+                Message::tool_result("call_gone", "SENTINEL-ORPHAN"),
+            ])
+        })
+    }
+    fn append(&self, _messages: Vec<Message>) -> StorageFuture<'_, ()> {
+        Box::pin(async { Ok(()) })
+    }
+    fn clear(&self) -> StorageFuture<'_, ()> {
+        Box::pin(async { Ok(()) })
+    }
+}
+
+#[tokio::test]
+async fn an_orphaned_tool_result_from_a_backend_is_repaired() {
+    let (base, requests) = serve_many(vec![canned(ANSWER)]);
+    let agent = Agent::new(client(base)).memory(Orphaning);
+
+    agent.message("a question").await.expect("run");
 
     let sent = requests.recv().expect("request");
-    assert!(sent.contains("SENTINEL-SYSTEM"), "{sent}");
-    assert!(
-        !sent.contains("first"),
-        "the policy dropped the turn: {sent}"
-    );
+    assert!(!sent.contains("SENTINEL-ORPHAN"), "{sent}");
+    assert!(sent.contains("a question"), "{sent}");
 }
 
 #[tokio::test]
@@ -741,21 +755,19 @@ async fn message_without_storage_fails_and_sends_nothing() {
 }
 
 #[tokio::test]
-async fn a_filter_applies_on_the_stored_path_too() {
+async fn a_window_sends_less_than_the_whole_conversation() {
     let (base, requests) = serve_many(vec![canned(ANSWER), canned(ANSWER)]);
-    let agent = Agent::new(client(base))
-        .memory(InMemoryStorage::new())
-        .filter(|history: &[Message]| history.iter().rev().take(1).rev().cloned().collect());
+    let storage = Arc::new(InMemoryStorage::new().window(1));
+    let agent = Agent::new(client(base)).memory(Arc::clone(&storage));
 
-    agent.message("first question").await.expect("first");
-    agent.message("second question").await.expect("second");
+    agent.message("turn-one").await.expect("first");
+    agent.message("turn-two").await.expect("second");
 
     let _first = requests.recv().expect("first request");
     let second = requests.recv().expect("second request");
-    // The filter keeps only the newest message, so the older turn is trimmed
-    // off the wire even though storage still holds it.
-    assert!(!second.contains("first question"), "{second}");
-    assert!(second.contains("second question"), "{second}");
+    assert!(!second.contains("turn-one"), "{second}");
+    assert!(second.contains("turn-two"), "{second}");
+    assert_eq!(storage.all().len(), 4);
 }
 
 #[tokio::test]

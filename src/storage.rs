@@ -78,7 +78,7 @@ impl Storage for InMemoryStorage {
         Box::pin(async move {
             let all = self.all();
             Ok(match self.window {
-                Some(groups) => crate::filter::window_by_groups(&all, groups),
+                Some(groups) => crate::transcript::window_by_groups(&all, groups),
                 None => all,
             })
         })

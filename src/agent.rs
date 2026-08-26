@@ -1,8 +1,8 @@
 //! Driving the tool-calling loop.
 
 use crate::{
-    Client, Context, Dialect, Error, Filter, GenerateRequest, Message, OutputContent,
-    ReasoningEffort, ResponseStatus, Storage, Tool, ToolChoice, ToolDefinition, Usage,
+    Client, Context, Dialect, Error, GenerateRequest, Message, OutputContent, ReasoningEffort,
+    ResponseStatus, Storage, Tool, ToolChoice, ToolDefinition, Usage,
 };
 use serde_json::Value;
 use std::sync::Arc;
@@ -28,7 +28,6 @@ pub struct Agent {
     template: GenerateRequest,
     max_turns: usize,
     guard: Option<Arc<GuardFn>>,
-    filter: Vec<Arc<dyn Filter>>,
     system: Option<String>,
     storage: Option<Arc<dyn Storage>>,
 }
@@ -86,7 +85,6 @@ impl Agent {
             template: GenerateRequest::new(),
             max_turns: 5,
             guard: None,
-            filter: Vec::new(),
             system: None,
             storage: None,
         }
@@ -188,9 +186,9 @@ impl Agent {
     /// Sets a system instruction sent ahead of the transcript on every turn.
     ///
     /// It is not part of the caller's transcript, so it is never returned by
-    /// [`Agent::messages`] and never counted in the caller's vector. It is prepended
-    /// after any [`Filter`] policy has run, so a policy can neither drop it nor
-    /// see it.
+    /// [`Agent::messages`] and never counted in the caller's vector. It is
+    /// always prepended just before the request is sent, so nothing else here
+    /// can drop it or see it first.
     pub fn system(mut self, instruction: impl Into<String>) -> Self {
         self.system = Some(instruction.into());
         self
@@ -218,19 +216,6 @@ impl Agent {
         guard: impl Fn(&str, &str, &Context) -> Decision + Send + Sync + 'static,
     ) -> Self {
         self.guard = Some(Arc::new(guard));
-        self
-    }
-
-    /// Adds a filter consulted before every request.
-    ///
-    /// Filters run in the order added, each receiving the previous one's
-    /// output, so a token budget and a redaction pass compose without either
-    /// knowing about the other. The transcript is untouched: a filter only
-    /// decides what goes on the wire.
-    ///
-    /// With no filter installed the whole transcript is sent.
-    pub fn filter(mut self, filter: impl Filter + 'static) -> Self {
-        self.filter.push(Arc::new(filter));
         self
     }
 
@@ -275,34 +260,16 @@ impl Agent {
         let mut turns = 0usize;
 
         for turn in 0..self.max_turns {
-            // Swaps the full transcript out for the policy's choice rather than
-            // cloning `request` a second time on top of `apply`'s own copy. The
-            // full transcript is restored immediately after the request
-            // returns, whether it succeeded or failed, so an error path never
-            // hands the caller a trimmed vector.
+            // Swaps the full transcript out for a copy with the system
+            // instruction prepended, rather than mutating `request.messages`
+            // directly. The full transcript is restored immediately after the
+            // request returns, whether it succeeded or failed, so an error
+            // path never hands the caller a vector with the instruction in it.
             let mut saved = None;
-            if !self.filter.is_empty() || self.system.is_some() {
-                let selected = if self.filter.is_empty() {
-                    Ok(request.messages.clone())
-                } else {
-                    crate::filter::apply(&self.filter, &request.messages, cx).await
-                };
-                match selected {
-                    Ok(mut chosen) => {
-                        if let Some(system) = &self.system {
-                            chosen.insert(0, Message::text(crate::Role::System, system.clone()));
-                        }
-                        saved = Some(core::mem::replace(&mut request.messages, chosen));
-                    }
-                    Err(error) => {
-                        *messages = core::mem::take(&mut request.messages);
-                        messages.truncate(original_len);
-                        return Err(Error::InvalidRequest {
-                            endpoint: self.client.config().name.clone(),
-                            message: format!("memory policy: {error}"),
-                        });
-                    }
-                }
+            if let Some(system) = &self.system {
+                let mut chosen = request.messages.clone();
+                chosen.insert(0, Message::text(crate::Role::System, system.clone()));
+                saved = Some(core::mem::replace(&mut request.messages, chosen));
             }
 
             let response = self.client.generate(&request).await;
@@ -434,6 +401,13 @@ impl Agent {
                 endpoint: self.client.config().name.clone(),
                 message: format!("storage load: {error}"),
             })?;
+
+        // Every backend decides its own trimming, including ones nobody here
+        // reviewed. This is what stops any of them sending a tool result whose
+        // call it dropped, which every provider rejects with an error that
+        // mentions nothing about trimming.
+        crate::transcript::repair(&mut history);
+
         let before = history.len();
         history.push(Message::text(crate::Role::User, text.into()));
 
@@ -473,7 +447,7 @@ impl Agent {
 #[cfg(test)]
 mod tests {
     use super::Agent;
-    use crate::{Client, Context, Decision, Dialect, Message, Tool, ToolDefinition, ToolFuture};
+    use crate::{Client, Context, Decision, Dialect, Tool, ToolDefinition, ToolFuture};
 
     struct Add;
 
@@ -557,18 +531,5 @@ mod tests {
         let cx = Context::new();
         assert_eq!(guard("wipe", "{}", &cx), Decision::Deny("no".to_string()));
         assert_eq!(guard("add", "{}", &cx), Decision::Allow);
-    }
-
-    #[test]
-    fn an_agent_starts_with_no_policy() {
-        assert!(Agent::new(client()).filter.is_empty());
-    }
-
-    #[test]
-    fn policies_are_kept_in_the_order_added() {
-        let agent = Agent::new(client())
-            .filter(|h: &[Message]| h.to_vec())
-            .filter(|h: &[Message]| h.to_vec());
-        assert_eq!(agent.filter.len(), 2);
     }
 }

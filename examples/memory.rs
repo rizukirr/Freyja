@@ -2,14 +2,14 @@
 //!
 //! `agent` keeps the whole conversation and sends all of it, which is fine
 //! until it is not: a transcript grows until the provider rejects it, and the
-//! error says nothing about length. A [`Window`] decides what goes on the wire
-//! each turn, and the transcript here is never shortened.
+//! error says nothing about length. `InMemoryStorage::window` decides what
+//! goes on the wire each turn, and the transcript here is never shortened.
 //!
 //! ```sh
 //! cargo run --example memory
 //! ```
 
-use freyja::{Agent, Client, EndpointPreset, InMemoryStorage, Storage, Window};
+use freyja::{Agent, Client, EndpointPreset, InMemoryStorage, Storage};
 use std::sync::Arc;
 
 #[tokio::main]
@@ -25,11 +25,10 @@ async fn main() {
     // Kept as an `Arc` so the length can be read back after the loop: `Agent`
     // takes ownership of whatever is installed with `memory`, and `Storage`
     // is implemented for `Arc<T>` for exactly this reason.
-    let storage = Arc::new(InMemoryStorage::new());
+    let storage = Arc::new(InMemoryStorage::new().window(2));
 
     let agent = Agent::new(client)
         .system("You are a concise assistant. Answer in one sentence.")
-        .filter(Window::groups(2))
         .memory(Arc::clone(&storage));
 
     for question in [
