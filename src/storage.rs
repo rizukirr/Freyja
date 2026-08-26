@@ -42,6 +42,7 @@ pub trait Storage: Send + Sync {
 #[derive(Default)]
 pub struct InMemoryStorage {
     messages: Mutex<Vec<Message>>,
+    window: Option<usize>,
 }
 
 impl InMemoryStorage {
@@ -49,11 +50,38 @@ impl InMemoryStorage {
     pub fn new() -> Self {
         Self::default()
     }
+
+    /// Send only the most recent `groups` turn groups, plus pinned turns.
+    /// Everything is still held, and [`InMemoryStorage::all`] returns it.
+    ///
+    /// A group is a message, except that an assistant turn requesting tools
+    /// and the results answering it are one group. So an exchange costs two
+    /// groups without tools and three with them: `window(20)` keeps roughly
+    /// seven exchanges, not twenty.
+    pub fn window(mut self, groups: usize) -> Self {
+        self.window = Some(groups);
+        self
+    }
+
+    /// Everything held, ignoring the window.
+    ///
+    /// Earns its place only once [`InMemoryStorage::window`] is set: without a
+    /// window this returns what `load` returns. Drop one and the other stops
+    /// being useful.
+    pub fn all(&self) -> Vec<Message> {
+        self.messages.lock().expect("poisoned").clone()
+    }
 }
 
 impl Storage for InMemoryStorage {
     fn load(&self) -> StorageFuture<'_, Vec<Message>> {
-        Box::pin(async move { Ok(self.messages.lock().expect("poisoned").clone()) })
+        Box::pin(async move {
+            let all = self.all();
+            Ok(match self.window {
+                Some(groups) => crate::filter::window_by_groups(&all, groups),
+                None => all,
+            })
+        })
     }
 
     fn append(&self, messages: Vec<Message>) -> StorageFuture<'_, ()> {
@@ -120,5 +148,33 @@ mod tests {
             .unwrap();
         storage.clear().await.unwrap();
         assert!(storage.load().await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn with_no_window_load_and_all_agree() {
+        let storage = InMemoryStorage::new();
+        storage
+            .append(vec![
+                Message::text(Role::User, "first"),
+                Message::text(Role::User, "second"),
+            ])
+            .await
+            .unwrap();
+        assert_eq!(storage.load().await.unwrap(), storage.all());
+    }
+
+    #[tokio::test]
+    async fn a_window_trims_load_and_leaves_all_whole() {
+        let storage = InMemoryStorage::new().window(1);
+        storage
+            .append(vec![
+                Message::text(Role::User, "oldest"),
+                Message::text(Role::User, "newest"),
+            ])
+            .await
+            .unwrap();
+        let sent = storage.load().await.unwrap();
+        assert_eq!(sent, vec![Message::text(Role::User, "newest")]);
+        assert_eq!(storage.all().len(), 2);
     }
 }
