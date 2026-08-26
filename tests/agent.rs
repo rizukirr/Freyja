@@ -6,9 +6,9 @@
 //! turn, which only the captured bodies can show.
 
 use freyja::{
-    Agent, Client, Context, Decision, Dialect, EndpointConfig, GenerateRequest, Message,
-    ReasoningEffort, Role, StopReason, Tool, ToolChoice, ToolDefinition, ToolError, ToolFuture,
-    tool,
+    Agent, Client, Context, Decision, Dialect, EndpointConfig, GenerateRequest, InMemoryStorage,
+    Message, ReasoningEffort, Role, StopReason, Storage, Tool, ToolChoice, ToolDefinition,
+    ToolError, ToolFuture, tool,
 };
 use std::io::{BufRead, BufReader, Write};
 use std::net::TcpListener;
@@ -177,7 +177,7 @@ async fn answers_without_tool_calls() {
     let agent = Agent::new(client(base));
 
     let mut messages = vec![Message::text(Role::User, "Hi")];
-    let run = agent.run(&mut messages).await.unwrap();
+    let run = agent.messages(&mut messages).await.unwrap();
 
     assert_eq!(run.stop, StopReason::Answered);
     assert_eq!(run.answer, "the answer is 42");
@@ -191,7 +191,7 @@ async fn completes_a_full_tool_round_trip() {
     let agent = Agent::new(client(base)).tool(add);
 
     let mut messages = vec![Message::text(Role::User, "What is 20 + 22?")];
-    let run = agent.run(&mut messages).await.unwrap();
+    let run = agent.messages(&mut messages).await.unwrap();
 
     assert_eq!(run.stop, StopReason::Answered);
     assert_eq!(run.turns, 2);
@@ -209,7 +209,7 @@ async fn stops_at_the_turn_bound() {
     let agent = Agent::new(client(base)).tool(add).max_turns(2);
 
     let mut messages = vec![Message::text(Role::User, "loop")];
-    let run = agent.run(&mut messages).await.unwrap();
+    let run = agent.messages(&mut messages).await.unwrap();
 
     assert_eq!(run.stop, StopReason::MaxTurns);
     assert_eq!(run.turns, 2);
@@ -222,7 +222,7 @@ async fn sums_usage_across_turns() {
     let agent = Agent::new(client(base)).tool(add);
 
     let mut messages = vec![Message::text(Role::User, "What is 20 + 22?")];
-    let run = agent.run(&mut messages).await.unwrap();
+    let run = agent.messages(&mut messages).await.unwrap();
 
     assert_eq!(run.usage.total_tokens, 13);
 }
@@ -237,7 +237,7 @@ async fn answers_an_unknown_tool_rather_than_skipping_it() {
     let agent = Agent::new(client(base)).tool(add);
 
     let mut messages = vec![Message::text(Role::User, "go")];
-    agent.run(&mut messages).await.unwrap();
+    agent.messages(&mut messages).await.unwrap();
 
     let _first = requests.recv().unwrap();
     let second = requests.recv().unwrap();
@@ -251,7 +251,7 @@ async fn feeds_a_tool_error_back_to_the_model() {
     let agent = Agent::new(client(base)).tool(add);
 
     let mut messages = vec![Message::text(Role::User, "go")];
-    let run = agent.run(&mut messages).await.unwrap();
+    let run = agent.messages(&mut messages).await.unwrap();
 
     assert_eq!(run.stop, StopReason::Answered);
     let _first = requests.recv().unwrap();
@@ -269,7 +269,7 @@ async fn dispatches_parallel_calls_concurrently() {
 
     let mut messages = vec![Message::text(Role::User, "go")];
     let started = std::time::Instant::now();
-    agent.run(&mut messages).await.unwrap();
+    agent.messages(&mut messages).await.unwrap();
 
     assert!(started.elapsed() < std::time::Duration::from_millis(350));
     assert_eq!(messages.len(), 6);
@@ -295,7 +295,7 @@ async fn stops_on_a_refusal() {
     let agent = Agent::new(client(base));
 
     let mut messages = vec![Message::text(Role::User, "go")];
-    let run = agent.run(&mut messages).await.unwrap();
+    let run = agent.messages(&mut messages).await.unwrap();
 
     assert_eq!(run.stop, StopReason::Refused);
 }
@@ -306,7 +306,7 @@ async fn stops_when_the_generation_was_cut_short() {
     let agent = Agent::new(client(base));
 
     let mut messages = vec![Message::text(Role::User, "go")];
-    let run = agent.run(&mut messages).await.unwrap();
+    let run = agent.messages(&mut messages).await.unwrap();
 
     assert_eq!(run.stop, StopReason::Incomplete);
 }
@@ -319,7 +319,7 @@ async fn downgrades_required_after_the_first_turn() {
         .tool_choice(ToolChoice::Required);
 
     let mut messages = vec![Message::text(Role::User, "go")];
-    agent.run(&mut messages).await.unwrap();
+    agent.messages(&mut messages).await.unwrap();
 
     let first = requests.recv().unwrap();
     let second = requests.recv().unwrap();
@@ -337,7 +337,7 @@ async fn a_failed_call_leaves_the_transcript_untouched() {
     let mut messages = vec![Message::text(Role::User, "go")];
     let before = messages.clone();
 
-    assert!(agent.run(&mut messages).await.is_err());
+    assert!(agent.messages(&mut messages).await.is_err());
     assert_eq!(messages, before);
 }
 
@@ -352,7 +352,7 @@ async fn replays_opaque_reasoning_state_on_the_next_turn() {
     let agent = Agent::new(anthropic_client(base)).tool(add);
 
     let mut messages = vec![Message::text(Role::User, "What is 20 + 22?")];
-    let run = agent.run(&mut messages).await.unwrap();
+    let run = agent.messages(&mut messages).await.unwrap();
     assert_eq!(run.stop, StopReason::Answered);
 
     // The signature is what Anthropic validates on the next request. Dropping
@@ -362,28 +362,6 @@ async fn replays_opaque_reasoning_state_on_the_next_turn() {
     let second = requests.recv().unwrap();
     assert!(second.contains("sig-abc123"));
     assert!(second.contains(r#""type":"thinking""#));
-}
-
-#[tokio::test]
-async fn chat_carries_the_transcript_between_asks() {
-    let (base, requests) = serve_many(vec![canned(ANSWER), canned(ANSWER)]);
-    let agent = Agent::new(client(base));
-    let mut chat = agent.chat();
-
-    assert_eq!(
-        chat.ask("first question").await.unwrap().answer,
-        "the answer is 42"
-    );
-    assert_eq!(
-        chat.ask("second question").await.unwrap().answer,
-        "the answer is 42"
-    );
-
-    let _first = requests.recv().unwrap();
-    let second = requests.recv().unwrap();
-    assert!(second.contains("first question"));
-    assert!(second.contains("second question"));
-    assert_eq!(chat.messages().len(), 4);
 }
 
 const CALLS_COUNTER: &str = r#"{"id":"chatcmpl-1","model":"test-model","choices":[{"message":{"role":"assistant","content":null,"tool_calls":[{"id":"call_c1","type":"function","function":{"name":"counter","arguments":"{}"}}]},"finish_reason":"tool_calls"}]}"#;
@@ -409,7 +387,7 @@ async fn a_stateful_tool_keeps_its_state_across_the_run() {
 
     let before = calls.load(Ordering::SeqCst);
     let mut messages = vec![Message::text(Role::User, "go")];
-    let run = agent.run(&mut messages).await.unwrap();
+    let run = agent.messages(&mut messages).await.unwrap();
 
     assert_eq!(run.stop, StopReason::Answered);
     assert!(calls.load(Ordering::SeqCst) > before);
@@ -424,7 +402,7 @@ async fn a_tool_reads_per_run_state_out_of_the_context() {
     context.insert(UserId("u-42".to_string()));
 
     let mut messages = vec![Message::text(Role::User, "who am I?")];
-    let run = agent.run_with(&mut messages, &context).await.unwrap();
+    let run = agent.messages_with(&mut messages, &context).await.unwrap();
 
     assert_eq!(run.stop, StopReason::Answered);
     let _first = requests.recv().unwrap();
@@ -442,7 +420,7 @@ async fn a_missing_context_value_reaches_the_model_as_text() {
 
     let mut messages = vec![Message::text(Role::User, "who am I?")];
     // `run` supplies an empty context, so the tool fails rather than panicking.
-    let run = agent.run(&mut messages).await.unwrap();
+    let run = agent.messages(&mut messages).await.unwrap();
 
     assert_eq!(run.stop, StopReason::Answered);
     let _first = requests.recv().unwrap();
@@ -459,7 +437,7 @@ async fn a_fallible_tool_reports_its_error_as_a_tool_result() {
     let agent = Agent::new(client(base)).tool(sealed);
 
     let mut messages = vec![Message::text(Role::User, "open it")];
-    let run = agent.run(&mut messages).await.unwrap();
+    let run = agent.messages(&mut messages).await.unwrap();
 
     assert_eq!(run.stop, StopReason::Answered);
     let _first = requests.recv().unwrap();
@@ -477,7 +455,7 @@ async fn a_runtime_named_tool_is_dispatched_by_its_name() {
     let agent = Agent::new(client(base)).tools(tools);
 
     let mut messages = vec![Message::text(Role::User, "go")];
-    let run = agent.run(&mut messages).await.unwrap();
+    let run = agent.messages(&mut messages).await.unwrap();
 
     assert_eq!(run.stop, StopReason::Answered);
     let first = requests.recv().unwrap();
@@ -508,7 +486,7 @@ async fn a_denial_reaches_the_model_as_a_tool_result() {
             });
 
     let mut messages = vec![Message::text(Role::User, "What is 20 + 22?")];
-    let run = agent.run(&mut messages).await.expect("run");
+    let run = agent.messages(&mut messages).await.expect("run");
 
     assert_eq!(run.stop, StopReason::Answered);
     let _first = requests.recv().unwrap();
@@ -530,7 +508,7 @@ async fn a_denied_tool_never_runs() {
         });
 
     let mut messages = vec![Message::text(Role::User, "go")];
-    let run = agent.run(&mut messages).await.expect("run");
+    let run = agent.messages(&mut messages).await.expect("run");
 
     assert_eq!(run.stop, StopReason::Answered);
     // The load-bearing assertion: denial text in the transcript would still
@@ -546,7 +524,7 @@ async fn the_guard_reads_the_context() {
         .guard(needs_a_user);
 
     let mut messages = vec![Message::text(Role::User, "who am I?")];
-    denied.run(&mut messages).await.expect("run");
+    denied.messages(&mut messages).await.expect("run");
 
     let _first = denied_requests.recv().unwrap();
     let second = denied_requests.recv().unwrap();
@@ -563,7 +541,7 @@ async fn the_guard_reads_the_context() {
 
     let mut messages = vec![Message::text(Role::User, "who am I?")];
     allowed
-        .run_with(&mut messages, &context)
+        .messages_with(&mut messages, &context)
         .await
         .expect("run_with");
 
@@ -591,7 +569,7 @@ async fn the_guard_reads_the_raw_arguments() {
         .guard(refuses_ninety_nine);
 
     let mut messages = vec![Message::text(Role::User, "What is 99 + 1?")];
-    denied.run(&mut messages).await.expect("run");
+    denied.messages(&mut messages).await.expect("run");
 
     let _first = denied_requests.recv().unwrap();
     let second = denied_requests.recv().unwrap();
@@ -605,7 +583,7 @@ async fn the_guard_reads_the_raw_arguments() {
         .guard(refuses_ninety_nine);
 
     let mut messages = vec![Message::text(Role::User, "What is 20 + 22?")];
-    let run = allowed.run(&mut messages).await.expect("run");
+    let run = allowed.messages(&mut messages).await.expect("run");
 
     assert_eq!(run.stop, StopReason::Answered);
     let _first = allowed_requests.recv().unwrap();
@@ -627,7 +605,7 @@ async fn the_guard_sees_a_name_no_tool_answers_to() {
             });
 
     let mut messages = vec![Message::text(Role::User, "go")];
-    let run = agent.run(&mut messages).await.expect("run");
+    let run = agent.messages(&mut messages).await.expect("run");
 
     assert_eq!(run.stop, StopReason::Answered);
     let _first = requests.recv().unwrap();
@@ -644,10 +622,10 @@ async fn the_system_instruction_is_sent_and_stays_out_of_the_transcript() {
     let agent = Agent::new(client(base)).system("SENTINEL-SYSTEM");
 
     let mut messages = vec![Message::text(Role::User, "first")];
-    agent.run(&mut messages).await.expect("first run");
+    agent.messages(&mut messages).await.expect("first run");
     let original_len = messages.len();
     messages.push(Message::text(Role::User, "second"));
-    agent.run(&mut messages).await.expect("second run");
+    agent.messages(&mut messages).await.expect("second run");
 
     // Sent on every turn, not just the first.
     let first = requests.recv().expect("first request");
@@ -663,15 +641,15 @@ async fn the_system_instruction_is_sent_and_stays_out_of_the_transcript() {
 }
 
 #[tokio::test]
-async fn a_memory_policy_cannot_drop_the_system_instruction() {
+async fn a_filter_cannot_drop_the_system_instruction() {
     let (base, requests) = serve_many(vec![canned(ANSWER)]);
-    // A policy that discards everything it is given.
+    // A filter that discards everything it is given.
     let agent = Agent::new(client(base))
         .system("SENTINEL-SYSTEM")
-        .memory(|_: &[Message]| Vec::new());
+        .filter(|_: &[Message]| Vec::new());
 
     let mut messages = vec![Message::text(Role::User, "first")];
-    agent.run(&mut messages).await.expect("run");
+    agent.messages(&mut messages).await.expect("run");
 
     let sent = requests.recv().expect("request");
     assert!(sent.contains("SENTINEL-SYSTEM"), "{sent}");
@@ -692,7 +670,7 @@ async fn the_settings_reach_the_wire() {
         .reasoning_effort(ReasoningEffort::High);
 
     let mut messages = vec![Message::text(Role::User, "go")];
-    agent.run(&mut messages).await.expect("run");
+    agent.messages(&mut messages).await.expect("run");
 
     // Asserted as key and value together. The captured string is the whole
     // request including its headers, so a bare value can match something the
@@ -717,11 +695,80 @@ async fn extra_for_reaches_the_wire() {
     );
 
     let mut messages = vec![Message::text(Role::User, "go")];
-    agent.run(&mut messages).await.expect("run");
+    agent.messages(&mut messages).await.expect("run");
 
     let sent = requests.recv().expect("captured request");
     assert!(
         sent.contains(r#""sentinel_field":"sentinel-value""#),
         "{sent}"
     );
+}
+
+#[tokio::test]
+async fn a_stored_conversation_carries_across_calls() {
+    let (base, requests) = serve_many(vec![canned(ANSWER), canned(ANSWER)]);
+    let agent = Agent::new(client(base)).memory(InMemoryStorage::new());
+
+    agent.message("first question").await.expect("first");
+    agent.message("second question").await.expect("second");
+
+    let _first = requests.recv().expect("first request");
+    let second = requests.recv().expect("second request");
+    assert!(second.contains("first question"), "{second}");
+    assert!(second.contains("second question"), "{second}");
+}
+
+#[tokio::test]
+async fn the_caller_owned_path_never_touches_storage() {
+    let (base, _requests) = serve_many(vec![canned(ANSWER)]);
+    let storage = Arc::new(InMemoryStorage::new());
+    let agent = Agent::new(client(base)).memory(Arc::clone(&storage));
+
+    let mut messages = vec![Message::text(Role::User, "held by the caller")];
+    agent.messages(&mut messages).await.expect("run");
+
+    assert!(storage.load().await.unwrap().is_empty());
+    assert!(messages.len() > 1);
+}
+
+#[tokio::test]
+async fn message_without_storage_fails_and_sends_nothing() {
+    let (base, requests) = serve_many(vec![canned(ANSWER)]);
+    let agent = Agent::new(client(base));
+
+    assert!(agent.message("anything").await.is_err());
+    assert!(requests.try_recv().is_err());
+}
+
+#[tokio::test]
+async fn a_filter_applies_on_the_stored_path_too() {
+    let (base, requests) = serve_many(vec![canned(ANSWER), canned(ANSWER)]);
+    let agent = Agent::new(client(base))
+        .memory(InMemoryStorage::new())
+        .filter(|history: &[Message]| history.iter().rev().take(1).rev().cloned().collect());
+
+    agent.message("first question").await.expect("first");
+    agent.message("second question").await.expect("second");
+
+    let _first = requests.recv().expect("first request");
+    let second = requests.recv().expect("second request");
+    // The filter keeps only the newest message, so the older turn is trimmed
+    // off the wire even though storage still holds it.
+    assert!(!second.contains("first question"), "{second}");
+    assert!(second.contains("second question"), "{second}");
+}
+
+#[tokio::test]
+async fn clearing_storage_forgets_the_conversation() {
+    let (base, requests) = serve_many(vec![canned(ANSWER), canned(ANSWER)]);
+    let storage = Arc::new(InMemoryStorage::new());
+    let agent = Agent::new(client(base)).memory(Arc::clone(&storage));
+
+    agent.message("first question").await.expect("first");
+    storage.clear().await.unwrap();
+    agent.message("second question").await.expect("second");
+
+    let _first = requests.recv().expect("first request");
+    let second = requests.recv().expect("second request");
+    assert!(!second.contains("first question"), "{second}");
 }

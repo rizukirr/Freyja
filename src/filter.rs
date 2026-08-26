@@ -10,11 +10,11 @@ use std::sync::Arc;
 ///
 /// A policy has no endpoint, so it does not produce a [`crate::Error`]: every
 /// variant of that type carries one. [`crate::Agent`] wraps this instead.
-pub type MemoryError = Box<dyn std::error::Error + Send + Sync>;
+pub type FilterError = Box<dyn std::error::Error + Send + Sync>;
 
-/// The future returned by [`Memory::select`].
-pub type MemoryFuture<'a> =
-    Pin<Box<dyn Future<Output = Result<Vec<Message>, MemoryError>> + Send + 'a>>;
+/// The future returned by [`Filter::select`].
+pub type FilterFuture<'a> =
+    Pin<Box<dyn Future<Output = Result<Vec<Message>, FilterError>> + Send + 'a>>;
 
 /// Decides what part of a transcript goes on the wire.
 ///
@@ -30,18 +30,18 @@ pub type MemoryFuture<'a> =
 /// Boxed rather than `async fn` in the trait, for the reason
 /// [`crate::ToolFuture`] gives: `async fn` in traits is stable but not
 /// `dyn`-compatible, and `Agent` stores trait objects.
-pub trait Memory: Send + Sync {
+pub trait Filter: Send + Sync {
     /// Returns the messages to send this turn.
-    fn select<'a>(&'a self, history: &'a [Message], cx: &'a Context) -> MemoryFuture<'a>;
+    fn select<'a>(&'a self, history: &'a [Message], cx: &'a Context) -> FilterFuture<'a>;
 }
 
 /// Any suitable closure is a policy, so an ordinary filter never writes a
 /// boxed future by hand.
-impl<F> Memory for F
+impl<F> Filter for F
 where
     F: Fn(&[Message]) -> Vec<Message> + Send + Sync,
 {
-    fn select<'a>(&'a self, history: &'a [Message], _cx: &'a Context) -> MemoryFuture<'a> {
+    fn select<'a>(&'a self, history: &'a [Message], _cx: &'a Context) -> FilterFuture<'a> {
         let selected = self(history);
         Box::pin(async move { Ok(selected) })
     }
@@ -141,10 +141,10 @@ fn repair(messages: &mut Vec<Message>) {
 ///
 /// The caller's transcript is copied in, so nothing here can shorten it.
 pub(crate) async fn apply(
-    policies: &[Arc<dyn Memory>],
+    policies: &[Arc<dyn Filter>],
     history: &[Message],
     cx: &Context,
-) -> Result<Vec<Message>, MemoryError> {
+) -> Result<Vec<Message>, FilterError> {
     let mut chosen = history.to_vec();
     for policy in policies {
         chosen = policy.select(&chosen, cx).await?;
@@ -172,8 +172,8 @@ impl Window {
     }
 }
 
-impl Memory for Window {
-    fn select<'a>(&'a self, history: &'a [Message], _cx: &'a Context) -> MemoryFuture<'a> {
+impl Filter for Window {
+    fn select<'a>(&'a self, history: &'a [Message], _cx: &'a Context) -> FilterFuture<'a> {
         Box::pin(async move {
             let (pinned, groups) = split(history);
             let from = groups.len().saturating_sub(self.groups);
@@ -193,7 +193,7 @@ impl Memory for Window {
 
 #[cfg(test)]
 mod tests {
-    use super::{Memory, Window, apply, repair};
+    use super::{Filter, Window, apply, repair};
     use crate::{Context, InputContent, Message, Role};
     use std::sync::Arc;
 
@@ -260,7 +260,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_policy_receives_the_previous_one_s_output() {
-        let drop_first: Arc<dyn Memory> =
+        let drop_first: Arc<dyn Filter> =
             Arc::new(|history: &[Message]| history.iter().skip(1).cloned().collect::<Vec<_>>());
         let policies = vec![drop_first.clone(), drop_first];
         let history = transcript();
@@ -276,7 +276,7 @@ mod tests {
             call("call_1"),
             Message::tool_result("call_1", "out"),
         ];
-        let cut_in_half: Arc<dyn Memory> =
+        let cut_in_half: Arc<dyn Filter> =
             Arc::new(|history: &[Message]| history.iter().skip(2).cloned().collect::<Vec<_>>());
         let selected = apply(&[cut_in_half], &history, &Context::new())
             .await
@@ -288,16 +288,16 @@ mod tests {
     #[tokio::test]
     async fn a_failing_policy_surfaces_its_error() {
         struct Broken;
-        impl Memory for Broken {
+        impl Filter for Broken {
             fn select<'a>(
                 &'a self,
                 _h: &'a [Message],
                 _cx: &'a Context,
-            ) -> super::MemoryFuture<'a> {
+            ) -> super::FilterFuture<'a> {
                 Box::pin(async { Err(std::io::Error::other("unreachable").into()) })
             }
         }
-        let policies: Vec<Arc<dyn Memory>> = vec![Arc::new(Broken)];
+        let policies: Vec<Arc<dyn Filter>> = vec![Arc::new(Broken)];
         assert!(
             apply(&policies, &transcript(), &Context::new())
                 .await

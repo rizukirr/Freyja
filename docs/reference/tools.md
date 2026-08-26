@@ -142,10 +142,10 @@ struct UserId(String);
 let mut cx = Context::new();
 cx.insert(UserId("u_42".to_string()));
 
-let run = agent.run_with(&mut messages, &cx).await?;
+let run = agent.messages_with(&mut messages, &cx).await?;
 ```
 
-`Chat::ask_with` takes the same context. `Agent::run` and `Chat::ask` are the same calls with an empty one.
+`Agent::message_with` takes the same context on the storage-backed path. `Agent::messages` and `Agent::message` are the same two calls with an empty one.
 
 `Context` is keyed by type, the way `http::Extensions` is, so two values of one type collide and the second replaces the first. Give distinct values distinct newtypes — `UserId(String)` above, never a bare `String`. `get::<T>()` returns `Option<&T>`; `require::<T>()` returns a `ToolError::Execution` naming the missing type, which is usually what a tool wants, since that message is what the model ends up reading.
 
@@ -249,7 +249,7 @@ let request = request.tool_choice(ToolChoice::Required);
 
 Leave `tool_choice` unset unless you need it. Unset means the provider's own default, which is normally `Auto`, and it keeps the request portable. All four dialects carry it, each with its own spelling: `Required` is `any` on Gemini and Anthropic, and `required` on the two OpenAI formats.
 
-`Agent` (see [Building an agent](../building-an-agent.md)) handles this for you: send `Required` on its template to force the first turn to call a tool, and `Agent::run` downgrades it to `Auto` for every turn after the first, so the loop can still end in a final answer.
+`Agent` (see [Building an agent](../building-an-agent.md)) handles this for you: send `Required` on its template to force the first turn to call a tool, and `Agent::messages` downgrades it to `Auto` for every turn after the first, so the loop can still end in a final answer.
 
 ## Reading the calls
 

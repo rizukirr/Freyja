@@ -3,7 +3,7 @@
 //! Stands in for a third-party memory crate: if this compiles, so does one.
 
 use freyja::{
-    Agent, Client, Context, Dialect, EndpointConfig, Memory, MemoryFuture, Message, Role, Window,
+    Agent, Client, Context, Dialect, EndpointConfig, Filter, FilterFuture, Message, Role, Window,
 };
 
 mod common;
@@ -28,8 +28,8 @@ struct Prepend {
     recalled: Message,
 }
 
-impl Memory for Prepend {
-    fn select<'a>(&'a self, history: &'a [Message], _cx: &'a Context) -> MemoryFuture<'a> {
+impl Filter for Prepend {
+    fn select<'a>(&'a self, history: &'a [Message], _cx: &'a Context) -> FilterFuture<'a> {
         Box::pin(async move {
             let mut selected = vec![self.recalled.clone()];
             selected.extend(history.iter().cloned());
@@ -42,8 +42,8 @@ impl Memory for Prepend {
 /// standard error rather than `freyja::Error`: a policy has no endpoint.
 struct Broken;
 
-impl Memory for Broken {
-    fn select<'a>(&'a self, _history: &'a [Message], _cx: &'a Context) -> MemoryFuture<'a> {
+impl Filter for Broken {
+    fn select<'a>(&'a self, _history: &'a [Message], _cx: &'a Context) -> FilterFuture<'a> {
         Box::pin(async { Err(std::io::Error::other("backend unreachable").into()) })
     }
 }
@@ -90,7 +90,7 @@ async fn no_policy_sends_the_whole_transcript() {
         Message::text(Role::User, "turn-three"),
     ];
 
-    agent.run(&mut messages).await.expect("run succeeds");
+    agent.messages(&mut messages).await.expect("run succeeds");
 
     let sent = request.recv().expect("captured request");
     assert!(sent.contains("turn-one"), "{sent}");
@@ -104,7 +104,7 @@ async fn a_window_sends_less_than_the_whole_transcript() {
     let config =
         EndpointConfig::new(Dialect::OpenAiChat, "local", base).default_model("test-model");
     let client = Client::new(config, "sk-test");
-    let agent = Agent::new(client).memory(Window::groups(1));
+    let agent = Agent::new(client).filter(Window::groups(1));
 
     let mut messages = vec![
         Message::text(Role::User, "turn-one"),
@@ -113,7 +113,7 @@ async fn a_window_sends_less_than_the_whole_transcript() {
     ];
     let original_len = messages.len();
 
-    agent.run(&mut messages).await.expect("run succeeds");
+    agent.messages(&mut messages).await.expect("run succeeds");
 
     let sent = request.recv().expect("captured request");
     assert!(
@@ -145,7 +145,7 @@ async fn a_failed_request_does_not_shorten_the_caller_transcript() {
     let config =
         EndpointConfig::new(Dialect::OpenAiChat, "local", base).default_model("test-model");
     let client = Client::new(config, "sk-test");
-    let agent = Agent::new(client).memory(Window::groups(1));
+    let agent = Agent::new(client).filter(Window::groups(1));
 
     let mut messages = vec![
         Message::text(Role::User, "turn-one"),
@@ -153,7 +153,7 @@ async fn a_failed_request_does_not_shorten_the_caller_transcript() {
     ];
     let original_len = messages.len();
 
-    let result = agent.run(&mut messages).await;
+    let result = agent.messages(&mut messages).await;
 
     assert!(result.is_err(), "a 500 must surface as Err");
     assert_eq!(
@@ -168,8 +168,8 @@ async fn a_failed_request_does_not_shorten_the_caller_transcript() {
 /// parameter it otherwise ignores.
 struct ContextAware;
 
-impl Memory for ContextAware {
-    fn select<'a>(&'a self, history: &'a [Message], cx: &'a Context) -> MemoryFuture<'a> {
+impl Filter for ContextAware {
+    fn select<'a>(&'a self, history: &'a [Message], cx: &'a Context) -> FilterFuture<'a> {
         Box::pin(async move {
             let keep_all = cx.get::<bool>().copied().unwrap_or(false);
             let selected = if keep_all {

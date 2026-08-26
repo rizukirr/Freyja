@@ -9,7 +9,8 @@
 //! cargo run --example memory
 //! ```
 
-use freyja::{Agent, Client, EndpointPreset, Message, Role, Window};
+use freyja::{Agent, Client, EndpointPreset, InMemoryStorage, Storage, Window};
+use std::sync::Arc;
 
 #[tokio::main]
 async fn main() {
@@ -21,11 +22,15 @@ async fn main() {
         return;
     };
 
+    // Kept as an `Arc` so the length can be read back after the loop: `Agent`
+    // takes ownership of whatever is installed with `memory`, and `Storage`
+    // is implemented for `Arc<T>` for exactly this reason.
+    let storage = Arc::new(InMemoryStorage::new());
+
     let agent = Agent::new(client)
         .system("You are a concise assistant. Answer in one sentence.")
-        .memory(Window::groups(2));
-
-    let mut messages: Vec<Message> = Vec::new();
+        .filter(Window::groups(2))
+        .memory(Arc::clone(&storage));
 
     for question in [
         "Name a Norwegian city.",
@@ -33,8 +38,7 @@ async fn main() {
         "What language do they speak there?",
         "What was the first thing I asked you?",
     ] {
-        messages.push(Message::text(Role::User, question));
-        match agent.run(&mut messages).await {
+        match agent.message(question).await {
             Ok(run) => println!("> {question}\n{}\n", run.answer),
             Err(error) => {
                 eprintln!("{error}");
@@ -43,8 +47,10 @@ async fn main() {
         }
     }
 
-    // Every turn is still here. The last request carried the system
-    // instruction and the most recent groups only, which is why the model could
-    // not answer the last question.
-    println!("transcript still holds {} messages", messages.len());
+    // Every turn is still here, held by storage rather than a vector we kept
+    // ourselves. The last request carried the system instruction and the most
+    // recent groups only, which is why the model could not answer the last
+    // question.
+    let held = storage.load().await.expect("read back the conversation");
+    println!("transcript still holds {} messages", held.len());
 }

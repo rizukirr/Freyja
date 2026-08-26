@@ -151,7 +151,7 @@ It forces a tool call on **every** round, so the model can never produce a final
 
 Every tool result becomes part of the prompt on the next round, and is billed as input tokens on every round after that. A verbose tool is a recurring cost, not a one-time one. Return what the model needs and nothing more.
 
-Trimming what a tool returns bounds the cost of one round. It does not bound the conversation, which grows until the provider rejects it outright. `Agent::memory` installs a policy that decides what reaches the model each turn, and `Window::groups` is the one that ships. Your transcript stays whole either way. See [Memory](reference/memory.md).
+Trimming what a tool returns bounds the cost of one round. It does not bound the conversation, which grows until the provider rejects it outright. `Agent::filter` installs a policy that decides what reaches the model each turn, and `Window::groups` is the one that ships. Your transcript stays whole either way. `Agent::memory` installs where the conversation lives between calls to `Agent::message`, a separate concern. See [Filter](reference/filter.md) and [Storage](reference/storage.md).
 
 ### One result per call
 
@@ -187,12 +187,12 @@ let agent = Agent::new(client)
     .max_turns(5);
 
 let mut messages = vec![Message::text(Role::User, "What is 20 + 22?")];
-let run = agent.run(&mut messages).await?;
+let run = agent.messages(&mut messages).await?;
 
 println!("{}", run.answer);
 ```
 
-Model and sampling settings live on the builder alongside the tools. The transcript does not: it is the vector you hand to `run`, which is why there is no way to put messages into an agent's configuration.
+Model and sampling settings live on the builder alongside the tools. The transcript does not: it is the vector you hand to `messages`, which is why there is no way to put messages into an agent's configuration.
 
 A guard goes on the same builder. `.guard(|name, _arguments, _cx| ...)` is consulted before every call, and returning `Decision::Deny(reason)` sends the model `denied: {reason}` instead of running the tool — which is how you keep a tool registered for the cases it is meant for while refusing the rest. See [Refusing a call](reference/tools.md#refusing-a-call).
 
@@ -206,7 +206,7 @@ let agent = Agent::new(client)
     .max_turns(5);
 ```
 
-`run.stop` tells you why the loop ended — `Answered`, `MaxTurns`, `Refused`, `Incomplete`, or `Failed` — and `Chat` wraps the same thing with an owned transcript for a multi-turn conversation. See `examples/agent.rs`.
+`run.stop` tells you why the loop ended — `Answered`, `MaxTurns`, `Refused`, `Incomplete`, or `Failed` — and `Agent::message` wraps the same loop with the transcript held in installed `Storage` instead of a vector you own, for a multi-turn conversation. See `examples/agent.rs`.
 
 ## Next
 
