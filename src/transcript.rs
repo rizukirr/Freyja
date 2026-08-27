@@ -23,29 +23,50 @@ use std::collections::HashSet;
 ///
 /// Public so a storage backend written elsewhere can trim on safe boundaries
 /// without reimplementing this.
+///
+/// A group stays open while any call in it is unanswered, so a call and the
+/// result answering it are always evicted together, whatever sits between
+/// them. Interleaved calls therefore share one group rather than fragmenting.
+///
+/// A pinned turn arriving while a call is open therefore joins that group
+/// rather than the pinned list. It is not lost: [`window_by_groups`] rescues a
+/// pinned turn out of any group it drops and moves it to the front.
 pub fn split(history: &[Message]) -> (Vec<&Message>, Vec<&[Message]>) {
     let mut pinned = Vec::new();
     let mut groups: Vec<&[Message]> = Vec::new();
     let mut start: Option<usize> = None;
+    // Calls opened in the group currently building and not yet answered. A
+    // group stays open while this is non-empty, which is the whole rule: a
+    // call and the result answering it must be evicted together, so nothing
+    // may close between them.
+    let mut open: HashSet<&str> = HashSet::new();
 
     for (index, message) in history.iter().enumerate() {
-        if matches!(message.role, Role::System | Role::Developer) {
-            // A pinned turn inside an open tool exchange stays with its group.
-            // Hoisting it would leave the call in one group and the result in
-            // another, and a window keeping only the newer one then emits a
-            // result whose call is gone, which every provider rejects.
-            if start.is_some_and(|from| has_unanswered_call(&history[from..index])) {
-                continue;
-            }
+        let answers_open = message.content.iter().any(|content| match content {
+            InputContent::ToolResult { call_id, .. } => open.contains(call_id.as_str()),
+            _ => false,
+        });
+
+        if open.is_empty() && !answers_open {
             if let Some(from) = start.take() {
                 groups.push(&history[from..index]);
             }
-            pinned.push(message);
-            continue;
+            if matches!(message.role, Role::System | Role::Developer) {
+                pinned.push(message);
+                continue;
+            }
         }
-        let continues = start.is_some_and(|from| answers_open_call(&history[from..index], message));
-        if !continues && let Some(from) = start.take() {
-            groups.push(&history[from..index]);
+
+        for content in &message.content {
+            match content {
+                InputContent::ToolResult { call_id, .. } => {
+                    open.remove(call_id.as_str());
+                }
+                InputContent::ToolCall { id, .. } => {
+                    open.insert(id.as_str());
+                }
+                _ => {}
+            }
         }
         start.get_or_insert(index);
     }
@@ -81,50 +102,6 @@ pub fn window_by_groups(history: &[Message], keep: usize) -> Vec<Message> {
                 .flat_map(|group| group.iter().cloned()),
         )
         .collect()
-}
-
-/// Whether `span` holds a tool call that nothing in `span` answers.
-///
-/// A pinned turn arriving while this is true must not close the group, or the
-/// call and its result end up in different groups and a window can keep one
-/// without the other.
-fn has_unanswered_call(span: &[Message]) -> bool {
-    let answered: HashSet<&str> = span
-        .iter()
-        .flat_map(|message| message.content.iter())
-        .filter_map(|content| match content {
-            InputContent::ToolResult { call_id, .. } => Some(call_id.as_str()),
-            _ => None,
-        })
-        .collect();
-
-    span.iter()
-        .flat_map(|message| message.content.iter())
-        .any(|content| match content {
-            InputContent::ToolCall { id, .. } => !answered.contains(id.as_str()),
-            _ => false,
-        })
-}
-
-/// Whether `message` answers a call made earlier in `span`.
-fn answers_open_call(span: &[Message], message: &Message) -> bool {
-    let answered: HashSet<&str> = message
-        .content
-        .iter()
-        .filter_map(|content| match content {
-            InputContent::ToolResult { call_id, .. } => Some(call_id.as_str()),
-            _ => None,
-        })
-        .collect();
-    if answered.is_empty() {
-        return false;
-    }
-    span.iter()
-        .flat_map(|earlier| earlier.content.iter())
-        .any(|content| match content {
-            InputContent::ToolCall { id, .. } => answered.contains(id.as_str()),
-            _ => false,
-        })
 }
 
 /// Drops a tool result whose call is absent, and a tool call whose result is
@@ -308,6 +285,29 @@ mod tests {
         ]
     }
 
+    /// Two calls open before either is answered, and the results arrive in the
+    /// reverse order. Fragments into four groups before this change.
+    fn interleaved() -> Vec<Message> {
+        vec![
+            Message::text(Role::User, "go"),
+            call("c1"),
+            call("c2"),
+            Message::tool_result("c2", "b"),
+            Message::tool_result("c1", "a"),
+        ]
+    }
+
+    /// The same, with a pinned turn between the two calls.
+    fn interleaved_with_pinned() -> Vec<Message> {
+        vec![
+            call("c1"),
+            Message::text(Role::Developer, "mid"),
+            call("c2"),
+            Message::tool_result("c1", "a"),
+            Message::tool_result("c2", "b"),
+        ]
+    }
+
     #[test]
     fn every_message_lands_in_a_group_or_is_pinned() {
         for history in [tool_conversation(), parallel_conversation()] {
@@ -324,6 +324,8 @@ mod tests {
             tool_conversation(),
             parallel_conversation(),
             pinned_inside_exchange(),
+            interleaved(),
+            interleaved_with_pinned(),
         ] {
             for keep in 0..=history.len() {
                 let mut selected = window_by_groups(&history, keep);
@@ -363,6 +365,16 @@ mod tests {
         // It travels with its group rather than to the front.
         let selected = window_by_groups(&history, 1);
         assert_ne!(selected.first().map(|m| m.role), Some(Role::Developer));
+    }
+
+    #[test]
+    fn interleaved_calls_share_one_group() {
+        let history = interleaved();
+        let (pinned, groups) = super::split(&history);
+        assert!(pinned.is_empty());
+        // [User] and then everything from the first call to the last result.
+        assert_eq!(groups.len(), 2);
+        assert_eq!(groups[1].len(), history.len() - 1);
     }
 
     #[test]
