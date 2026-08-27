@@ -321,9 +321,39 @@ mod tests {
         ]
     }
 
+    /// One message that answers `c1` and opens `c2` in the same content
+    /// vector. `split` removes answered ids before inserting newly opened
+    /// ones, and this is the shape that ordering exists for.
+    fn answers_and_opens_in_one_message() -> Vec<Message> {
+        vec![
+            Message::text(Role::User, "go"),
+            call("c1"),
+            Message::new(
+                Role::Assistant,
+                vec![
+                    InputContent::ToolResult {
+                        call_id: "c1".into(),
+                        output: "a".into(),
+                    },
+                    InputContent::ToolCall {
+                        id: "c2".into(),
+                        name: "t".into(),
+                        arguments: "{}".into(),
+                    },
+                ],
+            ),
+            Message::tool_result("c2", "b"),
+            Message::text(Role::Assistant, "done"),
+        ]
+    }
+
     #[test]
     fn every_message_lands_in_a_group_or_is_pinned() {
-        for history in [tool_conversation(), parallel_conversation()] {
+        for history in [
+            tool_conversation(),
+            parallel_conversation(),
+            answers_and_opens_in_one_message(),
+        ] {
             let (pinned, groups) = super::split(&history);
             let grouped: usize = groups.iter().map(|group| group.len()).sum();
             assert_eq!(pinned.len() + grouped, history.len());
@@ -339,6 +369,7 @@ mod tests {
             pinned_inside_exchange(),
             interleaved(),
             interleaved_with_pinned(),
+            answers_and_opens_in_one_message(),
         ] {
             for keep in 0..=history.len() {
                 let mut selected = window_by_groups(&history, keep);
