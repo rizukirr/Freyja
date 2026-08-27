@@ -391,4 +391,40 @@ mod tests {
         let selected = window_by_groups(&history, 1);
         assert_eq!(selected.first().map(|m| m.role), Some(Role::Developer));
     }
+
+    /// The shape that made the old implementation quadratic: one call nobody
+    /// answers, then many pinned turns inside that open exchange. The old code
+    /// rescanned the whole open span for each of them.
+    fn one_open_call_then_pinned(n: usize) -> Vec<Message> {
+        let mut history = vec![call("c1")];
+        history.extend((0..n).map(|_| Message::text(Role::Developer, "d")));
+        history.push(Message::tool_result("c1", "out"));
+        history
+    }
+
+    #[test]
+    fn split_is_linear() {
+        use std::time::Instant;
+
+        fn timed(history: &[Message]) -> std::time::Duration {
+            let start = Instant::now();
+            for _ in 0..5 {
+                let _ = super::split(history);
+            }
+            start.elapsed()
+        }
+
+        let small = one_open_call_then_pinned(2_000);
+        let large = one_open_call_then_pinned(4_000);
+
+        // Warm up, so the first allocation does not land inside a measurement.
+        let _ = timed(&small);
+
+        let ratio = timed(&large).as_secs_f64() / timed(&small).as_secs_f64();
+
+        // Doubling the input doubles linear work and quadruples quadratic
+        // work. Measured on the old implementation, doubling gave 4.10. Three
+        // sits between the two curves with room on both sides.
+        assert!(ratio < 3.0, "doubling the input scaled by {ratio}");
+    }
 }
