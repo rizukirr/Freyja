@@ -30,6 +30,13 @@ pub fn split(history: &[Message]) -> (Vec<&Message>, Vec<&[Message]>) {
 
     for (index, message) in history.iter().enumerate() {
         if matches!(message.role, Role::System | Role::Developer) {
+            // A pinned turn inside an open tool exchange stays with its group.
+            // Hoisting it would leave the call in one group and the result in
+            // another, and a window keeping only the newer one then emits a
+            // result whose call is gone, which every provider rejects.
+            if start.is_some_and(|from| has_unanswered_call(&history[from..index])) {
+                continue;
+            }
             if let Some(from) = start.take() {
                 groups.push(&history[from..index]);
             }
@@ -50,7 +57,10 @@ pub fn split(history: &[Message]) -> (Vec<&Message>, Vec<&[Message]>) {
 
 /// Pinned turns plus the most recent `keep` groups.
 ///
-/// Cuts only on group boundaries, so its output never needs repairing.
+/// Cuts only on group boundaries, so its output never needs repairing. A
+/// pinned turn written inside a tool exchange stays with that exchange rather
+/// than being hoisted, because separating a call from its result produces a
+/// request every provider rejects and moving an instruction does not.
 ///
 /// A group is a message, except that an assistant turn requesting tools and
 /// the results answering it are one group. So an exchange costs two groups
@@ -71,6 +81,29 @@ pub fn window_by_groups(history: &[Message], keep: usize) -> Vec<Message> {
                 .flat_map(|group| group.iter().cloned()),
         )
         .collect()
+}
+
+/// Whether `span` holds a tool call that nothing in `span` answers.
+///
+/// A pinned turn arriving while this is true must not close the group, or the
+/// call and its result end up in different groups and a window can keep one
+/// without the other.
+fn has_unanswered_call(span: &[Message]) -> bool {
+    let answered: HashSet<&str> = span
+        .iter()
+        .flat_map(|message| message.content.iter())
+        .filter_map(|content| match content {
+            InputContent::ToolResult { call_id, .. } => Some(call_id.as_str()),
+            _ => None,
+        })
+        .collect();
+
+    span.iter()
+        .flat_map(|message| message.content.iter())
+        .any(|content| match content {
+            InputContent::ToolCall { id, .. } => !answered.contains(id.as_str()),
+            _ => false,
+        })
 }
 
 /// Whether `message` answers a call made earlier in `span`.
@@ -217,6 +250,19 @@ mod tests {
         history
     }
 
+    /// A pinned turn written between a call and the result answering it. This
+    /// is the case that made `a_window_output_needs_no_repair` pass while the
+    /// property it asserts was false.
+    fn pinned_inside_exchange() -> Vec<Message> {
+        vec![
+            Message::text(Role::User, "go"),
+            call("c1"),
+            Message::text(Role::Developer, "mid"),
+            Message::tool_result("c1", "out"),
+            Message::text(Role::Assistant, "done"),
+        ]
+    }
+
     #[test]
     fn every_message_lands_in_a_group_or_is_pinned() {
         for history in [tool_conversation(), parallel_conversation()] {
@@ -229,7 +275,11 @@ mod tests {
 
     #[test]
     fn a_window_output_needs_no_repair() {
-        for history in [tool_conversation(), parallel_conversation()] {
+        for history in [
+            tool_conversation(),
+            parallel_conversation(),
+            pinned_inside_exchange(),
+        ] {
             for keep in 0..=history.len() {
                 let mut selected = window_by_groups(&history, keep);
                 let before = selected.clone();
@@ -257,5 +307,31 @@ mod tests {
         let history = tool_conversation();
         let selected = window_by_groups(&history, history.len());
         assert_eq!(selected, history);
+    }
+
+    #[test]
+    fn a_pinned_turn_inside_an_exchange_is_not_hoisted() {
+        let history = pinned_inside_exchange();
+        let (pinned, _groups) = super::split(&history);
+        assert!(pinned.is_empty());
+
+        // It travels with its group rather than to the front.
+        let selected = window_by_groups(&history, 1);
+        assert_ne!(selected.first().map(|m| m.role), Some(Role::Developer));
+    }
+
+    #[test]
+    fn a_pinned_turn_outside_an_exchange_is_still_hoisted() {
+        let history = vec![
+            Message::text(Role::User, "first"),
+            Message::text(Role::Developer, "mid"),
+            Message::text(Role::User, "second"),
+        ];
+        let (pinned, _groups) = super::split(&history);
+        assert_eq!(pinned.len(), 1);
+        assert_eq!(pinned[0].role, Role::Developer);
+
+        let selected = window_by_groups(&history, 1);
+        assert_eq!(selected.first().map(|m| m.role), Some(Role::Developer));
     }
 }
