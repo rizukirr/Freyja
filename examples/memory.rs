@@ -9,7 +9,7 @@
 //! cargo run --example memory
 //! ```
 
-use freyja::{Agent, Client, EndpointPreset, InMemoryStorage, Storage};
+use freyja::{Agent, Client, EndpointPreset, InMemoryStorage};
 use std::sync::Arc;
 
 #[tokio::main]
@@ -50,6 +50,6 @@ async fn main() {
     // ourselves. The last request carried the system instruction and the most
     // recent groups only, which is why the model could not answer the last
     // question.
-    let held = storage.load().await.expect("read back the conversation");
+    let held = storage.all();
     println!("transcript still holds {} messages", held.len());
 }
