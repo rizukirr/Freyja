@@ -78,10 +78,7 @@ pub fn split(history: &[Message]) -> (Vec<&Message>, Vec<&[Message]>) {
 
 /// Pinned turns plus the most recent `keep` groups.
 ///
-/// Cuts only on group boundaries, so its output never needs repairing. A
-/// pinned turn written inside a tool exchange stays with that exchange rather
-/// than being hoisted, because separating a call from its result produces a
-/// request every provider rejects and moving an instruction does not.
+/// Cuts only on group boundaries, so its output never needs repairing.
 ///
 /// A group is a message, except that an assistant turn requesting tools and
 /// the results answering it are one group. So an exchange costs two groups
@@ -90,11 +87,27 @@ pub fn split(history: &[Message]) -> (Vec<&Message>, Vec<&[Message]>) {
 ///
 /// Pinned turns are emitted first, so this reorders a `System` or `Developer`
 /// message written mid-conversation to the front. See [`split`].
+///
+/// A pinned turn written inside a tool exchange stays with that exchange while
+/// the exchange survives, and moves to the front once the exchange ages out.
+/// It is never dropped, so an instruction always reaches the model, but its
+/// position depends on the window size.
 pub fn window_by_groups(history: &[Message], keep: usize) -> Vec<Message> {
     let (pinned, groups) = split(history);
     let from = groups.len().saturating_sub(keep);
+
+    // A pinned turn inside a group that ages out would otherwise leave the
+    // request entirely, so an instruction meant to persist would silently stop
+    // applying. Rescued turns join the pinned list in the order they appeared,
+    // which means a pinned turn moves to the front once its group is dropped.
+    let rescued = groups[..from]
+        .iter()
+        .flat_map(|group| group.iter())
+        .filter(|message| matches!(message.role, Role::System | Role::Developer));
+
     pinned
         .into_iter()
+        .chain(rescued)
         .cloned()
         .chain(
             groups[from..]
@@ -357,14 +370,24 @@ mod tests {
     }
 
     #[test]
-    fn a_pinned_turn_inside_an_exchange_is_not_hoisted() {
+    fn a_pinned_turn_travels_with_its_group_until_that_group_is_dropped() {
         let history = pinned_inside_exchange();
+
+        // Not pinned by `split`: it sits inside an open exchange, so it lands
+        // in that group rather than the pinned list.
         let (pinned, _groups) = super::split(&history);
         assert!(pinned.is_empty());
 
-        // It travels with its group rather than to the front.
-        let selected = window_by_groups(&history, 1);
-        assert_ne!(selected.first().map(|m| m.role), Some(Role::Developer));
+        // Wide enough to keep every group: it stays in place, behind the
+        // messages that precede it.
+        let kept = window_by_groups(&history, history.len());
+        assert_ne!(kept.first().map(|m| m.role), Some(Role::Developer));
+        assert!(kept.iter().any(|m| m.role == Role::Developer));
+
+        // Narrow enough to drop its group: it is rescued to the front rather
+        // than lost.
+        let trimmed = window_by_groups(&history, 1);
+        assert_eq!(trimmed.first().map(|m| m.role), Some(Role::Developer));
     }
 
     #[test]
