@@ -1,8 +1,8 @@
 //! Driving the tool-calling loop.
 
 use crate::{
-    Client, Context, Dialect, Error, GenerateRequest, Memory, Message, OutputContent,
-    ReasoningEffort, ResponseStatus, Tool, ToolChoice, ToolDefinition, Usage,
+    Client, Context, Dialect, Error, GenerateRequest, Message, OutputContent, ReasoningEffort,
+    ResponseStatus, Storage, Tool, ToolChoice, ToolDefinition, Usage,
 };
 use serde_json::Value;
 use std::sync::Arc;
@@ -28,11 +28,11 @@ pub struct Agent {
     template: GenerateRequest,
     max_turns: usize,
     guard: Option<Arc<GuardFn>>,
-    memory: Vec<Arc<dyn Memory>>,
     system: Option<String>,
+    storage: Option<Arc<dyn Storage>>,
 }
 
-/// What one call to [`Agent::run`] produced.
+/// What one call to [`Agent::messages`] produced.
 ///
 /// The transcript is not here: `run` extends the caller's vector in place.
 #[derive(Debug, Clone)]
@@ -47,7 +47,7 @@ pub struct Run {
     pub turns: usize,
 }
 
-/// Why [`Agent::run`] stopped.
+/// Why [`Agent::messages`] stopped.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StopReason {
     /// The model answered without requesting more tools.
@@ -85,8 +85,8 @@ impl Agent {
             template: GenerateRequest::new(),
             max_turns: 5,
             guard: None,
-            memory: Vec::new(),
             system: None,
+            storage: None,
         }
     }
 
@@ -186,9 +186,9 @@ impl Agent {
     /// Sets a system instruction sent ahead of the transcript on every turn.
     ///
     /// It is not part of the caller's transcript, so it is never returned by
-    /// [`Agent::run`] and never counted in the caller's vector. It is prepended
-    /// after any [`Memory`] policy has run, so a policy can neither drop it nor
-    /// see it.
+    /// [`Agent::messages`] and never counted in the caller's vector. It is
+    /// always prepended just before the request is sent, so nothing else here
+    /// can drop it or see it first.
     pub fn system(mut self, instruction: impl Into<String>) -> Self {
         self.system = Some(instruction.into());
         self
@@ -219,17 +219,13 @@ impl Agent {
         self
     }
 
-    /// Adds a policy consulted before every request.
+    /// Sets where this agent's conversation lives.
     ///
-    /// Policies run in the order added, each receiving the previous one's
-    /// output, so a token budget and a redaction pass compose without either
-    /// knowing about the other. The caller's transcript is untouched: a policy
-    /// only decides what goes on the wire.
-    ///
-    /// With no policy installed the whole transcript is sent, which is the
-    /// behaviour of every release before this one.
-    pub fn memory(mut self, memory: impl Memory + 'static) -> Self {
-        self.memory.push(Arc::new(memory));
+    /// Only [`Agent::message`] uses it. [`Agent::messages`] takes the
+    /// transcript as an argument, so it never reads or writes storage, and a
+    /// conversation is never held in two places at once.
+    pub fn memory(mut self, storage: impl Storage + 'static) -> Self {
+        self.storage = Some(Arc::new(storage));
         self
     }
 
@@ -244,7 +240,11 @@ impl Agent {
     /// every round, and the model could never produce a final answer.
     ///
     /// `cx` is handed to every tool call and is never sent to the model.
-    pub async fn run_with(&self, messages: &mut Vec<Message>, cx: &Context) -> Result<Run, Error> {
+    pub async fn messages_with(
+        &self,
+        messages: &mut Vec<Message>,
+        cx: &Context,
+    ) -> Result<Run, Error> {
         let original_len = messages.len();
         let mut request = self.template.clone();
         request.messages = core::mem::take(messages);
@@ -260,34 +260,16 @@ impl Agent {
         let mut turns = 0usize;
 
         for turn in 0..self.max_turns {
-            // Swaps the full transcript out for the policy's choice rather than
-            // cloning `request` a second time on top of `apply`'s own copy. The
-            // full transcript is restored immediately after the request
-            // returns, whether it succeeded or failed, so an error path never
-            // hands the caller a trimmed vector.
+            // Swaps the full transcript out for a copy with the system
+            // instruction prepended, rather than mutating `request.messages`
+            // directly. The full transcript is restored immediately after the
+            // request returns, whether it succeeded or failed, so an error
+            // path never hands the caller a vector with the instruction in it.
             let mut saved = None;
-            if !self.memory.is_empty() || self.system.is_some() {
-                let selected = if self.memory.is_empty() {
-                    Ok(request.messages.clone())
-                } else {
-                    crate::memory::apply(&self.memory, &request.messages, cx).await
-                };
-                match selected {
-                    Ok(mut chosen) => {
-                        if let Some(system) = &self.system {
-                            chosen.insert(0, Message::text(crate::Role::System, system.clone()));
-                        }
-                        saved = Some(core::mem::replace(&mut request.messages, chosen));
-                    }
-                    Err(error) => {
-                        *messages = core::mem::take(&mut request.messages);
-                        messages.truncate(original_len);
-                        return Err(Error::InvalidRequest {
-                            endpoint: self.client.config().name.clone(),
-                            message: format!("memory policy: {error}"),
-                        });
-                    }
-                }
+            if let Some(system) = &self.system {
+                let mut chosen = request.messages.clone();
+                chosen.insert(0, Message::text(crate::Role::System, system.clone()));
+                saved = Some(core::mem::replace(&mut request.messages, chosen));
             }
 
             let response = self.client.generate(&request).await;
@@ -383,9 +365,62 @@ impl Agent {
 
     /// Runs the tool loop, extending `messages` in place.
     ///
-    /// Equivalent to [`Agent::run_with`] with an empty context.
-    pub async fn run(&self, messages: &mut Vec<Message>) -> Result<Run, Error> {
-        self.run_with(messages, &Context::new()).await
+    /// Equivalent to [`Agent::messages_with`] with an empty context.
+    pub async fn messages(&self, messages: &mut Vec<Message>) -> Result<Run, Error> {
+        self.messages_with(messages, &Context::new()).await
+    }
+
+    /// Adds one user turn to the stored conversation and runs the loop.
+    ///
+    /// Equivalent to [`Agent::message_with`] with an empty context.
+    pub async fn message(&self, text: impl Into<String>) -> Result<Run, Error> {
+        self.message_with(text, &Context::new()).await
+    }
+
+    /// Adds one user turn to the stored conversation and runs the loop with
+    /// per-run context.
+    ///
+    /// Fails when no storage is installed, rather than answering with no
+    /// memory: an agent that silently forgets every turn is rarely what was
+    /// meant. Install one with [`Agent::memory`], or use [`Agent::messages`]
+    /// and hold the transcript yourself.
+    pub async fn message_with(&self, text: impl Into<String>, cx: &Context) -> Result<Run, Error> {
+        let Some(storage) = &self.storage else {
+            return Err(Error::InvalidRequest {
+                endpoint: self.client.config().name.clone(),
+                message: "Agent::message needs storage: install one with Agent::memory, \
+                          or use Agent::messages and hold the transcript yourself"
+                    .to_string(),
+            });
+        };
+
+        let mut history = storage
+            .load()
+            .await
+            .map_err(|error| Error::InvalidRequest {
+                endpoint: self.client.config().name.clone(),
+                message: format!("storage load: {error}"),
+            })?;
+
+        // Every backend decides its own trimming, including ones nobody here
+        // reviewed. This is what stops any of them sending a tool result whose
+        // call it dropped, which every provider rejects with an error that
+        // mentions nothing about trimming.
+        crate::transcript::repair(&mut history);
+
+        let before = history.len();
+        history.push(Message::text(crate::Role::User, text.into()));
+
+        let run = self.messages_with(&mut history, cx).await?;
+
+        storage
+            .append(history.split_off(before))
+            .await
+            .map_err(|error| Error::InvalidRequest {
+                endpoint: self.client.config().name.clone(),
+                message: format!("storage append: {error}"),
+            })?;
+        Ok(run)
     }
 
     /// Runs one requested call, turning every refusal and failure into text
@@ -407,61 +442,12 @@ impl Agent {
             None => format!("error: unknown tool '{name}'"),
         }
     }
-
-    /// Starts a conversation that carries its own transcript.
-    pub fn chat(&self) -> Chat {
-        Chat {
-            agent: self.clone(),
-            messages: Vec::new(),
-            last: None,
-        }
-    }
-}
-
-/// A conversation that keeps its own transcript.
-///
-/// Cheaper than it looks: cloning an [`Agent`] copies refcounts and small
-/// vectors, so one agent can hand out many chats.
-#[derive(Clone)]
-pub struct Chat {
-    agent: Agent,
-    messages: Vec<Message>,
-    last: Option<Run>,
-}
-
-impl Chat {
-    /// Appends a user turn and runs the loop over the whole conversation.
-    pub async fn ask(&mut self, prompt: impl Into<String>) -> Result<&Run, Error> {
-        self.ask_with(prompt, &Context::new()).await
-    }
-
-    /// Appends a user turn and runs the loop with per-run context.
-    pub async fn ask_with(
-        &mut self,
-        prompt: impl Into<String>,
-        cx: &Context,
-    ) -> Result<&Run, Error> {
-        self.messages
-            .push(Message::text(crate::Role::User, prompt.into()));
-        let run = self.agent.run_with(&mut self.messages, cx).await?;
-        Ok(self.last.insert(run))
-    }
-
-    /// Borrows the transcript, for persisting or inspecting.
-    pub fn messages(&self) -> &[Message] {
-        &self.messages
-    }
-
-    /// Takes the transcript, consuming the chat.
-    pub fn into_messages(self) -> Vec<Message> {
-        self.messages
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::Agent;
-    use crate::{Client, Context, Decision, Dialect, Message, Tool, ToolDefinition, ToolFuture};
+    use crate::{Client, Context, Decision, Dialect, Tool, ToolDefinition, ToolFuture};
 
     struct Add;
 
@@ -545,18 +531,5 @@ mod tests {
         let cx = Context::new();
         assert_eq!(guard("wipe", "{}", &cx), Decision::Deny("no".to_string()));
         assert_eq!(guard("add", "{}", &cx), Decision::Allow);
-    }
-
-    #[test]
-    fn an_agent_starts_with_no_policy() {
-        assert!(Agent::new(client()).memory.is_empty());
-    }
-
-    #[test]
-    fn policies_are_kept_in_the_order_added() {
-        let agent = Agent::new(client())
-            .memory(|h: &[Message]| h.to_vec())
-            .memory(|h: &[Message]| h.to_vec());
-        assert_eq!(agent.memory.len(), 2);
     }
 }

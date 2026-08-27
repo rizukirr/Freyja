@@ -24,6 +24,12 @@ Update imports and error matching with this rename table:
 | `error.provider()` | `error.endpoint()` |
 | `Agent::request(GenerateRequest::new().model(..))` | `Agent::model(..)`, and the same for `max_tokens`, `temperature`, `top_p`, `reasoning_effort`, `tool_choice`, `extra_for` |
 | a system prompt on an `Agent` template | `Agent::system(..)` |
+| `Agent::run`, `Agent::run_with` | `Agent::messages`, `Agent::messages_with` |
+| `Agent::chat()` and `Chat::ask` | `Agent::memory(InMemoryStorage::new())` and `Agent::message` |
+| `Memory`, `MemoryError`, `MemoryFuture` | `Filter`, `FilterError`, `FilterFuture` |
+| `Agent::memory(impl Memory)` | `Agent::filter(impl Filter)`, and `Agent::memory` now takes `Storage` |
+| `Agent::filter(Window::groups(n))` | `Agent::memory(InMemoryStorage::new().window(n))` |
+| `Filter`, `FilterError`, `FilterFuture`, `Window` | removed. A backend trims inside `Storage::load`, with `window_by_groups` if it wants groups |
 
 You write one request. Freyja translates it into whatever wire format the model you picked actually speaks, sends it, and translates the answer back. Changing vendor is changing one line.
 

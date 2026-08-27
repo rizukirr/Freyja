@@ -164,7 +164,7 @@ async fn main() {
             "Refund order A-1003 in full. If that is not an order, refund A-1002 instead.",
         )];
 
-        match agent.run_with(&mut messages, &context).await {
+        match agent.messages_with(&mut messages, &context).await {
             Ok(run) => {
                 println!("answer: {}", run.answer);
                 println!(

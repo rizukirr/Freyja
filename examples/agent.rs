@@ -4,10 +4,9 @@
 //! `tool_loop` writes that loop by hand, once, for one question. `chat` holds
 //! a plain conversation with no tools at all. This example needs both: every
 //! turn may call tools, more than once, before the model settles on an
-//! answer, and across turns the conversation itself continues. [`Chat`] wraps
-//! [`Agent::run`] with an owned transcript for exactly that; this example
-//! calls `run` directly against an explicit `Vec<Message>` instead, so it
-//! shows the primitive `Chat` is built from.
+//! answer, and across turns the conversation itself continues. This example
+//! owns that transcript directly, as an explicit `Vec<Message>` it extends by
+//! calling [`Agent::messages`] on every turn.
 //!
 //! ```sh
 //! cargo run --example agent
@@ -86,7 +85,7 @@ async fn main() {
             text => messages.push(Message::text(Role::User, text)),
         }
 
-        match agent.run(&mut messages).await {
+        match agent.messages(&mut messages).await {
             Ok(run) => {
                 println!("\nbot> {}", run.answer);
                 if run.stop == StopReason::MaxTurns {
