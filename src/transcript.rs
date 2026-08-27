@@ -23,22 +23,50 @@ use std::collections::HashSet;
 ///
 /// Public so a storage backend written elsewhere can trim on safe boundaries
 /// without reimplementing this.
+///
+/// A group stays open while any call in it is unanswered, so a call and the
+/// result answering it are always evicted together, whatever sits between
+/// them. Interleaved calls therefore share one group rather than fragmenting.
+///
+/// A pinned turn arriving while a call is open therefore joins that group
+/// rather than the pinned list. It is not lost: [`window_by_groups`] rescues a
+/// pinned turn out of any group it drops and moves it to the front.
 pub fn split(history: &[Message]) -> (Vec<&Message>, Vec<&[Message]>) {
     let mut pinned = Vec::new();
     let mut groups: Vec<&[Message]> = Vec::new();
     let mut start: Option<usize> = None;
+    // Calls opened in the group currently building and not yet answered. A
+    // group stays open while this is non-empty, which is the whole rule: a
+    // call and the result answering it must be evicted together, so nothing
+    // may close between them.
+    let mut open: HashSet<&str> = HashSet::new();
 
     for (index, message) in history.iter().enumerate() {
-        if matches!(message.role, Role::System | Role::Developer) {
+        let answers_open = message.content.iter().any(|content| match content {
+            InputContent::ToolResult { call_id, .. } => open.contains(call_id.as_str()),
+            _ => false,
+        });
+
+        if open.is_empty() && !answers_open {
             if let Some(from) = start.take() {
                 groups.push(&history[from..index]);
             }
-            pinned.push(message);
-            continue;
+            if matches!(message.role, Role::System | Role::Developer) {
+                pinned.push(message);
+                continue;
+            }
         }
-        let continues = start.is_some_and(|from| answers_open_call(&history[from..index], message));
-        if !continues && let Some(from) = start.take() {
-            groups.push(&history[from..index]);
+
+        for content in &message.content {
+            match content {
+                InputContent::ToolResult { call_id, .. } => {
+                    open.remove(call_id.as_str());
+                }
+                InputContent::ToolCall { id, .. } => {
+                    open.insert(id.as_str());
+                }
+                _ => {}
+            }
         }
         start.get_or_insert(index);
     }
@@ -59,11 +87,27 @@ pub fn split(history: &[Message]) -> (Vec<&Message>, Vec<&[Message]>) {
 ///
 /// Pinned turns are emitted first, so this reorders a `System` or `Developer`
 /// message written mid-conversation to the front. See [`split`].
+///
+/// A pinned turn written inside a tool exchange stays with that exchange while
+/// the exchange survives, and moves to the front once the exchange ages out.
+/// It is never dropped, so an instruction always reaches the model, but its
+/// position depends on the window size.
 pub fn window_by_groups(history: &[Message], keep: usize) -> Vec<Message> {
     let (pinned, groups) = split(history);
     let from = groups.len().saturating_sub(keep);
+
+    // A pinned turn inside a group that ages out would otherwise leave the
+    // request entirely, so an instruction meant to persist would silently stop
+    // applying. Rescued turns join the pinned list in the order they appeared,
+    // which means a pinned turn moves to the front once its group is dropped.
+    let rescued = groups[..from]
+        .iter()
+        .flat_map(|group| group.iter())
+        .filter(|message| matches!(message.role, Role::System | Role::Developer));
+
     pinned
         .into_iter()
+        .chain(rescued)
         .cloned()
         .chain(
             groups[from..]
@@ -73,34 +117,17 @@ pub fn window_by_groups(history: &[Message], keep: usize) -> Vec<Message> {
         .collect()
 }
 
-/// Whether `message` answers a call made earlier in `span`.
-fn answers_open_call(span: &[Message], message: &Message) -> bool {
-    let answered: HashSet<&str> = message
-        .content
-        .iter()
-        .filter_map(|content| match content {
-            InputContent::ToolResult { call_id, .. } => Some(call_id.as_str()),
-            _ => None,
-        })
-        .collect();
-    if answered.is_empty() {
-        return false;
-    }
-    span.iter()
-        .flat_map(|earlier| earlier.content.iter())
-        .any(|content| match content {
-            InputContent::ToolCall { id, .. } => answered.contains(id.as_str()),
-            _ => false,
-        })
-}
-
-/// Drops every tool result whose originating call is absent.
+/// Drops a tool result whose call is absent, and a tool call whose result is
+/// absent.
 ///
-/// A window cut at an arbitrary message boundary is the common case and it
-/// looks correct. The result is a transcript every provider rejects, with an
-/// error that mentions nothing about context length. Freyja's own Gemini
-/// builder rejects it before the network, in
-/// `rejects_a_result_with_no_matching_call`.
+/// Both directions are rejected on the wire. A result answering nothing fails
+/// everywhere, and Anthropic refuses a `tool_use` block with no answering
+/// `tool_result`. A backend trimming to the last few messages produces the
+/// second constantly, since cutting right after a call turn is the ordinary
+/// case.
+///
+/// A message left with no content after this is removed, so an assistant turn
+/// carrying text beside a dropped call keeps its text.
 ///
 /// vibekit: ordering ceiling. This only drops a result whose call is absent,
 /// it does not check that a result still follows its call in the trimmed
@@ -118,10 +145,19 @@ pub(crate) fn repair(messages: &mut Vec<Message>) {
             _ => None,
         })
         .collect();
+    let answered: HashSet<String> = messages
+        .iter()
+        .flat_map(|message| message.content.iter())
+        .filter_map(|content| match content {
+            InputContent::ToolResult { call_id, .. } => Some(call_id.clone()),
+            _ => None,
+        })
+        .collect();
 
     for message in messages.iter_mut() {
         message.content.retain(|content| match content {
             InputContent::ToolResult { call_id, .. } => calls.contains(call_id),
+            InputContent::ToolCall { id, .. } => answered.contains(id),
             _ => true,
         });
     }
@@ -185,6 +221,38 @@ mod tests {
         assert_eq!(messages, before);
     }
 
+    #[test]
+    fn drops_a_call_whose_result_is_gone() {
+        let mut messages = vec![Message::text(Role::User, "go"), call("c1")];
+        repair(&mut messages);
+        assert_eq!(messages, vec![Message::text(Role::User, "go")]);
+    }
+
+    #[test]
+    fn dropping_a_call_keeps_the_text_beside_it() {
+        let mut messages = vec![Message::new(
+            Role::Assistant,
+            vec![
+                InputContent::Text("thinking".into()),
+                InputContent::ToolCall {
+                    id: "c1".into(),
+                    name: "t".into(),
+                    arguments: "{}".into(),
+                },
+            ],
+        )];
+        repair(&mut messages);
+        assert_eq!(messages, vec![Message::text(Role::Assistant, "thinking")]);
+    }
+
+    #[test]
+    fn a_matched_call_and_result_survive() {
+        let mut messages = vec![call("c1"), Message::tool_result("c1", "out")];
+        let before = messages.clone();
+        repair(&mut messages);
+        assert_eq!(messages, before);
+    }
+
     fn tool_conversation() -> Vec<Message> {
         vec![
             Message::text(Role::System, "pinned"),
@@ -217,9 +285,75 @@ mod tests {
         history
     }
 
+    /// A pinned turn written between a call and the result answering it. This
+    /// is the case that made `a_window_output_needs_no_repair` pass while the
+    /// property it asserts was false.
+    fn pinned_inside_exchange() -> Vec<Message> {
+        vec![
+            Message::text(Role::User, "go"),
+            call("c1"),
+            Message::text(Role::Developer, "mid"),
+            Message::tool_result("c1", "out"),
+            Message::text(Role::Assistant, "done"),
+        ]
+    }
+
+    /// Two calls open before either is answered, and the results arrive in the
+    /// reverse order. Fragments into four groups before this change.
+    fn interleaved() -> Vec<Message> {
+        vec![
+            Message::text(Role::User, "go"),
+            call("c1"),
+            call("c2"),
+            Message::tool_result("c2", "b"),
+            Message::tool_result("c1", "a"),
+        ]
+    }
+
+    /// The same, with a pinned turn between the two calls.
+    fn interleaved_with_pinned() -> Vec<Message> {
+        vec![
+            call("c1"),
+            Message::text(Role::Developer, "mid"),
+            call("c2"),
+            Message::tool_result("c1", "a"),
+            Message::tool_result("c2", "b"),
+        ]
+    }
+
+    /// One message that answers `c1` and opens `c2` in the same content
+    /// vector. `split` removes answered ids before inserting newly opened
+    /// ones, and this is the shape that ordering exists for.
+    fn answers_and_opens_in_one_message() -> Vec<Message> {
+        vec![
+            Message::text(Role::User, "go"),
+            call("c1"),
+            Message::new(
+                Role::Assistant,
+                vec![
+                    InputContent::ToolResult {
+                        call_id: "c1".into(),
+                        output: "a".into(),
+                    },
+                    InputContent::ToolCall {
+                        id: "c2".into(),
+                        name: "t".into(),
+                        arguments: "{}".into(),
+                    },
+                ],
+            ),
+            Message::tool_result("c2", "b"),
+            Message::text(Role::Assistant, "done"),
+        ]
+    }
+
     #[test]
     fn every_message_lands_in_a_group_or_is_pinned() {
-        for history in [tool_conversation(), parallel_conversation()] {
+        for history in [
+            tool_conversation(),
+            parallel_conversation(),
+            answers_and_opens_in_one_message(),
+        ] {
             let (pinned, groups) = super::split(&history);
             let grouped: usize = groups.iter().map(|group| group.len()).sum();
             assert_eq!(pinned.len() + grouped, history.len());
@@ -229,7 +363,14 @@ mod tests {
 
     #[test]
     fn a_window_output_needs_no_repair() {
-        for history in [tool_conversation(), parallel_conversation()] {
+        for history in [
+            tool_conversation(),
+            parallel_conversation(),
+            pinned_inside_exchange(),
+            interleaved(),
+            interleaved_with_pinned(),
+            answers_and_opens_in_one_message(),
+        ] {
             for keep in 0..=history.len() {
                 let mut selected = window_by_groups(&history, keep);
                 let before = selected.clone();
@@ -257,5 +398,87 @@ mod tests {
         let history = tool_conversation();
         let selected = window_by_groups(&history, history.len());
         assert_eq!(selected, history);
+    }
+
+    #[test]
+    fn a_pinned_turn_travels_with_its_group_until_that_group_is_dropped() {
+        let history = pinned_inside_exchange();
+
+        // Not pinned by `split`: it sits inside an open exchange, so it lands
+        // in that group rather than the pinned list.
+        let (pinned, _groups) = super::split(&history);
+        assert!(pinned.is_empty());
+
+        // Wide enough to keep every group: it stays in place, behind the
+        // messages that precede it.
+        let kept = window_by_groups(&history, history.len());
+        assert_ne!(kept.first().map(|m| m.role), Some(Role::Developer));
+        assert!(kept.iter().any(|m| m.role == Role::Developer));
+
+        // Narrow enough to drop its group: it is rescued to the front rather
+        // than lost.
+        let trimmed = window_by_groups(&history, 1);
+        assert_eq!(trimmed.first().map(|m| m.role), Some(Role::Developer));
+    }
+
+    #[test]
+    fn interleaved_calls_share_one_group() {
+        let history = interleaved();
+        let (pinned, groups) = super::split(&history);
+        assert!(pinned.is_empty());
+        // [User] and then everything from the first call to the last result.
+        assert_eq!(groups.len(), 2);
+        assert_eq!(groups[1].len(), history.len() - 1);
+    }
+
+    #[test]
+    fn a_pinned_turn_outside_an_exchange_is_still_hoisted() {
+        let history = vec![
+            Message::text(Role::User, "first"),
+            Message::text(Role::Developer, "mid"),
+            Message::text(Role::User, "second"),
+        ];
+        let (pinned, _groups) = super::split(&history);
+        assert_eq!(pinned.len(), 1);
+        assert_eq!(pinned[0].role, Role::Developer);
+
+        let selected = window_by_groups(&history, 1);
+        assert_eq!(selected.first().map(|m| m.role), Some(Role::Developer));
+    }
+
+    /// The shape that made the old implementation quadratic: one call nobody
+    /// answers, then many pinned turns inside that open exchange. The old code
+    /// rescanned the whole open span for each of them.
+    fn one_open_call_then_pinned(n: usize) -> Vec<Message> {
+        let mut history = vec![call("c1")];
+        history.extend((0..n).map(|_| Message::text(Role::Developer, "d")));
+        history.push(Message::tool_result("c1", "out"));
+        history
+    }
+
+    #[test]
+    fn split_is_linear() {
+        use std::time::Instant;
+
+        fn timed(history: &[Message]) -> std::time::Duration {
+            let start = Instant::now();
+            for _ in 0..5 {
+                let _ = super::split(history);
+            }
+            start.elapsed()
+        }
+
+        let small = one_open_call_then_pinned(2_000);
+        let large = one_open_call_then_pinned(4_000);
+
+        // Warm up, so the first allocation does not land inside a measurement.
+        let _ = timed(&small);
+
+        let ratio = timed(&large).as_secs_f64() / timed(&small).as_secs_f64();
+
+        // Doubling the input doubles linear work and quadruples quadratic
+        // work. Measured on the old implementation, doubling gave 4.10. Three
+        // sits between the two curves with room on both sides.
+        assert!(ratio < 3.0, "doubling the input scaled by {ratio}");
     }
 }
