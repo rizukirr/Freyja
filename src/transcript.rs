@@ -127,13 +127,17 @@ fn answers_open_call(span: &[Message], message: &Message) -> bool {
         })
 }
 
-/// Drops every tool result whose originating call is absent.
+/// Drops a tool result whose call is absent, and a tool call whose result is
+/// absent.
 ///
-/// A window cut at an arbitrary message boundary is the common case and it
-/// looks correct. The result is a transcript every provider rejects, with an
-/// error that mentions nothing about context length. Freyja's own Gemini
-/// builder rejects it before the network, in
-/// `rejects_a_result_with_no_matching_call`.
+/// Both directions are rejected on the wire. A result answering nothing fails
+/// everywhere, and Anthropic refuses a `tool_use` block with no answering
+/// `tool_result`. A backend trimming to the last few messages produces the
+/// second constantly, since cutting right after a call turn is the ordinary
+/// case.
+///
+/// A message left with no content after this is removed, so an assistant turn
+/// carrying text beside a dropped call keeps its text.
 ///
 /// vibekit: ordering ceiling. This only drops a result whose call is absent,
 /// it does not check that a result still follows its call in the trimmed
@@ -151,10 +155,19 @@ pub(crate) fn repair(messages: &mut Vec<Message>) {
             _ => None,
         })
         .collect();
+    let answered: HashSet<String> = messages
+        .iter()
+        .flat_map(|message| message.content.iter())
+        .filter_map(|content| match content {
+            InputContent::ToolResult { call_id, .. } => Some(call_id.clone()),
+            _ => None,
+        })
+        .collect();
 
     for message in messages.iter_mut() {
         message.content.retain(|content| match content {
             InputContent::ToolResult { call_id, .. } => calls.contains(call_id),
+            InputContent::ToolCall { id, .. } => answered.contains(id),
             _ => true,
         });
     }
@@ -213,6 +226,38 @@ mod tests {
     #[test]
     fn leaves_a_transcript_with_no_tools_alone() {
         let mut messages = transcript();
+        let before = messages.clone();
+        repair(&mut messages);
+        assert_eq!(messages, before);
+    }
+
+    #[test]
+    fn drops_a_call_whose_result_is_gone() {
+        let mut messages = vec![Message::text(Role::User, "go"), call("c1")];
+        repair(&mut messages);
+        assert_eq!(messages, vec![Message::text(Role::User, "go")]);
+    }
+
+    #[test]
+    fn dropping_a_call_keeps_the_text_beside_it() {
+        let mut messages = vec![Message::new(
+            Role::Assistant,
+            vec![
+                InputContent::Text("thinking".into()),
+                InputContent::ToolCall {
+                    id: "c1".into(),
+                    name: "t".into(),
+                    arguments: "{}".into(),
+                },
+            ],
+        )];
+        repair(&mut messages);
+        assert_eq!(messages, vec![Message::text(Role::Assistant, "thinking")]);
+    }
+
+    #[test]
+    fn a_matched_call_and_result_survive() {
+        let mut messages = vec![call("c1"), Message::tool_result("c1", "out")];
         let before = messages.clone();
         repair(&mut messages);
         assert_eq!(messages, before);
