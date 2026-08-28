@@ -1,64 +1,70 @@
 # Storage
 
-`Storage` is where a conversation lives between calls to [`Agent::message`](../building-an-agent.md). One value is one conversation: a backend holds a single transcript, not a table of them, so an application juggling several conversations builds one `Storage` per conversation rather than asking a shared one to keep them apart.
+`Storage` is where a conversation lives between calls to `Conversation::send`. One value is one conversation: a backend holds a single transcript, not a table of them, so an application juggling several conversations builds one `Storage` per conversation rather than asking a shared one to keep them apart.
 
 ## The three methods
 
 ```rust
-pub trait Storage: Send + Sync {
-    fn load(&self) -> StorageFuture<'_, Vec<Message>>;
-    fn append(&self, messages: Vec<Message>) -> StorageFuture<'_, ()>;
-    fn clear(&self) -> StorageFuture<'_, ()>;
+pub trait Storage: Send {
+    fn load(&mut self) -> StorageFuture<'_, Vec<Message>>;
+    fn append(&mut self, messages: Vec<Message>) -> StorageFuture<'_, ()>;
+    fn clear(&mut self) -> StorageFuture<'_, ()>;
 }
 ```
 
-`load` returns what to send this turn, not necessarily the whole conversation. A backend is free to hand back less than it holds, which is exactly what `InMemoryStorage::window` does below, so `load`'s answer and "everything this backend has ever stored" are two different questions. `append` adds new turns to the end, and is called with exactly the turns one run produced, never the whole transcript again. `clear` empties the conversation. All three are async and fallible, so a backend that talks to a database or a remote store fits the trait as it stands.
+Every method takes `&mut self`, not `&self`. A `Conversation` owns its backend outright, so nothing else can reach it while a call is in flight, and the borrow checker enforces that a conversation never has two `send` calls running at once. That exclusivity is also what removes the need for interior mutability: a backend holding a plain vector needs no lock and no `Mutex`, which is why `Vec<Message>` can implement this trait directly rather than wrapping itself in one.
 
-Register one with `Agent::memory`:
+`load` returns what to send this turn, not necessarily the whole conversation, since a backend is free to trim before handing anything back. `append` adds new turns to the end and is called with exactly the turns one run produced, never the whole transcript again. `clear` empties the conversation. All three are async and fallible, so a backend that talks to a database or a remote store fits the trait as it stands.
 
-```rust
-let agent = Agent::new(client).memory(InMemoryStorage::new());
-```
-
-## `InMemoryStorage`
+## `Vec<Message>` as the built-in backend
 
 ```rust
-impl InMemoryStorage {
-    pub fn new() -> Self
-    pub fn window(self, groups: usize) -> Self
-    pub fn all(&self) -> Vec<Message>
+impl Storage for Vec<Message> {
+    // load clones the vector, append extends it, clear empties it
 }
 ```
 
-`InMemoryStorage::new()` starts empty and holds the conversation in a `Mutex<Vec<Message>>` for the life of the process. It is lost when the value is dropped, which makes it the right choice for a short-lived process or a test, and the wrong one for anything that has to survive a restart.
+A plain vector is a complete `Storage` implementation. It holds the conversation for as long as the value lives and loses it the moment the value drops, which is the right tradeoff for a short-lived process, a script, or a test, and the wrong one for anything that has to survive a restart. `&mut T` and `Box<T>` also implement `Storage` by forwarding to the `T` underneath, so a caller can pass a borrowed vector they keep for themselves, or erase the backend behind `Box<dyn Storage>` when the concrete type is chosen at run time.
 
-`window(groups)` makes `load` return only the most recent `groups` turn groups, plus every pinned turn, meaning `Role::System` and `Role::Developer`. Nothing is discarded: everything ever appended is still held, and `append` and `clear` behave exactly as they would with no window set. `all()` returns everything held, ignoring the window, so it earns its place only once a window is set. Without one, `load` and `all` agree.
+## Starting a conversation
 
-`impl<T: Storage + ?Sized> Storage for Arc<T>` forwards through a shared handle, so a caller can hold an `Arc<dyn Storage>` for itself, inspect it directly between runs, and still install the same handle with `Agent::memory`.
+```rust
+let mut chat = agent.conversation();
+```
 
-## What a turn group is
+`Agent::conversation()` starts a conversation backed by a fresh `Vec<Message>` the conversation owns. It is the easy path, and it names no storage type at all.
 
-A group is a message, except that an assistant turn requesting tools and the results answering it are one group. That rule protects exactly one invariant: a tool result may only answer a call that already happened, and sending a result whose call is missing is rejected by every provider. No provider objects to a question with no answer, or an answer with no question, so nothing else is fused. Pinned turns, meaning `Role::System` and `Role::Developer`, are set aside and belong to no group, so they are never aged out by a window no matter how old they are.
+```rust
+let mut chat = agent.conversation_in(my_backend);
+```
 
-This nine-message transcript is six groups.
+`Agent::conversation_in(storage)` starts one over any `Storage` you already have, including a borrowed vector or a backend of your own. Both return a `Conversation`, and both are driven the same way from there.
 
-| # | Message | Group |
-|---|---|---|
-| 0 | `System` | pinned, no group |
-| 1 | `User "weather?"` | 1 |
-| 2 | `Assistant` requesting `call_1` | 2 |
-| 3 | `Tool` result for `call_1` | 2, it answers the open call |
-| 4 | `Assistant "it is raining"` | 3 |
-| 5 | `User "and tomorrow?"` | 4 |
-| 6 | `Assistant` requesting `call_2` | 5 |
-| 7 | `Tool` result for `call_2` | 5 |
-| 8 | `Assistant "sunny"` | 6 |
+```rust
+let run = chat.send("what's the weather?").await?;
+```
 
-A window of 2 keeps groups 5 and 6, so `load` returns messages 0, 6, 7 and 8. Messages 1 to 5 are not sent, and they are not removed, since `InMemoryStorage::all` still returns all nine.
+`Conversation::send` loads from storage, repairs the transcript, applies a window if one is set, appends the new turn, runs the tool-calling loop, then writes the turns the run produced back to storage, storage last, so a run that fails partway records nothing. `Conversation::send_with` is the same call with per-run `Context` attached, and `send` is exactly `send_with` with an empty one.
 
-Pinned turns are hoisted to the front of what `load` returns, ahead of every group, unless a pinned turn was appended inside a tool exchange that is still open, meaning a tool call in that group has no result yet: such a turn stays with its group instead, because separating a call from its result produces a request every provider rejects while moving an instruction does not, and it ages out with that group rather than being hoisted, but when that group is dropped from the window the pinned turn is rescued rather than dropped, moving to the front with the other pinned turns, so an instruction always reaches the model while its position depends on the window size. `all` keeps the order things were appended in, so once a window is set the two disagree about order: a `Developer` message written in the middle of a conversation, and outside any open exchange, comes back last from `all` but first from `load`. That matches how most vendors treat system instructions, which they hoist into a field of their own, but it means an instruction meant to apply only from the point it was written onward will instead frame the whole conversation sent to the model.
+## `window` lives on the conversation, and shapes what is sent
 
-Count what one exchange costs to choose a window size. Without tools an exchange is a question and an answer, so two groups. With tools it is a question, a call with its results, and an answer, so three groups, and more if the model calls tools twice before answering. So `window(20)` keeps roughly seven exchanges for a tool-using agent, not twenty, and rather fewer if any exchange calls tools more than once.
+```rust
+let chat = agent.conversation().window(20);
+```
+
+`window` exists only on `Conversation<Vec<Message>>`, the kind `agent.conversation()` returns, because a backend of your own decides its own trimming inside its own `load` instead, where it can push the limit into the query rather than fetching everything first. Calling `window(groups)` does not discard anything: everything ever appended is still held, and only what one `send` puts on the wire is shaped. A group is a message, except that an assistant turn requesting tools and the results answering it are one group, so an exchange without tools costs two groups and one with tools costs three or more. `window(20)` therefore keeps roughly seven exchanges for a tool-using agent, not twenty.
+
+## `storage()` returns the backend
+
+```rust
+let held: &Vec<Message> = chat.storage();
+```
+
+`Conversation::storage` returns a reference to the backend itself. For `agent.conversation()` that is the whole `Vec<Message>`, including everything a window would leave out of the next request, which is how a caller checks what has actually accumulated rather than what was last sent.
+
+## The repair pass
+
+`send` runs a crate-private repair pass on whatever `load` returns, before sending it. The pass drops any tool result whose originating call is absent, and any tool call whose result is absent, removing a message left with no content once its dropped half is gone. This protects a hand-written backend that trims on the wrong boundary: a backend cut at an arbitrary message rather than a group boundary can hand back a transcript with a dangling call or a dangling result, and every provider rejects that shape with an error that says nothing about trimming. Repair runs unconditionally, once, after every `load`, so a backend that trims without knowing about tool pairing cannot produce a request that fails this way.
 
 ## `split` and `window_by_groups`
 
@@ -67,38 +73,70 @@ pub fn split(history: &[Message]) -> (Vec<&Message>, Vec<&[Message]>);
 pub fn window_by_groups(history: &[Message], keep: usize) -> Vec<Message>;
 ```
 
-Both are public so a backend written outside the crate can trim on safe boundaries without reimplementing turn grouping. `split` divides a transcript into its pinned turns and its groups, in order, which is the building block a backend reaches for if it wants to make its own decision about which groups to keep. `window_by_groups` is what `InMemoryStorage::window` calls internally: pinned turns plus the most recent `keep` groups, cloned into one new `Vec<Message>`. `tests/backend.rs` implements `Storage` from outside the crate and trims with `window_by_groups` rather than reimplementing it.
+Both are public so a backend written outside the crate can trim on safe boundaries without reimplementing turn grouping. `split` divides a transcript into its pinned turns, meaning `Role::System` and `Role::Developer`, and its groups, in order. `window_by_groups` is what `Conversation::window` calls internally: pinned turns plus the most recent `keep` groups, cloned into one new `Vec<Message>`. A backend that trims for itself calls `window_by_groups` inside its own `load` rather than reimplementing the grouping rule.
 
-## The repair pass
+## A worked external backend
 
-`Agent::message` calls `load`, then runs a crate-private repair pass on the result before sending it. The repair pass drops any tool result whose originating call is absent from what `load` returned, and it also drops any tool call whose result is absent, removing a message left with no content once its dropped call or result is gone. This protects a backend nobody at Freyja has reviewed: a backend cut at an arbitrary message boundary, rather than on a group boundary the way `window_by_groups` cuts, can hand back a transcript with a dangling tool result, or with a call and no answering result, and either transcript looks correct until the provider rejects it, Anthropic among them refusing a `tool_use` block with no answering `tool_result`, which is exactly the shape a trimming backend produces constantly by cutting right after a call turn, with an error that mentions nothing about the cut. Repair runs unconditionally, once, after every call to `load`, so a hand-written backend that trims without knowing about tool pairing cannot produce a request that fails this way. `InMemoryStorage::window` never triggers the repair pass, because it only ever cuts on group boundaries, but a backend built any other way can, and does not need to guard against it itself.
-
-## `Agent::message` uses it, `Agent::messages` never does
-
-`Agent::messages` and `Agent::messages_with` take the transcript as an argument. They read nothing from storage and write nothing back to it, and they do no filtering at all, so a conversation driven this way is never touched by whatever `Storage` an agent happens to have installed. A caller who wants a window on this path calls `window_by_groups` on their own vector.
-
-`Agent::message` and `Agent::message_with` are the storage-backed pair. Each call loads the conversation, appends one user turn, runs it through the loop, and appends the new turns back, storage last so a failed run never records a turn that was never sent. Because these two never see the caller's own vector and `messages`/`messages_with` never touch storage, a conversation is never held in two places at once: it lives in the caller's `Vec<Message>` on one path, or in the installed `Storage` on the other, and never both.
-
-`Agent::message` with no storage installed returns an error before sending any request, rather than answering with no memory of what came before. An agent that silently forgot every turn would be rarely what was meant, so the failure happens up front: install a backend with `Agent::memory`, or use `Agent::messages` and hold the transcript yourself.
-
-## A backend that needs a key takes it at construction
-
-`Storage` has no parameter for which conversation a call is about, on any of its three methods. A backend that has to tell conversations apart, such as one keyed by user id or session id, takes that key when it is built, not on every call.
+This backend keys its row by a conversation id bound once at construction, so `load`, `append`, and `clear` need no parameter for which conversation they mean.
 
 ```rust
-struct Redis {
-    client: redis::Client,
-    key: String,
+struct PgStorage {
+    pool: PgPool,
+    conversation_id: Uuid,
 }
 
-impl Redis {
-    fn new(client: redis::Client, key: impl Into<String>) -> Self {
-        Self { client, key: key.into() }
+impl PgStorage {
+    fn new(pool: PgPool, conversation_id: Uuid) -> Self {
+        Self { pool, conversation_id }
+    }
+}
+
+impl Storage for PgStorage {
+    fn load(&mut self) -> StorageFuture<'_, Vec<Message>> {
+        Box::pin(async move {
+            let rows = sqlx::query_as::<_, MessageRow>(
+                "SELECT payload FROM turns WHERE conversation_id = $1 ORDER BY seq ASC",
+            )
+            .bind(self.conversation_id)
+            .fetch_all(&self.pool)
+            .await?;
+            let history: Vec<Message> = rows.into_iter().map(|row| row.payload).collect();
+            Ok(window_by_groups(&history, 40))
+        })
+    }
+
+    fn append(&mut self, messages: Vec<Message>) -> StorageFuture<'_, ()> {
+        Box::pin(async move {
+            for message in messages {
+                sqlx::query("INSERT INTO turns (conversation_id, payload) VALUES ($1, $2)")
+                    .bind(self.conversation_id)
+                    .bind(sqlx::types::Json(message))
+                    .execute(&self.pool)
+                    .await?;
+            }
+            Ok(())
+        })
+    }
+
+    fn clear(&mut self) -> StorageFuture<'_, ()> {
+        Box::pin(async move {
+            sqlx::query("DELETE FROM turns WHERE conversation_id = $1")
+                .bind(self.conversation_id)
+                .execute(&self.pool)
+                .await?;
+            Ok(())
+        })
     }
 }
 ```
 
-One `Agent` then gets one `Storage` built for the conversation it is meant to hold, which keeps the common case of one agent per conversation free of a parameter it would otherwise carry and ignore on every call.
+`pool` is a clone of a connection pool the application already holds, so building a `PgStorage` per conversation is cheap. Trimming happens inside `load`, with `window_by_groups`, so a row this backend never fetches is a row the database never had to send, rather than a row Freyja discards after the fact. Ordering is by `seq`, a column the schema defines as strictly monotonic, generated by the database on insert, never by a timestamp column: a timestamp only carries second, or at best millisecond, resolution, and two inserts issued close together can commit in either order relative to their clock reading, so a `SELECT ... ORDER BY inserted_at` can return a tool result ahead of the call it answers even though the call was appended first. A strictly monotonic sequence has no such window.
+
+## Two limits
+
+A caller who deliberately shares one backend between two conversations still races: `Storage`'s `&mut self` methods only stop two `send` calls on the same `Conversation` from overlapping, they do nothing about two different `Conversation` values pointed at the same underlying rows, and a backend built to allow that has to serialize it itself.
+
+`Conversation::send` always appends a turn before running the loop, there is no way to replay a stored transcript with nothing new added. A run that stopped at `StopReason::MaxTurns` therefore cannot be resumed by calling `send` again with nothing to say, the next `send` both continues the run and adds a turn to it, so resuming a cut-off run means sending something, even if that something is a short nudge like "continue".
 
 ## `StorageError`
 
@@ -106,8 +144,8 @@ One `Agent` then gets one `Storage` built for the conversation it is meant to ho
 pub type StorageError = Box<dyn std::error::Error + Send + Sync>;
 ```
 
-A backend fails with a boxed standard error rather than `freyja::Error`. Every variant of `Error` carries an endpoint, because every variant describes something that went wrong talking to a provider, and a storage backend has no endpoint of its own: a database timeout or a disk error is not a provider failure. `Agent` wraps whatever a backend returns into `Error::InvalidRequest`, so callers still only ever see one error type from `Agent::message`.
+A backend fails with a boxed standard error rather than `freyja::Error`, because every variant of `Error` carries an endpoint, and every variant describes something that went wrong talking to a provider, which a storage backend has no part of: a database timeout or a disk error is not a provider failure. `Conversation::send` wraps whatever a backend returns into `Error::InvalidRequest`, so callers still only ever see one error type back from `send`.
 
 ## What is not built
 
-Token budgets, summarization, retrieval with embeddings and a vector store, and any persistent backend are not implemented. `InMemoryStorage` is the only implementation Freyja ships, and it is gone as soon as the process is. Writing one that persists is possible today against the `Storage` trait as it stands and needs nothing else from this crate: `Message` already derives `Serialize` and `Deserialize`, so a backend only has to move bytes and implement three methods.
+Token budgets, summarization, retrieval with embeddings and a vector store, and any persistent backend are not implemented. `Vec<Message>` is the only implementation Freyja ships, and it is gone as soon as the value is. Writing one that persists is possible today against the `Storage` trait as it stands and needs nothing else from this crate: `Message` already derives `Serialize` and `Deserialize`, so a backend only has to move bytes and implement three methods.

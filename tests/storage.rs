@@ -4,7 +4,12 @@
 
 mod common;
 use common::serve_once;
-use freyja::{Agent, Client, Dialect, EndpointConfig, Message, Storage, StorageFuture};
+use freyja::{
+    Agent, Client, Dialect, EndpointConfig, InputContent, Message, Role, Storage, StorageFuture,
+};
+use std::io::{BufRead, BufReader, Write};
+use std::net::TcpListener;
+use std::sync::mpsc;
 
 /// A backend that records every append, so a test can see what was stored.
 ///
@@ -71,6 +76,46 @@ fn agent_for(base: String) -> Agent {
     Agent::new(Client::new(config, "sk-test"))
 }
 
+/// Serves `responses` in order over separate connections, the same way
+/// `tests/agent.rs` does it, since `window` needs several turns to show a
+/// difference and `common::serve_once` only ever accepts one.
+fn serve_many(responses: Vec<&'static str>) -> (String, mpsc::Receiver<String>) {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+    let base = format!("http://{}", listener.local_addr().expect("addr"));
+    let (tx, rx) = mpsc::channel();
+
+    std::thread::spawn(move || {
+        for response in responses {
+            let (mut socket, _) = listener.accept().expect("accept");
+            let mut reader = BufReader::new(socket.try_clone().expect("clone"));
+
+            let mut head = String::new();
+            let mut length = 0usize;
+            loop {
+                let mut line = String::new();
+                if reader.read_line(&mut line).expect("read") == 0 || line == "\r\n" {
+                    break;
+                }
+                if let Some(value) = line.to_ascii_lowercase().strip_prefix("content-length:") {
+                    length = value.trim().parse().unwrap_or(0);
+                }
+                head.push_str(&line);
+            }
+            let mut body = vec![0u8; length];
+            if length > 0 {
+                std::io::Read::read_exact(&mut reader, &mut body).expect("body");
+            }
+            head.push_str(&String::from_utf8_lossy(&body));
+
+            socket.write_all(response.as_bytes()).expect("write");
+            socket.flush().expect("flush");
+            let _ = tx.send(head);
+        }
+    });
+
+    (base, rx)
+}
+
 #[tokio::test]
 async fn a_third_party_backend_holds_the_conversation() {
     let (base, _requests) = serve_once(ok_response());
@@ -96,4 +141,59 @@ async fn a_failing_load_aborts_the_run() {
 
     assert!(chat.send("a question").await.is_err());
     assert!(requests.try_recv().is_err(), "no request may be sent");
+}
+
+#[tokio::test]
+async fn a_borrowed_vector_is_extended_in_place() {
+    let (base, _requests) = serve_once(ok_response());
+    let agent = agent_for(base);
+    let mut history: Vec<Message> = Vec::new();
+    let starting_len = history.len();
+
+    let mut chat = agent.conversation_in(&mut history);
+    chat.send("a question").await.expect("run");
+    drop(chat);
+
+    assert!(history.len() > starting_len);
+}
+
+#[tokio::test]
+async fn window_shapes_what_is_sent_while_the_backend_keeps_everything() {
+    let (base, requests) = serve_many(vec![ok_response(), ok_response(), ok_response()]);
+    let agent = agent_for(base);
+    let mut chat = agent.conversation().window(1);
+
+    chat.send("first").await.expect("run");
+    chat.send("second").await.expect("run");
+    chat.send("third").await.expect("run");
+
+    requests.recv().expect("first request");
+    requests.recv().expect("second request");
+    let last = requests.recv().expect("third request");
+    let split_at = last.rfind("\r\n").expect("a header line") + 2;
+    let body = &last[split_at..];
+    let sent: serde_json::Value = serde_json::from_str(body).expect("json body");
+    let sent_len = sent["messages"].as_array().expect("messages array").len();
+
+    assert!(sent_len < chat.storage().len());
+}
+
+#[tokio::test]
+async fn send_carries_every_content_block() {
+    let (base, requests) = serve_once(ok_response());
+    let agent = agent_for(base);
+    let mut chat = agent.conversation();
+
+    let message = Message::new(
+        Role::User,
+        vec![
+            InputContent::Text("first block".to_string()),
+            InputContent::Text("second block".to_string()),
+        ],
+    );
+    chat.send(message).await.expect("run");
+
+    let sent = requests.recv().expect("request");
+    assert!(sent.contains("first block"));
+    assert!(sent.contains("second block"));
 }

@@ -30,6 +30,11 @@ Update imports and error matching with this rename table:
 | `Agent::memory(impl Memory)` | `Agent::filter(impl Filter)`, and `Agent::memory` now takes `Storage` |
 | `Agent::filter(Window::groups(n))` | `Agent::memory(InMemoryStorage::new().window(n))` |
 | `Filter`, `FilterError`, `FilterFuture`, `Window` | removed. A backend trims inside `Storage::load`, with `window_by_groups` if it wants groups |
+| `Agent::memory(store)` then `agent.message(..)` | `agent.conversation_in(store)` then `chat.send(..)`, or `agent.conversation()` for one held in this process |
+| `Agent::messages(&mut history)` | `agent.conversation_in(&mut history).send(..)`. The vector is still extended in place |
+| `InMemoryStorage::new().window(n)` | `agent.conversation().window(n)`. The type is gone, a conversation holds a `Vec<Message>` |
+| `InMemoryStorage::all()` | `chat.storage()`, which is the `Vec<Message>` itself |
+| `Arc<dyn Storage>` and `impl Storage for Arc<T>` | removed. A conversation owns its backend, so `Storage` takes `&mut self` and needs no interior mutability |
 
 You write one request. Freyja translates it into whatever wire format the model you picked actually speaks, sends it, and translates the answer back. Changing vendor is changing one line.
 
