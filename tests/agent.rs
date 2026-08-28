@@ -5,15 +5,15 @@
 //! it captured. Most of what `Agent` promises is about what it sends on the next
 //! turn, which only the captured bodies can show.
 
+mod common;
+use common::serve_many;
 use freyja::{
     Agent, Client, Context, Decision, Dialect, EndpointConfig, GenerateRequest, Message,
     ReasoningEffort, Role, StopReason, Storage, StorageFuture, Tool, ToolChoice, ToolDefinition,
     ToolError, ToolFuture, tool,
 };
-use std::io::{BufRead, BufReader, Write};
-use std::net::TcpListener;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, mpsc};
 
 #[tool(description = "adds two numbers together", strict = true)]
 fn add(a: i64, b: i64) -> i64 {
@@ -76,45 +76,6 @@ impl Tool for Runtime {
     fn call<'a>(&'a self, _arguments: &'a str, _cx: &'a Context) -> ToolFuture<'a> {
         Box::pin(async move { Ok("ran the runtime tool".to_string()) })
     }
-}
-
-/// Serves `responses` in order and returns the base URL plus every request body.
-fn serve_many(responses: Vec<&'static str>) -> (String, mpsc::Receiver<String>) {
-    let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
-    let base = format!("http://{}", listener.local_addr().expect("addr"));
-    let (tx, rx) = mpsc::channel();
-
-    std::thread::spawn(move || {
-        for response in responses {
-            let (mut socket, _) = listener.accept().expect("accept");
-            let mut reader = BufReader::new(socket.try_clone().expect("clone"));
-
-            // Read the head, then the body if the client announced a length.
-            let mut head = String::new();
-            let mut length = 0usize;
-            loop {
-                let mut line = String::new();
-                if reader.read_line(&mut line).expect("read") == 0 || line == "\r\n" {
-                    break;
-                }
-                if let Some(value) = line.to_ascii_lowercase().strip_prefix("content-length:") {
-                    length = value.trim().parse().unwrap_or(0);
-                }
-                head.push_str(&line);
-            }
-            let mut body = vec![0u8; length];
-            if length > 0 {
-                std::io::Read::read_exact(&mut reader, &mut body).expect("body");
-            }
-            head.push_str(&String::from_utf8_lossy(&body));
-
-            socket.write_all(response.as_bytes()).expect("write");
-            socket.flush().expect("flush");
-            let _ = tx.send(head);
-        }
-    });
-
-    (base, rx)
 }
 
 /// Wraps a JSON body in the minimal HTTP response the helper needs.
