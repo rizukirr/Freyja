@@ -35,6 +35,44 @@ impl<S: Storage> Conversation<S> {
         &self.storage
     }
 
+    /// Two overlapping sends on one conversation do not compile. Both would
+    /// load before either appended, so the second would answer against a
+    /// transcript missing the first, and the stored order would be the order
+    /// the network replied in rather than the order you sent:
+    ///
+    /// ```compile_fail,E0499
+    /// # async fn run(mut chat: freyja::Conversation<Vec<freyja::Message>>) {
+    /// let first = chat.send("one");
+    /// let second = chat.send("two");
+    /// # let _ = (first, second);
+    /// # }
+    /// ```
+    ///
+    /// Sequential sends are the supported shape, and this one must compile. It
+    /// is what catches a later change that makes the case above fail for some
+    /// new reason while still reporting E0499:
+    ///
+    /// ```no_run
+    /// # async fn run(mut chat: freyja::Conversation<Vec<freyja::Message>>)
+    /// #     -> Result<(), freyja::Error> {
+    /// chat.send("one").await?;
+    /// chat.send("two").await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// One agent hands out as many conversations as you want, which is the
+    /// shape a server writes: the agent in application state, a conversation
+    /// per request. This must compile:
+    ///
+    /// ```no_run
+    /// # fn run(agent: freyja::Agent) {
+    /// let mut first = agent.conversation();
+    /// let mut second = agent.conversation();
+    /// # let _ = (&mut first, &mut second);
+    /// # }
+    /// ```
+    ///
     /// Adds one turn and runs the loop.
     ///
     /// Equivalent to [`Conversation::send_with`] with an empty context.
