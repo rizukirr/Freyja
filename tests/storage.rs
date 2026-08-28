@@ -5,7 +5,8 @@
 mod common;
 use common::{serve_many, serve_once};
 use freyja::{
-    Agent, Client, Dialect, EndpointConfig, InputContent, Message, Role, Storage, StorageFuture,
+    Agent, Client, Dialect, EndpointConfig, InMemoryStorage, InputContent, Message, Role, Storage,
+    StorageFuture,
 };
 
 /// A backend that records every append, so a test can see what was stored.
@@ -77,7 +78,7 @@ fn agent_for(base: String) -> Agent {
 async fn a_third_party_backend_holds_the_conversation() {
     let (base, _requests) = serve_once(ok_response());
     let agent = agent_for(base);
-    let mut chat = agent.conversation_in(Recording::default());
+    let mut chat = agent.conversation(Recording::default());
 
     chat.send("a question").await.expect("run");
 
@@ -94,7 +95,7 @@ async fn a_third_party_backend_holds_the_conversation() {
 async fn a_failing_load_aborts_the_run() {
     let (base, requests) = serve_once(ok_response());
     let agent = agent_for(base);
-    let mut chat = agent.conversation_in(Broken);
+    let mut chat = agent.conversation(Broken);
 
     assert!(chat.send("a question").await.is_err());
     assert!(requests.try_recv().is_err(), "no request may be sent");
@@ -107,7 +108,7 @@ async fn a_borrowed_vector_is_extended_in_place() {
     let mut history: Vec<Message> = Vec::new();
     let starting_len = history.len();
 
-    let mut chat = agent.conversation_in(&mut history);
+    let mut chat = agent.conversation(&mut history);
     chat.send("a question").await.expect("run");
     drop(chat);
 
@@ -118,7 +119,7 @@ async fn a_borrowed_vector_is_extended_in_place() {
 async fn window_shapes_what_is_sent_while_the_backend_keeps_everything() {
     let (base, requests) = serve_many(vec![ok_response(), ok_response(), ok_response()]);
     let agent = agent_for(base);
-    let mut chat = agent.conversation().window(1);
+    let mut chat = agent.conversation(InMemoryStorage::new().window(1));
 
     chat.send("first").await.expect("run");
     chat.send("second").await.expect("run");
@@ -139,7 +140,7 @@ async fn window_shapes_what_is_sent_while_the_backend_keeps_everything() {
 async fn send_carries_every_content_block() {
     let (base, requests) = serve_once(ok_response());
     let agent = agent_for(base);
-    let mut chat = agent.conversation();
+    let mut chat = agent.conversation(InMemoryStorage::new());
 
     let message = Message::new(
         Role::User,
@@ -156,11 +157,26 @@ async fn send_carries_every_content_block() {
 }
 
 #[tokio::test]
+async fn storage_derefs_to_a_slice_of_messages() {
+    let (base, _requests) = serve_once(ok_response());
+    let agent = agent_for(base);
+    let mut chat = agent.conversation(InMemoryStorage::new());
+
+    chat.send("a question").await.expect("run");
+
+    // Nothing here names a method of `InMemoryStorage`: `.iter()` and `.len()`
+    // both come from `Deref<Target = [Message]>`.
+    let held = chat.storage();
+    assert_eq!(held.iter().count(), held.len());
+    assert!(!held.is_empty());
+}
+
+#[tokio::test]
 async fn a_boxed_backend_is_forwarded_to() {
     let (base, _requests) = serve_once(ok_response());
     let agent = agent_for(base);
     let backend = Box::new(Vec::<Message>::new()) as Box<dyn Storage>;
-    let mut chat = agent.conversation_in(backend);
+    let mut chat = agent.conversation(backend);
 
     let run = chat.send("a question").await.expect("run");
 

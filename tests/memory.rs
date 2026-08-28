@@ -35,7 +35,7 @@ async fn no_policy_sends_the_whole_transcript() {
     ];
 
     agent
-        .conversation_in(&mut messages)
+        .conversation(&mut messages)
         .send("turn-three")
         .await
         .expect("run succeeds");
@@ -62,7 +62,7 @@ async fn a_failed_request_does_not_shorten_the_caller_transcript() {
     let mut messages = vec![Message::text(Role::User, "turn-one")];
     let original_len = messages.len();
 
-    let result = agent.conversation_in(&mut messages).send("turn-two").await;
+    let result = agent.conversation(&mut messages).send("turn-two").await;
 
     assert!(result.is_err(), "a 500 must surface as Err");
     assert_eq!(

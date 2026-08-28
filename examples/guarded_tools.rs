@@ -162,7 +162,7 @@ async fn main() {
         // A-1003 does not exist: the first lookup fails, and the model
         // recovers from the error text without the run ending.
         match agent
-            .conversation_in(&mut messages)
+            .conversation(&mut messages)
             .send_with(
                 "Refund order A-1003 in full. If that is not an order, refund A-1002 instead.",
                 &context,

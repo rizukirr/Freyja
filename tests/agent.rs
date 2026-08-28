@@ -8,9 +8,9 @@
 mod common;
 use common::serve_many;
 use freyja::{
-    Agent, Client, Context, Decision, Dialect, EndpointConfig, GenerateRequest, Message,
-    ReasoningEffort, Role, StopReason, Storage, StorageFuture, Tool, ToolChoice, ToolDefinition,
-    ToolError, ToolFuture, tool,
+    Agent, Client, Context, Decision, Dialect, EndpointConfig, GenerateRequest, InMemoryStorage,
+    Message, ReasoningEffort, Role, StopReason, Storage, StorageFuture, Tool, ToolChoice,
+    ToolDefinition, ToolError, ToolFuture, tool,
 };
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -138,11 +138,7 @@ async fn answers_without_tool_calls() {
     let agent = Agent::new(client(base));
 
     let mut messages = Vec::new();
-    let run = agent
-        .conversation_in(&mut messages)
-        .send("Hi")
-        .await
-        .unwrap();
+    let run = agent.conversation(&mut messages).send("Hi").await.unwrap();
 
     assert_eq!(run.stop, StopReason::Answered);
     assert_eq!(run.answer, "the answer is 42");
@@ -157,7 +153,7 @@ async fn completes_a_full_tool_round_trip() {
 
     let mut messages = Vec::new();
     let run = agent
-        .conversation_in(&mut messages)
+        .conversation(&mut messages)
         .send("What is 20 + 22?")
         .await
         .unwrap();
@@ -179,7 +175,7 @@ async fn stops_at_the_turn_bound() {
 
     let mut messages = Vec::new();
     let run = agent
-        .conversation_in(&mut messages)
+        .conversation(&mut messages)
         .send("loop")
         .await
         .unwrap();
@@ -196,7 +192,7 @@ async fn sums_usage_across_turns() {
 
     let mut messages = Vec::new();
     let run = agent
-        .conversation_in(&mut messages)
+        .conversation(&mut messages)
         .send("What is 20 + 22?")
         .await
         .unwrap();
@@ -214,11 +210,7 @@ async fn answers_an_unknown_tool_rather_than_skipping_it() {
     let agent = Agent::new(client(base)).tool(add);
 
     let mut messages = Vec::new();
-    agent
-        .conversation_in(&mut messages)
-        .send("go")
-        .await
-        .unwrap();
+    agent.conversation(&mut messages).send("go").await.unwrap();
 
     let _first = requests.recv().unwrap();
     let second = requests.recv().unwrap();
@@ -232,11 +224,7 @@ async fn feeds_a_tool_error_back_to_the_model() {
     let agent = Agent::new(client(base)).tool(add);
 
     let mut messages = Vec::new();
-    let run = agent
-        .conversation_in(&mut messages)
-        .send("go")
-        .await
-        .unwrap();
+    let run = agent.conversation(&mut messages).send("go").await.unwrap();
 
     assert_eq!(run.stop, StopReason::Answered);
     let _first = requests.recv().unwrap();
@@ -254,11 +242,7 @@ async fn dispatches_parallel_calls_concurrently() {
 
     let mut messages = Vec::new();
     let started = std::time::Instant::now();
-    agent
-        .conversation_in(&mut messages)
-        .send("go")
-        .await
-        .unwrap();
+    agent.conversation(&mut messages).send("go").await.unwrap();
 
     assert!(started.elapsed() < std::time::Duration::from_millis(350));
     assert_eq!(messages.len(), 6);
@@ -284,11 +268,7 @@ async fn stops_on_a_refusal() {
     let agent = Agent::new(client(base));
 
     let mut messages = Vec::new();
-    let run = agent
-        .conversation_in(&mut messages)
-        .send("go")
-        .await
-        .unwrap();
+    let run = agent.conversation(&mut messages).send("go").await.unwrap();
 
     assert_eq!(run.stop, StopReason::Refused);
 }
@@ -299,11 +279,7 @@ async fn stops_when_the_generation_was_cut_short() {
     let agent = Agent::new(client(base));
 
     let mut messages = Vec::new();
-    let run = agent
-        .conversation_in(&mut messages)
-        .send("go")
-        .await
-        .unwrap();
+    let run = agent.conversation(&mut messages).send("go").await.unwrap();
 
     assert_eq!(run.stop, StopReason::Incomplete);
 }
@@ -316,11 +292,7 @@ async fn downgrades_required_after_the_first_turn() {
         .tool_choice(ToolChoice::Required);
 
     let mut messages = Vec::new();
-    agent
-        .conversation_in(&mut messages)
-        .send("go")
-        .await
-        .unwrap();
+    agent.conversation(&mut messages).send("go").await.unwrap();
 
     let first = requests.recv().unwrap();
     let second = requests.recv().unwrap();
@@ -338,13 +310,7 @@ async fn a_failed_call_leaves_the_transcript_untouched() {
     let mut messages = Vec::new();
     let before = messages.clone();
 
-    assert!(
-        agent
-            .conversation_in(&mut messages)
-            .send("go")
-            .await
-            .is_err()
-    );
+    assert!(agent.conversation(&mut messages).send("go").await.is_err());
     assert_eq!(messages, before);
 }
 
@@ -360,7 +326,7 @@ async fn replays_opaque_reasoning_state_on_the_next_turn() {
 
     let mut messages = Vec::new();
     let run = agent
-        .conversation_in(&mut messages)
+        .conversation(&mut messages)
         .send("What is 20 + 22?")
         .await
         .unwrap();
@@ -398,11 +364,7 @@ async fn a_stateful_tool_keeps_its_state_across_the_run() {
 
     let before = calls.load(Ordering::SeqCst);
     let mut messages = Vec::new();
-    let run = agent
-        .conversation_in(&mut messages)
-        .send("go")
-        .await
-        .unwrap();
+    let run = agent.conversation(&mut messages).send("go").await.unwrap();
 
     assert_eq!(run.stop, StopReason::Answered);
     assert!(calls.load(Ordering::SeqCst) > before);
@@ -418,7 +380,7 @@ async fn a_tool_reads_per_run_state_out_of_the_context() {
 
     let mut messages = Vec::new();
     let run = agent
-        .conversation_in(&mut messages)
+        .conversation(&mut messages)
         .send_with("who am I?", &context)
         .await
         .unwrap();
@@ -440,7 +402,7 @@ async fn a_missing_context_value_reaches_the_model_as_text() {
     let mut messages = Vec::new();
     // `run` supplies an empty context, so the tool fails rather than panicking.
     let run = agent
-        .conversation_in(&mut messages)
+        .conversation(&mut messages)
         .send("who am I?")
         .await
         .unwrap();
@@ -461,7 +423,7 @@ async fn a_fallible_tool_reports_its_error_as_a_tool_result() {
 
     let mut messages = Vec::new();
     let run = agent
-        .conversation_in(&mut messages)
+        .conversation(&mut messages)
         .send("open it")
         .await
         .unwrap();
@@ -482,11 +444,7 @@ async fn a_runtime_named_tool_is_dispatched_by_its_name() {
     let agent = Agent::new(client(base)).tools(tools);
 
     let mut messages = Vec::new();
-    let run = agent
-        .conversation_in(&mut messages)
-        .send("go")
-        .await
-        .unwrap();
+    let run = agent.conversation(&mut messages).send("go").await.unwrap();
 
     assert_eq!(run.stop, StopReason::Answered);
     let first = requests.recv().unwrap();
@@ -518,7 +476,7 @@ async fn a_denial_reaches_the_model_as_a_tool_result() {
 
     let mut messages = Vec::new();
     let run = agent
-        .conversation_in(&mut messages)
+        .conversation(&mut messages)
         .send("What is 20 + 22?")
         .await
         .expect("run");
@@ -544,7 +502,7 @@ async fn a_denied_tool_never_runs() {
 
     let mut messages = Vec::new();
     let run = agent
-        .conversation_in(&mut messages)
+        .conversation(&mut messages)
         .send("go")
         .await
         .expect("run");
@@ -564,7 +522,7 @@ async fn the_guard_reads_the_context() {
 
     let mut messages = Vec::new();
     denied
-        .conversation_in(&mut messages)
+        .conversation(&mut messages)
         .send("who am I?")
         .await
         .expect("run");
@@ -584,7 +542,7 @@ async fn the_guard_reads_the_context() {
 
     let mut messages = Vec::new();
     allowed
-        .conversation_in(&mut messages)
+        .conversation(&mut messages)
         .send_with("who am I?", &context)
         .await
         .expect("run_with");
@@ -614,7 +572,7 @@ async fn the_guard_reads_the_raw_arguments() {
 
     let mut messages = Vec::new();
     denied
-        .conversation_in(&mut messages)
+        .conversation(&mut messages)
         .send("What is 99 + 1?")
         .await
         .expect("run");
@@ -632,7 +590,7 @@ async fn the_guard_reads_the_raw_arguments() {
 
     let mut messages = Vec::new();
     let run = allowed
-        .conversation_in(&mut messages)
+        .conversation(&mut messages)
         .send("What is 20 + 22?")
         .await
         .expect("run");
@@ -658,7 +616,7 @@ async fn the_guard_sees_a_name_no_tool_answers_to() {
 
     let mut messages = Vec::new();
     let run = agent
-        .conversation_in(&mut messages)
+        .conversation(&mut messages)
         .send("go")
         .await
         .expect("run");
@@ -679,13 +637,13 @@ async fn the_system_instruction_is_sent_and_stays_out_of_the_transcript() {
 
     let mut messages = Vec::new();
     agent
-        .conversation_in(&mut messages)
+        .conversation(&mut messages)
         .send("first")
         .await
         .expect("first run");
     let original_len = messages.len();
     agent
-        .conversation_in(&mut messages)
+        .conversation(&mut messages)
         .send("second")
         .await
         .expect("second run");
@@ -730,7 +688,7 @@ async fn an_orphaned_tool_result_from_a_backend_is_repaired() {
     let agent = Agent::new(client(base));
 
     agent
-        .conversation_in(Orphaning)
+        .conversation(Orphaning)
         .send("a question")
         .await
         .expect("run");
@@ -752,7 +710,7 @@ async fn the_settings_reach_the_wire() {
 
     let mut messages = Vec::new();
     agent
-        .conversation_in(&mut messages)
+        .conversation(&mut messages)
         .send("go")
         .await
         .expect("run");
@@ -781,7 +739,7 @@ async fn extra_for_reaches_the_wire() {
 
     let mut messages = Vec::new();
     agent
-        .conversation_in(&mut messages)
+        .conversation(&mut messages)
         .send("go")
         .await
         .expect("run");
@@ -797,7 +755,7 @@ async fn extra_for_reaches_the_wire() {
 async fn a_stored_conversation_carries_across_calls() {
     let (base, requests) = serve_many(vec![canned(ANSWER), canned(ANSWER)]);
     let agent = Agent::new(client(base));
-    let mut chat = agent.conversation();
+    let mut chat = agent.conversation(InMemoryStorage::new());
 
     chat.send("first question").await.expect("first");
     chat.send("second question").await.expect("second");
@@ -817,12 +775,12 @@ async fn separate_conversations_do_not_share_storage() {
 
     let mut messages = Vec::new();
     agent
-        .conversation_in(&mut messages)
+        .conversation(&mut messages)
         .send("held by the caller")
         .await
         .expect("run");
 
-    let other = agent.conversation();
+    let other = agent.conversation(InMemoryStorage::new());
     assert!(other.storage().is_empty());
     assert!(messages.len() > 1);
 }
@@ -831,7 +789,7 @@ async fn separate_conversations_do_not_share_storage() {
 async fn a_window_sends_less_than_the_whole_conversation() {
     let (base, requests) = serve_many(vec![canned(ANSWER), canned(ANSWER)]);
     let agent = Agent::new(client(base));
-    let mut chat = agent.conversation().window(1);
+    let mut chat = agent.conversation(InMemoryStorage::new().window(1));
 
     chat.send("turn-one").await.expect("first");
     chat.send("turn-two").await.expect("second");
@@ -850,13 +808,13 @@ async fn clearing_storage_forgets_the_conversation() {
 
     let mut messages = Vec::new();
     agent
-        .conversation_in(&mut messages)
+        .conversation(&mut messages)
         .send("first question")
         .await
         .expect("first");
     messages.clear();
     agent
-        .conversation_in(&mut messages)
+        .conversation(&mut messages)
         .send("second question")
         .await
         .expect("second");

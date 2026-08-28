@@ -9,7 +9,7 @@
 //! cargo run --example memory
 //! ```
 
-use freyja::{Agent, Client, EndpointPreset};
+use freyja::{Agent, Client, EndpointPreset, InMemoryStorage};
 
 #[tokio::main]
 async fn main() {
@@ -22,7 +22,7 @@ async fn main() {
     };
 
     let agent = Agent::new(client).system("Answer in one short sentence.");
-    let mut chat = agent.conversation().window(2);
+    let mut chat = agent.conversation(InMemoryStorage::new().window(2));
 
     for question in [
         "Name a Norwegian city.",

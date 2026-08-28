@@ -88,7 +88,7 @@ async fn main() {
         // A fresh conversation over the same vector every turn: `send` only
         // appends the user turn and the answer once the run succeeds, so a
         // failed run leaves the transcript exactly as it found it.
-        match agent.conversation_in(&mut messages).send(text).await {
+        match agent.conversation(&mut messages).send(text).await {
             Ok(run) => {
                 println!("\nbot> {}", run.answer);
                 if run.stop == StopReason::MaxTurns {

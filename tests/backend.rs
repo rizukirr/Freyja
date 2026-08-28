@@ -1,21 +1,34 @@
-//! A storage backend written outside the crate, trimming with the public
-//! grouping function rather than reimplementing turn grouping.
+//! A storage backend written outside the crate, trimming with no group
+//! awareness at all.
+//!
+//! This is the test that the repair pass inside `Conversation::send` earns
+//! its keep: a naive backend has no way to know that a tool call and the
+//! result answering it must survive together, so trimming to the last few
+//! messages routinely cuts between them. What reaches the transport must
+//! still be a request the provider accepts.
 
 mod common;
 use common::serve_once;
 use freyja::{
     Agent, Client, Dialect, EndpointConfig, InputContent, Message, Role, Storage, StorageFuture,
-    split, window_by_groups,
 };
 
-struct Windowed {
+/// Keeps only the last `keep` messages, oldest first, with no idea that a
+/// tool call and its result belong together. This is what a backend outside
+/// the crate looks like if it does the simplest thing that could work: no
+/// import of `split` or `window_by_groups`, neither of which is reachable
+/// from here, just a suffix of the stored vector.
+struct Naive {
     messages: Vec<Message>,
     keep: usize,
 }
 
-impl Storage for Windowed {
+impl Storage for Naive {
     fn load(&mut self) -> StorageFuture<'_, Vec<Message>> {
-        Box::pin(async move { Ok(window_by_groups(&self.messages, self.keep)) })
+        Box::pin(async move {
+            let start = self.messages.len().saturating_sub(self.keep);
+            Ok(self.messages[start..].to_vec())
+        })
     }
     fn append(&mut self, messages: Vec<Message>) -> StorageFuture<'_, ()> {
         Box::pin(async move {
@@ -43,34 +56,12 @@ fn ok_response() -> &'static str {
     Box::leak(head.into_boxed_str())
 }
 
-#[tokio::test]
-async fn a_backend_can_trim_with_the_public_grouping_function() {
-    let (base, requests) = serve_once(ok_response());
-    let config =
-        EndpointConfig::new(Dialect::OpenAiChat, "local", base).default_model("test-model");
-    let storage = Windowed {
-        messages: vec![Message::text(freyja::Role::User, "SENTINEL-OLD")],
-        keep: 1,
-    };
-    let agent = Agent::new(Client::new(config, "sk-test"));
-
-    agent
-        .conversation_in(storage)
-        .send("SENTINEL-NEW")
-        .await
-        .expect("run");
-
-    let sent = requests.recv().expect("request");
-    assert!(sent.contains("SENTINEL-NEW"), "{sent}");
-}
-
-/// A backend author reaches for `split` when they want to group a transcript
-/// themselves instead of calling `window_by_groups`. This checks the shape
-/// they get back is usable: every message is accounted for exactly once,
-/// no group is empty, and a call stays fused with the result answering it.
-#[test]
-fn split_groups_a_transcript_for_a_caller_outside_the_crate() {
-    let history = vec![
+/// A stored transcript where the last two messages are a tool result and the
+/// plain text that followed it, and the call the result answers is one
+/// message further back. A backend that keeps only the last two messages
+/// cuts exactly between the call and its result.
+fn transcript_with_a_call_the_window_will_split_from_its_result() -> Vec<Message> {
+    vec![
         Message::text(Role::System, "pinned"),
         Message::text(Role::User, "weather?"),
         Message::new(
@@ -81,31 +72,57 @@ fn split_groups_a_transcript_for_a_caller_outside_the_crate() {
                 arguments: "{}".into(),
             }],
         ),
-        Message::tool_result("call_1", "raining"),
+        Message::tool_result("call_1", "SENTINEL-RAINING"),
         Message::text(Role::Assistant, "it is raining"),
-    ];
+    ]
+}
 
-    let (pinned, groups) = split(&history);
+#[tokio::test]
+async fn a_naive_backend_cutting_between_a_call_and_its_result_still_sends_a_valid_request() {
+    let (base, requests) = serve_once(ok_response());
+    let config =
+        EndpointConfig::new(Dialect::OpenAiChat, "local", base).default_model("test-model");
+    let storage = Naive {
+        messages: transcript_with_a_call_the_window_will_split_from_its_result(),
+        keep: 2,
+    };
+    let agent = Agent::new(Client::new(config, "sk-test"));
 
-    assert_eq!(pinned.len(), 1);
-    assert_eq!(pinned[0].role, Role::System);
+    agent
+        .conversation(storage)
+        .send("SENTINEL-NEW")
+        .await
+        .expect("run");
 
-    let grouped: usize = groups.iter().map(|group| group.len()).sum();
-    assert_eq!(pinned.len() + grouped, history.len());
-    assert!(groups.iter().all(|group| !group.is_empty()));
+    let sent = requests.recv().expect("request");
+    let split_at = sent.rfind("\r\n").expect("a header line") + 2;
+    let body: serde_json::Value = serde_json::from_str(&sent[split_at..]).expect("json body");
+    let messages = body["messages"].as_array().expect("messages array");
 
-    let call_and_result = groups
+    // The naive load handed back a tool result with no call in front of it,
+    // since `keep: 2` dropped the call and kept the result. Without the
+    // repair pass this reaches the transport as a "tool" message answering
+    // nothing, which every provider rejects. With it, the orphaned result is
+    // gone and its content never reaches the wire.
+    assert!(!sent.contains("SENTINEL-RAINING"), "{sent}");
+    assert!(sent.contains("SENTINEL-NEW"), "{sent}");
+
+    // What did reach the transport must be internally consistent: no tool
+    // message answers a call id that no assistant message called.
+    let called: std::collections::HashSet<&str> = messages
         .iter()
-        .find(|group| group.len() > 1)
-        .expect("the call and its result should share a group");
-    assert!(call_and_result.iter().any(|message| {
-        message
-            .content
-            .iter()
-            .any(|content| matches!(content, InputContent::ToolCall { id, .. } if id == "call_1"))
-    }));
-    assert!(call_and_result.iter().any(|message| message
-        .content
-        .iter()
-        .any(|content| matches!(content, InputContent::ToolResult { call_id, .. } if call_id == "call_1"))));
+        .filter(|m| m["role"] == "assistant")
+        .filter_map(|m| m["tool_calls"].as_array())
+        .flatten()
+        .filter_map(|call| call["id"].as_str())
+        .collect();
+    for message in messages {
+        if message["role"] == "tool" {
+            let answers = message["tool_call_id"].as_str().expect("tool_call_id");
+            assert!(
+                called.contains(answers),
+                "a tool message answered {answers}, which no call requested: {sent}"
+            );
+        }
+    }
 }
