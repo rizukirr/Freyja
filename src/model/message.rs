@@ -37,6 +37,23 @@ impl Message {
     }
 }
 
+/// A bare string sent into a conversation is a user turn.
+///
+/// This is what lets [`crate::Conversation::send`] take one method rather than
+/// two: `send("hi")` and `send(Message::new(Role::User, blocks))` are the same
+/// call, so rich content is never a second API.
+impl From<&str> for Message {
+    fn from(text: &str) -> Self {
+        Message::text(Role::User, text)
+    }
+}
+
+impl From<String> for Message {
+    fn from(text: String) -> Self {
+        Message::text(Role::User, text)
+    }
+}
+
 /// Who produced a conversation turn.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
