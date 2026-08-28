@@ -6,7 +6,7 @@
 //! turn, which only the captured bodies can show.
 
 mod common;
-use common::serve_many;
+use common::serve;
 use freyja::{
     Agent, Client, Context, Decision, Dialect, EndpointConfig, GenerateRequest, InMemoryStorage,
     Message, ReasoningEffort, Role, StopReason, Storage, StorageFuture, Tool, ToolChoice,
@@ -111,7 +111,7 @@ fn anthropic_client(base: String) -> Client {
 #[tokio::test]
 async fn the_scripted_endpoint_serves_a_sequence() {
     let body = r#"{"id":"chatcmpl-1","model":"test-model","choices":[{"index":0,"message":{"role":"assistant","content":"hello"},"finish_reason":"stop"}]}"#;
-    let (base, requests) = serve_many(vec![canned(body), canned(body)]);
+    let (base, requests) = serve(&[canned(body), canned(body)]);
     let client = client(base);
 
     let request = GenerateRequest::new().message(Message::text(Role::User, "Hi"));
@@ -134,7 +134,7 @@ const CALLS_ADD: &str = r#"{"id":"chatcmpl-1","model":"test-model","choices":[{"
 
 #[tokio::test]
 async fn answers_without_tool_calls() {
-    let (base, _requests) = serve_many(vec![canned(ANSWER)]);
+    let (base, _requests) = serve(&[canned(ANSWER)]);
     let agent = Agent::new(client(base));
 
     let mut messages = Vec::new();
@@ -148,7 +148,7 @@ async fn answers_without_tool_calls() {
 
 #[tokio::test]
 async fn completes_a_full_tool_round_trip() {
-    let (base, requests) = serve_many(vec![canned(CALLS_ADD), canned(ANSWER)]);
+    let (base, requests) = serve(&[canned(CALLS_ADD), canned(ANSWER)]);
     let agent = Agent::new(client(base)).tool(add);
 
     let mut messages = Vec::new();
@@ -170,7 +170,7 @@ async fn completes_a_full_tool_round_trip() {
 
 #[tokio::test]
 async fn stops_at_the_turn_bound() {
-    let (base, _requests) = serve_many(vec![canned(CALLS_ADD), canned(CALLS_ADD)]);
+    let (base, _requests) = serve(&[canned(CALLS_ADD), canned(CALLS_ADD)]);
     let agent = Agent::new(client(base)).tool(add).max_turns(2);
 
     let mut messages = Vec::new();
@@ -187,7 +187,7 @@ async fn stops_at_the_turn_bound() {
 
 #[tokio::test]
 async fn sums_usage_across_turns() {
-    let (base, _requests) = serve_many(vec![canned(CALLS_ADD), canned(ANSWER)]);
+    let (base, _requests) = serve(&[canned(CALLS_ADD), canned(ANSWER)]);
     let agent = Agent::new(client(base)).tool(add);
 
     let mut messages = Vec::new();
@@ -206,7 +206,7 @@ const BAD_ARGS: &str = r#"{"id":"chatcmpl-1","model":"test-model","choices":[{"m
 
 #[tokio::test]
 async fn answers_an_unknown_tool_rather_than_skipping_it() {
-    let (base, requests) = serve_many(vec![canned(UNKNOWN), canned(ANSWER)]);
+    let (base, requests) = serve(&[canned(UNKNOWN), canned(ANSWER)]);
     let agent = Agent::new(client(base)).tool(add);
 
     let mut messages = Vec::new();
@@ -220,7 +220,7 @@ async fn answers_an_unknown_tool_rather_than_skipping_it() {
 
 #[tokio::test]
 async fn feeds_a_tool_error_back_to_the_model() {
-    let (base, requests) = serve_many(vec![canned(BAD_ARGS), canned(ANSWER)]);
+    let (base, requests) = serve(&[canned(BAD_ARGS), canned(ANSWER)]);
     let agent = Agent::new(client(base)).tool(add);
 
     let mut messages = Vec::new();
@@ -237,7 +237,7 @@ const CALLS_ECHO_THRICE: &str = r#"{"id":"chatcmpl-1","model":"test-model","choi
 
 #[tokio::test]
 async fn dispatches_parallel_calls_concurrently() {
-    let (base, requests) = serve_many(vec![canned(CALLS_ECHO_THRICE), canned(ANSWER)]);
+    let (base, requests) = serve(&[canned(CALLS_ECHO_THRICE), canned(ANSWER)]);
     let agent = Agent::new(client(base)).tool(echo);
 
     let mut messages = Vec::new();
@@ -264,7 +264,7 @@ const CUT_SHORT: &str = r#"{"id":"chatcmpl-1","model":"test-model","choices":[{"
 
 #[tokio::test]
 async fn stops_on_a_refusal() {
-    let (base, _requests) = serve_many(vec![canned(REFUSAL)]);
+    let (base, _requests) = serve(&[canned(REFUSAL)]);
     let agent = Agent::new(client(base));
 
     let mut messages = Vec::new();
@@ -275,7 +275,7 @@ async fn stops_on_a_refusal() {
 
 #[tokio::test]
 async fn stops_when_the_generation_was_cut_short() {
-    let (base, _requests) = serve_many(vec![canned(CUT_SHORT)]);
+    let (base, _requests) = serve(&[canned(CUT_SHORT)]);
     let agent = Agent::new(client(base));
 
     let mut messages = Vec::new();
@@ -286,7 +286,7 @@ async fn stops_when_the_generation_was_cut_short() {
 
 #[tokio::test]
 async fn downgrades_required_after_the_first_turn() {
-    let (base, requests) = serve_many(vec![canned(CALLS_ADD), canned(ANSWER)]);
+    let (base, requests) = serve(&[canned(CALLS_ADD), canned(ANSWER)]);
     let agent = Agent::new(client(base))
         .tool(add)
         .tool_choice(ToolChoice::Required);
@@ -302,7 +302,7 @@ async fn downgrades_required_after_the_first_turn() {
 
 #[tokio::test]
 async fn a_failed_call_leaves_the_transcript_untouched() {
-    let (base, _requests) = serve_many(vec![
+    let (base, _requests) = serve(&[
         "HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
     ]);
     let agent = Agent::new(client(base));
@@ -321,7 +321,7 @@ const ANTHROPIC_ANSWERS: &str = r#"{"id":"msg_2","model":"test-model","stop_reas
 
 #[tokio::test]
 async fn replays_opaque_reasoning_state_on_the_next_turn() {
-    let (base, requests) = serve_many(vec![canned(THINKS_THEN_CALLS), canned(ANTHROPIC_ANSWERS)]);
+    let (base, requests) = serve(&[canned(THINKS_THEN_CALLS), canned(ANTHROPIC_ANSWERS)]);
     let agent = Agent::new(anthropic_client(base)).tool(add);
 
     let mut messages = Vec::new();
@@ -356,7 +356,7 @@ const CALLS_ADD_99: &str = r#"{"id":"chatcmpl-1","model":"test-model","choices":
 
 #[tokio::test]
 async fn a_stateful_tool_keeps_its_state_across_the_run() {
-    let (base, _requests) = serve_many(vec![canned(CALLS_COUNTER), canned(ANSWER)]);
+    let (base, _requests) = serve(&[canned(CALLS_COUNTER), canned(ANSWER)]);
     let calls = Arc::new(AtomicUsize::new(0));
     let agent = Agent::new(client(base)).tool(Counter {
         calls: Arc::clone(&calls),
@@ -372,7 +372,7 @@ async fn a_stateful_tool_keeps_its_state_across_the_run() {
 
 #[tokio::test]
 async fn a_tool_reads_per_run_state_out_of_the_context() {
-    let (base, requests) = serve_many(vec![canned(CALLS_WHOAMI), canned(ANSWER)]);
+    let (base, requests) = serve(&[canned(CALLS_WHOAMI), canned(ANSWER)]);
     let agent = Agent::new(client(base)).tool(whoami);
 
     let mut context = Context::new();
@@ -396,7 +396,7 @@ async fn a_tool_reads_per_run_state_out_of_the_context() {
 
 #[tokio::test]
 async fn a_missing_context_value_reaches_the_model_as_text() {
-    let (base, requests) = serve_many(vec![canned(CALLS_WHOAMI), canned(ANSWER)]);
+    let (base, requests) = serve(&[canned(CALLS_WHOAMI), canned(ANSWER)]);
     let agent = Agent::new(client(base)).tool(whoami);
 
     let mut messages = Vec::new();
@@ -418,7 +418,7 @@ async fn a_missing_context_value_reaches_the_model_as_text() {
 
 #[tokio::test]
 async fn a_fallible_tool_reports_its_error_as_a_tool_result() {
-    let (base, requests) = serve_many(vec![canned(CALLS_SEALED), canned(ANSWER)]);
+    let (base, requests) = serve(&[canned(CALLS_SEALED), canned(ANSWER)]);
     let agent = Agent::new(client(base)).tool(sealed);
 
     let mut messages = Vec::new();
@@ -438,7 +438,7 @@ async fn a_fallible_tool_reports_its_error_as_a_tool_result() {
 
 #[tokio::test]
 async fn a_runtime_named_tool_is_dispatched_by_its_name() {
-    let (base, requests) = serve_many(vec![canned(CALLS_RUNTIME), canned(ANSWER)]);
+    let (base, requests) = serve(&[canned(CALLS_RUNTIME), canned(ANSWER)]);
     let name = format!("lookup_v{}", 2);
     let tools: Vec<Arc<dyn Tool>> = vec![Arc::new(Runtime { name })];
     let agent = Agent::new(client(base)).tools(tools);
@@ -465,7 +465,7 @@ fn needs_a_user(_name: &str, _arguments: &str, cx: &Context) -> Decision {
 
 #[tokio::test]
 async fn a_denial_reaches_the_model_as_a_tool_result() {
-    let (base, requests) = serve_many(vec![canned(CALLS_ADD), canned(ANSWER)]);
+    let (base, requests) = serve(&[canned(CALLS_ADD), canned(ANSWER)]);
     let agent =
         Agent::new(client(base))
             .tool(add)
@@ -490,7 +490,7 @@ async fn a_denial_reaches_the_model_as_a_tool_result() {
 
 #[tokio::test]
 async fn a_denied_tool_never_runs() {
-    let (base, _requests) = serve_many(vec![canned(CALLS_COUNTER), canned(ANSWER)]);
+    let (base, _requests) = serve(&[canned(CALLS_COUNTER), canned(ANSWER)]);
     let calls = Arc::new(AtomicUsize::new(0));
     let agent = Agent::new(client(base))
         .tool(Counter {
@@ -515,7 +515,7 @@ async fn a_denied_tool_never_runs() {
 
 #[tokio::test]
 async fn the_guard_reads_the_context() {
-    let (denied_base, denied_requests) = serve_many(vec![canned(CALLS_WHOAMI), canned(ANSWER)]);
+    let (denied_base, denied_requests) = serve(&[canned(CALLS_WHOAMI), canned(ANSWER)]);
     let denied = Agent::new(client(denied_base))
         .tool(whoami)
         .guard(needs_a_user);
@@ -532,7 +532,7 @@ async fn the_guard_reads_the_context() {
     assert!(second.contains("no user on this run"));
     assert!(!second.contains(r#"\"u-42\""#));
 
-    let (allowed_base, allowed_requests) = serve_many(vec![canned(CALLS_WHOAMI), canned(ANSWER)]);
+    let (allowed_base, allowed_requests) = serve(&[canned(CALLS_WHOAMI), canned(ANSWER)]);
     let allowed = Agent::new(client(allowed_base))
         .tool(whoami)
         .guard(needs_a_user);
@@ -565,7 +565,7 @@ fn refuses_ninety_nine(_name: &str, arguments: &str, _cx: &Context) -> Decision 
 #[tokio::test]
 async fn the_guard_reads_the_raw_arguments() {
     // Same tool, same guard: only the arguments decide.
-    let (denied_base, denied_requests) = serve_many(vec![canned(CALLS_ADD_99), canned(ANSWER)]);
+    let (denied_base, denied_requests) = serve(&[canned(CALLS_ADD_99), canned(ANSWER)]);
     let denied = Agent::new(client(denied_base))
         .tool(add)
         .guard(refuses_ninety_nine);
@@ -583,7 +583,7 @@ async fn the_guard_reads_the_raw_arguments() {
     assert!(second.contains("denied: 99 is reserved"));
     assert!(!second.contains(r#""content":"100""#));
 
-    let (allowed_base, allowed_requests) = serve_many(vec![canned(CALLS_ADD), canned(ANSWER)]);
+    let (allowed_base, allowed_requests) = serve(&[canned(CALLS_ADD), canned(ANSWER)]);
     let allowed = Agent::new(client(allowed_base))
         .tool(add)
         .guard(refuses_ninety_nine);
@@ -605,7 +605,7 @@ async fn the_guard_reads_the_raw_arguments() {
 
 #[tokio::test]
 async fn the_guard_sees_a_name_no_tool_answers_to() {
-    let (base, requests) = serve_many(vec![canned(CALLS_GHOST), canned(ANSWER)]);
+    let (base, requests) = serve(&[canned(CALLS_GHOST), canned(ANSWER)]);
     let agent =
         Agent::new(client(base))
             .tool(add)
@@ -632,7 +632,7 @@ async fn the_guard_sees_a_name_no_tool_answers_to() {
 
 #[tokio::test]
 async fn the_system_instruction_is_sent_and_stays_out_of_the_transcript() {
-    let (base, requests) = serve_many(vec![canned(ANSWER), canned(ANSWER)]);
+    let (base, requests) = serve(&[canned(ANSWER), canned(ANSWER)]);
     let agent = Agent::new(client(base)).system("SENTINEL-SYSTEM");
 
     let mut messages = Vec::new();
@@ -684,7 +684,7 @@ impl Storage for Orphaning {
 
 #[tokio::test]
 async fn an_orphaned_tool_result_from_a_backend_is_repaired() {
-    let (base, requests) = serve_many(vec![canned(ANSWER)]);
+    let (base, requests) = serve(&[canned(ANSWER)]);
     let agent = Agent::new(client(base));
 
     agent
@@ -700,7 +700,7 @@ async fn an_orphaned_tool_result_from_a_backend_is_repaired() {
 
 #[tokio::test]
 async fn the_settings_reach_the_wire() {
-    let (base, requests) = serve_many(vec![canned(ANSWER)]);
+    let (base, requests) = serve(&[canned(ANSWER)]);
     let agent = Agent::new(client(base))
         .model("sentinel-model")
         .max_tokens(123)
@@ -731,7 +731,7 @@ async fn the_settings_reach_the_wire() {
 
 #[tokio::test]
 async fn extra_for_reaches_the_wire() {
-    let (base, requests) = serve_many(vec![canned(ANSWER)]);
+    let (base, requests) = serve(&[canned(ANSWER)]);
     let agent = Agent::new(client(base)).extra_for(
         Dialect::OpenAiChat,
         serde_json::json!({"sentinel_field": "sentinel-value"}),
@@ -753,7 +753,7 @@ async fn extra_for_reaches_the_wire() {
 
 #[tokio::test]
 async fn a_stored_conversation_carries_across_calls() {
-    let (base, requests) = serve_many(vec![canned(ANSWER), canned(ANSWER)]);
+    let (base, requests) = serve(&[canned(ANSWER), canned(ANSWER)]);
     let agent = Agent::new(client(base));
     let mut chat = agent.conversation(InMemoryStorage::new());
 
@@ -770,7 +770,7 @@ async fn a_stored_conversation_carries_across_calls() {
 /// storage, not from whatever an earlier conversation already holds.
 #[tokio::test]
 async fn separate_conversations_do_not_share_storage() {
-    let (base, _requests) = serve_many(vec![canned(ANSWER)]);
+    let (base, _requests) = serve(&[canned(ANSWER)]);
     let agent = Agent::new(client(base));
 
     let mut messages = Vec::new();
@@ -787,7 +787,7 @@ async fn separate_conversations_do_not_share_storage() {
 
 #[tokio::test]
 async fn a_window_sends_less_than_the_whole_conversation() {
-    let (base, requests) = serve_many(vec![canned(ANSWER), canned(ANSWER)]);
+    let (base, requests) = serve(&[canned(ANSWER), canned(ANSWER)]);
     let agent = Agent::new(client(base));
     let mut chat = agent.conversation(InMemoryStorage::new().window(1));
 
@@ -803,7 +803,7 @@ async fn a_window_sends_less_than_the_whole_conversation() {
 
 #[tokio::test]
 async fn clearing_storage_forgets_the_conversation() {
-    let (base, requests) = serve_many(vec![canned(ANSWER), canned(ANSWER)]);
+    let (base, requests) = serve(&[canned(ANSWER), canned(ANSWER)]);
     let agent = Agent::new(client(base));
 
     let mut messages = Vec::new();

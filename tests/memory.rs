@@ -6,10 +6,10 @@
 use freyja::{Agent, Client, Dialect, EndpointConfig, Message, Role};
 
 mod common;
-use common::serve_once;
+use common::serve;
 
 /// Builds a canned non-streaming OpenAI Chat Completions response with a
-/// correct `Content-Length`, leaked so it satisfies `serve_once`'s
+/// correct `Content-Length`, leaked so it satisfies `serve`'s
 /// `&'static str`.
 fn ok_response() -> &'static str {
     let body = r#"{"id":"x","model":"test-model","choices":[{"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}"#;
@@ -23,7 +23,7 @@ fn ok_response() -> &'static str {
 
 #[tokio::test]
 async fn no_policy_sends_the_whole_transcript() {
-    let (base, request) = serve_once(ok_response());
+    let (base, request) = serve(&[ok_response()]);
     let config =
         EndpointConfig::new(Dialect::OpenAiChat, "local", base).default_model("test-model");
     let client = Client::new(config, "sk-test");
@@ -48,12 +48,10 @@ async fn no_policy_sends_the_whole_transcript() {
 
 #[tokio::test]
 async fn a_failed_request_does_not_shorten_the_caller_transcript() {
-    let (base, _request) = serve_once(
-        "HTTP/1.1 500 Internal Server Error\r\n\
+    let (base, _request) = serve(&["HTTP/1.1 500 Internal Server Error\r\n\
          Content-Type: application/json\r\n\
          Connection: close\r\n\r\n\
-         {\"error\":\"boom\"}",
-    );
+         {\"error\":\"boom\"}"]);
     let config =
         EndpointConfig::new(Dialect::OpenAiChat, "local", base).default_model("test-model");
     let client = Client::new(config, "sk-test");

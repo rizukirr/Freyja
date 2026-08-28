@@ -8,7 +8,7 @@
 //! still be a request the provider accepts.
 
 mod common;
-use common::serve_once;
+use common::serve;
 use freyja::{
     Agent, Client, Dialect, EndpointConfig, InputContent, Message, Role, Storage, StorageFuture,
 };
@@ -44,7 +44,7 @@ impl Storage for Naive {
     }
 }
 
-/// Built with a derived `Content-Length` and leaked to satisfy `serve_once`'s
+/// Built with a derived `Content-Length` and leaked to satisfy `serve`'s
 /// `&'static str`, the same way the other integration tests do it.
 fn ok_response() -> &'static str {
     let body = r#"{"id":"x","model":"test-model","choices":[{"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}"#;
@@ -79,7 +79,7 @@ fn transcript_with_a_call_the_window_will_split_from_its_result() -> Vec<Message
 
 #[tokio::test]
 async fn a_naive_backend_cutting_between_a_call_and_its_result_still_sends_a_valid_request() {
-    let (base, requests) = serve_once(ok_response());
+    let (base, requests) = serve(&[ok_response()]);
     let config =
         EndpointConfig::new(Dialect::OpenAiChat, "local", base).default_model("test-model");
     let storage = Naive {

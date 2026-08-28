@@ -3,7 +3,7 @@
 //! Stands in for a third-party persistence crate: if this compiles, so does one.
 
 mod common;
-use common::{serve_many, serve_once};
+use common::serve;
 use freyja::{
     Agent, Client, Dialect, EndpointConfig, InMemoryStorage, InputContent, Message, Role, Storage,
     StorageFuture,
@@ -56,7 +56,7 @@ impl Storage for Broken {
     }
 }
 
-/// Built with a derived `Content-Length` and leaked to satisfy `serve_once`'s
+/// Built with a derived `Content-Length` and leaked to satisfy `serve`'s
 /// `&'static str`, the same way `tests/memory.rs` does it.
 fn ok_response() -> &'static str {
     let body = r#"{"id":"x","model":"test-model","choices":[{"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}"#;
@@ -76,7 +76,7 @@ fn agent_for(base: String) -> Agent {
 
 #[tokio::test]
 async fn a_third_party_backend_holds_the_conversation() {
-    let (base, _requests) = serve_once(ok_response());
+    let (base, _requests) = serve(&[ok_response()]);
     let agent = agent_for(base);
     let mut chat = agent.conversation(Recording::default());
 
@@ -93,7 +93,7 @@ async fn a_third_party_backend_holds_the_conversation() {
 
 #[tokio::test]
 async fn a_failing_load_aborts_the_run() {
-    let (base, requests) = serve_once(ok_response());
+    let (base, requests) = serve(&[ok_response()]);
     let agent = agent_for(base);
     let mut chat = agent.conversation(Broken);
 
@@ -103,7 +103,7 @@ async fn a_failing_load_aborts_the_run() {
 
 #[tokio::test]
 async fn a_borrowed_vector_is_extended_in_place() {
-    let (base, _requests) = serve_once(ok_response());
+    let (base, _requests) = serve(&[ok_response()]);
     let agent = agent_for(base);
     let mut history: Vec<Message> = Vec::new();
     let starting_len = history.len();
@@ -117,7 +117,7 @@ async fn a_borrowed_vector_is_extended_in_place() {
 
 #[tokio::test]
 async fn window_shapes_what_is_sent_while_the_backend_keeps_everything() {
-    let (base, requests) = serve_many(vec![ok_response(), ok_response(), ok_response()]);
+    let (base, requests) = serve(&[ok_response(), ok_response(), ok_response()]);
     let agent = agent_for(base);
     let mut chat = agent.conversation(InMemoryStorage::new().window(1));
 
@@ -138,7 +138,7 @@ async fn window_shapes_what_is_sent_while_the_backend_keeps_everything() {
 
 #[tokio::test]
 async fn send_carries_every_content_block() {
-    let (base, requests) = serve_once(ok_response());
+    let (base, requests) = serve(&[ok_response()]);
     let agent = agent_for(base);
     let mut chat = agent.conversation(InMemoryStorage::new());
 
@@ -158,7 +158,7 @@ async fn send_carries_every_content_block() {
 
 #[tokio::test]
 async fn storage_derefs_to_a_slice_of_messages() {
-    let (base, _requests) = serve_once(ok_response());
+    let (base, _requests) = serve(&[ok_response()]);
     let agent = agent_for(base);
     let mut chat = agent.conversation(InMemoryStorage::new());
 
@@ -173,7 +173,7 @@ async fn storage_derefs_to_a_slice_of_messages() {
 
 #[tokio::test]
 async fn a_boxed_backend_is_forwarded_to() {
-    let (base, _requests) = serve_once(ok_response());
+    let (base, _requests) = serve(&[ok_response()]);
     let agent = agent_for(base);
     let backend = Box::new(Vec::<Message>::new()) as Box<dyn Storage>;
     let mut chat = agent.conversation(backend);
