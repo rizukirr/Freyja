@@ -31,9 +31,10 @@ pub struct Agent {
     system: Option<String>,
 }
 
-/// What one call to [`Agent::messages`] produced.
+/// What one turn of a [`Conversation`] produced.
 ///
-/// The transcript is not here: `run` extends the caller's vector in place.
+/// The transcript is not here: sending a turn extends the caller's storage in
+/// place.
 #[derive(Debug, Clone)]
 pub struct Run {
     /// The final assistant text, empty when the loop ended without one.
@@ -46,7 +47,7 @@ pub struct Run {
     pub turns: usize,
 }
 
-/// Why [`Agent::messages`] stopped.
+/// Why a [`Conversation`] turn stopped.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StopReason {
     /// The model answered without requesting more tools.
@@ -183,10 +184,10 @@ impl Agent {
 
     /// Sets a system instruction sent ahead of the transcript on every turn.
     ///
-    /// It is not part of the caller's transcript, so it is never returned by
-    /// [`Agent::messages`] and never counted in the caller's vector. It is
-    /// always prepended just before the request is sent, so nothing else here
-    /// can drop it or see it first.
+    /// It is not part of the caller's transcript, so it is never written to
+    /// storage and never counted in the caller's vector. It is always
+    /// prepended just before the request is sent, so nothing else here can
+    /// drop it or see it first.
     pub fn system(mut self, instruction: impl Into<String>) -> Self {
         self.system = Some(instruction.into());
         self

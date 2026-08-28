@@ -4,7 +4,7 @@ use crate::{Agent, Context, Error, Message, Run, Storage};
 
 /// One conversation, driven one turn at a time.
 ///
-/// Built by [`Agent::conversation`] or [`Agent::conversation_in`]. It owns an
+/// Built by [`Agent::conversation`]. It owns an
 /// [`Agent`] clone and the backend holding the transcript, which is what makes
 /// the exclusive borrow on [`Conversation::send`] sit on the thing that is
 /// genuinely exclusive rather than on the agent.
@@ -62,8 +62,10 @@ impl<S: Storage> Conversation<S> {
     ///
     /// ```no_run
     /// # fn run(agent: freyja::Agent) {
-    /// let mut first = agent.conversation();
-    /// let mut second = agent.conversation();
+    /// use freyja::InMemoryStorage;
+    ///
+    /// let mut first = agent.conversation(InMemoryStorage::new());
+    /// let mut second = agent.conversation(InMemoryStorage::new());
     /// # let _ = (&mut first, &mut second);
     /// # }
     /// ```
