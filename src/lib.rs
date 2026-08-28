@@ -108,6 +108,7 @@
 
 mod agent;
 mod client;
+mod conversation;
 pub mod dialect;
 pub mod endpoint;
 pub mod error;
@@ -120,6 +121,7 @@ mod transport;
 
 pub use agent::{Agent, Decision, Run, StopReason};
 pub use client::Client;
+pub use conversation::Conversation;
 pub use dialect::Dialect;
 pub use endpoint::{Auth, EndpointConfig, EndpointPreset, TokenLimitField};
 pub use error::{BODY_IN_MESSAGE, Error, TransportError};
@@ -129,7 +131,7 @@ pub use model::{
     ReasoningEffort, ResponseFormat, ResponseStatus, Role, Tool, ToolChoice, ToolDefinition,
     ToolError, ToolFuture, Usage, strict_schema,
 };
-pub use storage::{InMemoryStorage, Storage, StorageError, StorageFuture};
+pub use storage::{Storage, StorageError, StorageFuture};
 pub use stream::{EventStream, StreamEvent};
 pub use transcript::{split, window_by_groups};
 
