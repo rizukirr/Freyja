@@ -24,7 +24,7 @@ Update imports and error matching with this rename table:
 | `error.provider()` | `error.endpoint()` |
 | `Agent::request(GenerateRequest::new().model(..))` | `Agent::model(..)`, and the same for `max_tokens`, `temperature`, `top_p`, `reasoning_effort`, `tool_choice`, `extra_for` |
 | a system prompt on an `Agent` template | `Agent::system(..)` |
-| `Agent::run`, `Agent::run_with` | `Agent::messages`, `Agent::messages_with` |
+| `Agent::run`, `Agent::run_with` | `agent.conversation_in(&mut history).send(..)`, which extends the vector in place |
 | `Agent::chat()` and `Chat::ask` | `agent.conversation()` and `chat.send(..)` |
 | `Memory`, `MemoryError`, `MemoryFuture` | `Filter`, `FilterError`, `FilterFuture` |
 | `Agent::memory(impl Memory)` | a `Storage` implementation trims inside `Storage::load`, supplied to `agent.conversation_in(..)` |

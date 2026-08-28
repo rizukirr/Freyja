@@ -151,7 +151,7 @@ It forces a tool call on **every** round, so the model can never produce a final
 
 Every tool result becomes part of the prompt on the next round, and is billed as input tokens on every round after that. A verbose tool is a recurring cost, not a one-time one. Return what the model needs and nothing more.
 
-Trimming what a tool returns bounds the cost of one round. It does not bound the conversation, which grows until the provider rejects it outright. `Agent::memory` installs where the conversation lives between calls to `Agent::message`, and `InMemoryStorage::window` is the one shipped backend that also bounds what reaches the model each turn, keeping pinned turns and the most recent turn groups. See [Storage](reference/storage.md).
+Trimming what a tool returns bounds the cost of one round. It does not bound the conversation, which grows until the provider rejects it outright. `Agent::conversation` hands out a conversation holding the transcript in this process, `Agent::conversation_in` takes a backend of your own, and `Conversation::window` bounds what reaches the model each turn, keeping pinned turns and the most recent turn groups. See [Storage](reference/storage.md).
 
 ### One result per call
 
@@ -186,13 +186,13 @@ let agent = Agent::new(client)
     .tool(add)
     .max_turns(5);
 
-let mut messages = vec![Message::text(Role::User, "What is 20 + 22?")];
-let run = agent.messages(&mut messages).await?;
+let mut messages: Vec<Message> = Vec::new();
+let run = agent.conversation_in(&mut messages).send("What is 20 + 22?").await?;
 
 println!("{}", run.answer);
 ```
 
-Model and sampling settings live on the builder alongside the tools. The transcript does not: it is the vector you hand to `messages`, which is why there is no way to put messages into an agent's configuration.
+Model and sampling settings live on the builder alongside the tools. The transcript does not: it is held by whatever `Storage` you pass to `conversation_in`, which is why there is no way to put messages into an agent's configuration.
 
 A guard goes on the same builder. `.guard(|name, _arguments, _cx| ...)` is consulted before every call, and returning `Decision::Deny(reason)` sends the model `denied: {reason}` instead of running the tool — which is how you keep a tool registered for the cases it is meant for while refusing the rest. See [Refusing a call](reference/tools.md#refusing-a-call).
 
@@ -206,7 +206,7 @@ let agent = Agent::new(client)
     .max_turns(5);
 ```
 
-`run.stop` tells you why the loop ended — `Answered`, `MaxTurns`, `Refused`, `Incomplete`, or `Failed` — and `Agent::message` wraps the same loop with the transcript held in installed `Storage` instead of a vector you own, for a multi-turn conversation. See `examples/agent.rs`.
+`run.stop` tells you why the loop ended, `Answered`, `MaxTurns`, `Refused`, `Incomplete`, or `Failed`, and `Conversation::send`, reached through `Agent::conversation_in`, wraps the same loop with the transcript held in a `Storage` backend instead of a vector you own, for a multi-turn conversation. See `examples/agent.rs`.
 
 ## Next
 
