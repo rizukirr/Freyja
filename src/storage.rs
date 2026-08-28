@@ -73,6 +73,87 @@ impl Storage for Vec<Message> {
     }
 }
 
+/// The conversation in this process, and nowhere else.
+///
+/// A plain vector and an optional window. There is no lock, because a
+/// [`crate::Conversation`] owns its backend outright, so [`Storage`] takes
+/// `&mut self` and nothing here needs interior mutability.
+///
+/// Lost when the value is dropped, which makes it the right choice for a
+/// short-lived process or a test and the wrong one for anything that has to
+/// survive a restart. Persisting is a different backend, and writing one needs
+/// nothing from this crate beyond [`Storage`], since [`Message`] already
+/// derives `Serialize` and `Deserialize`.
+#[derive(Debug, Default)]
+pub struct InMemoryStorage {
+    messages: Vec<Message>,
+    window: Option<usize>,
+}
+
+impl InMemoryStorage {
+    /// An empty conversation, with no window.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Send only the most recent `groups` turn groups, plus pinned turns.
+    ///
+    /// Everything is still held. Dereferencing this value returns all of it,
+    /// so a window shapes what one turn puts on the wire and never discards
+    /// anything.
+    ///
+    /// A group is a message, except that an assistant turn requesting tools
+    /// and the results answering it are one group. So an exchange costs two
+    /// groups without tools and three with them: `window(20)` keeps roughly
+    /// seven exchanges, not twenty.
+    ///
+    /// Trimming happens inside `load`, which is where every backend does it. A
+    /// backend of your own decides its own rule, and may cut anywhere, since
+    /// [`crate::Conversation::send`] repairs a cut that separated a tool call
+    /// from the result answering it.
+    pub fn window(mut self, groups: usize) -> Self {
+        self.window = Some(groups);
+        self
+    }
+}
+
+impl Storage for InMemoryStorage {
+    fn load(&mut self) -> StorageFuture<'_, Vec<Message>> {
+        Box::pin(async move {
+            Ok(match self.window {
+                Some(groups) => crate::transcript::window_by_groups(&self.messages, groups),
+                None => self.messages.clone(),
+            })
+        })
+    }
+
+    fn append(&mut self, messages: Vec<Message>) -> StorageFuture<'_, ()> {
+        Box::pin(async move {
+            self.messages.extend(messages);
+            Ok(())
+        })
+    }
+
+    fn clear(&mut self) -> StorageFuture<'_, ()> {
+        Box::pin(async move {
+            self.messages.clear();
+            Ok(())
+        })
+    }
+}
+
+/// Everything held, which a window never shrinks.
+///
+/// This is why there is no `all()`: the slice is the transcript, borrowed
+/// rather than cloned.
+impl std::ops::Deref for InMemoryStorage {
+    type Target = [Message];
+
+    fn deref(&self) -> &Self::Target {
+        &self.messages
+    }
+}
+
 /// Forwards through a borrow, so a caller can keep their own transcript and
 /// still run a conversation over it.
 impl<T: Storage + ?Sized> Storage for &mut T {

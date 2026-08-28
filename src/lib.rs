@@ -131,7 +131,7 @@ pub use model::{
     ReasoningEffort, ResponseFormat, ResponseStatus, Role, Tool, ToolChoice, ToolDefinition,
     ToolError, ToolFuture, Usage, strict_schema,
 };
-pub use storage::{Storage, StorageError, StorageFuture};
+pub use storage::{InMemoryStorage, Storage, StorageError, StorageFuture};
 pub use stream::{EventStream, StreamEvent};
 pub use transcript::{split, window_by_groups};
 
