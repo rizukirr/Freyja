@@ -1,7 +1,7 @@
 //! Deciding what part of a transcript reaches the model.
 
 use crate::{InputContent, Message, Role};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 /// Splits a transcript into the spans that must be evicted as one unit.
 ///
@@ -117,8 +117,8 @@ pub fn window_by_groups(history: &[Message], keep: usize) -> Vec<Message> {
         .collect()
 }
 
-/// Drops a tool result whose call is absent, and a tool call whose result is
-/// absent.
+/// Drops a tool result whose call is absent or does not precede it, and a tool
+/// call whose result is absent or does not follow it.
 ///
 /// Both directions are rejected on the wire. A result answering nothing fails
 /// everywhere, and Anthropic refuses a `tool_use` block with no answering
@@ -126,38 +126,54 @@ pub fn window_by_groups(history: &[Message], keep: usize) -> Vec<Message> {
 /// second constantly, since cutting right after a call turn is the ordinary
 /// case.
 ///
+/// A result is kept only when the call it answers appears strictly earlier, so
+/// a transcript that arrives with a result ahead of its call loses both
+/// messages. The call goes with it because a call left unanswered is rejected
+/// anyway. Where an id appears more than once, the first occurrence in each
+/// direction is the one compared.
+///
+/// The one call site is [`crate::Agent::message`], applied to what
+/// [`crate::Storage::load`] returned, and nothing in this crate can produce a
+/// result ahead of its call. The order comes from a backend, which is why this
+/// is checked here at all: `Storage` is a boundary this crate does not review.
+///
 /// A message left with no content after this is removed, so an assistant turn
 /// carrying text beside a dropped call keeps its text.
 ///
-/// vibekit: ordering ceiling. This only drops a result whose call is absent,
-/// it does not check that a result still follows its call in the trimmed
-/// transcript. A backend that reorders messages can produce a result ahead of
-/// its call, which the Gemini builder rejects in
-/// `rejects_a_result_that_answers_a_later_call`. Upgrade path: track each
-/// call's index while scanning and drop a result whose index is not after it,
-/// alongside the existing absent-call check.
+/// vibekit: ordering ceiling. This checks one ordering property, that a result
+/// follows its call. It does not validate the rest of the order, so a backend
+/// that returns messages in an arbitrary sequence can still build a transcript
+/// a provider rejects. No upgrade path is planned: `Storage::load` documents
+/// its contract as "oldest first", and a backend breaking that is unreliable
+/// in ways no repair pass can cover.
 pub(crate) fn repair(messages: &mut Vec<Message>) {
-    let calls: HashSet<String> = messages
-        .iter()
-        .flat_map(|message| message.content.iter())
-        .filter_map(|content| match content {
-            InputContent::ToolCall { id, .. } => Some(id.clone()),
-            _ => None,
-        })
-        .collect();
-    let answered: HashSet<String> = messages
-        .iter()
-        .flat_map(|message| message.content.iter())
-        .filter_map(|content| match content {
-            InputContent::ToolResult { call_id, .. } => Some(call_id.clone()),
-            _ => None,
-        })
-        .collect();
+    // Each id mapped to the index of the first message carrying it in that
+    // direction. The index is what makes the check an ordering check: a set
+    // can only answer whether the partner exists, not whether it came first.
+    let mut calls: HashMap<String, usize> = HashMap::new();
+    let mut results: HashMap<String, usize> = HashMap::new();
+    for (index, message) in messages.iter().enumerate() {
+        for content in &message.content {
+            match content {
+                InputContent::ToolCall { id, .. } => {
+                    calls.entry(id.clone()).or_insert(index);
+                }
+                InputContent::ToolResult { call_id, .. } => {
+                    results.entry(call_id.clone()).or_insert(index);
+                }
+                _ => {}
+            }
+        }
+    }
 
-    for message in messages.iter_mut() {
+    for (index, message) in messages.iter_mut().enumerate() {
         message.content.retain(|content| match content {
-            InputContent::ToolResult { call_id, .. } => calls.contains(call_id),
-            InputContent::ToolCall { id, .. } => answered.contains(id),
+            InputContent::ToolResult { call_id, .. } => {
+                calls.get(call_id).is_some_and(|call| *call < index)
+            }
+            InputContent::ToolCall { id, .. } => {
+                results.get(id).is_some_and(|result| *result > index)
+            }
             _ => true,
         });
     }
@@ -201,6 +217,27 @@ mod tests {
         let before = messages.clone();
         repair(&mut messages);
         assert_eq!(messages, before);
+    }
+
+    #[test]
+    fn drops_a_result_that_precedes_its_call() {
+        // The Gemini builder rejects this order in
+        // rejects_a_result_that_answers_a_later_call, a round trip spent to
+        // learn what is decidable here. Both messages go: dropping the result
+        // leaves the call unanswered, which is rejected on its own.
+        let mut messages = vec![Message::tool_result("call_1", "out"), call("call_1")];
+        repair(&mut messages);
+        assert!(messages.is_empty());
+    }
+
+    #[test]
+    fn keeps_an_ordered_pair_beside_an_inverted_one() {
+        let ordered = vec![call("call_1"), Message::tool_result("call_1", "out")];
+        let mut messages = ordered.clone();
+        messages.push(Message::tool_result("call_2", "out"));
+        messages.push(call("call_2"));
+        repair(&mut messages);
+        assert_eq!(messages, ordered);
     }
 
     #[test]
