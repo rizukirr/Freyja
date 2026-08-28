@@ -133,7 +133,7 @@ async fn window_shapes_what_is_sent_while_the_backend_keeps_everything() {
     let sent: serde_json::Value = serde_json::from_str(body).expect("json body");
     let sent_len = sent["messages"].as_array().expect("messages array").len();
 
-    assert!(sent_len < chat.storage().len());
+    assert!(sent_len < chat.storage().messages().len());
 }
 
 #[tokio::test]
@@ -157,18 +157,25 @@ async fn send_carries_every_content_block() {
 }
 
 #[tokio::test]
-async fn storage_derefs_to_a_slice_of_messages() {
+async fn the_backend_hands_back_what_it_holds_without_cloning() {
     let (base, _requests) = serve(&[ok_response()]);
     let agent = agent_for(base);
     let mut chat = agent.conversation(InMemoryStorage::new());
 
     chat.send("a question").await.expect("run");
 
-    // Nothing here names a method of `InMemoryStorage`: `.iter()` and `.len()`
-    // both come from `Deref<Target = [Message]>`.
-    let held = chat.storage();
-    assert_eq!(held.iter().count(), held.len());
-    assert!(!held.is_empty());
+    // `messages` borrows rather than cloning, so the slice it returns is the
+    // transcript itself and not a copy of it.
+    let held: &[Message] = chat.storage().messages();
+    assert!(std::ptr::eq(held, chat.storage().messages()));
+
+    // And it is the transcript, not some other vector: the turn just sent is
+    // in it, followed by the answer.
+    assert_eq!(held.first().map(|message| message.role), Some(Role::User));
+    assert_eq!(
+        held.last().map(|message| message.role),
+        Some(Role::Assistant)
+    );
 }
 
 #[tokio::test]

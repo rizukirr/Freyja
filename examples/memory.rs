@@ -42,5 +42,5 @@ async fn main() {
     // Every turn is still here, held by the conversation's own storage. The
     // last request carried only the most recent groups, which is why the
     // model could not answer the last question.
-    println!("{} messages held", chat.storage().len());
+    println!("{} messages held", chat.storage().messages().len());
 }

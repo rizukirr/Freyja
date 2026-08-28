@@ -781,7 +781,7 @@ async fn separate_conversations_do_not_share_storage() {
         .expect("run");
 
     let other = agent.conversation(InMemoryStorage::new());
-    assert!(other.storage().is_empty());
+    assert!(other.storage().messages().is_empty());
     assert!(messages.len() > 1);
 }
 
@@ -798,7 +798,7 @@ async fn a_window_sends_less_than_the_whole_conversation() {
     let second = requests.recv().expect("second request");
     assert!(!second.contains("turn-one"), "{second}");
     assert!(second.contains("turn-two"), "{second}");
-    assert_eq!(chat.storage().len(), 4);
+    assert_eq!(chat.storage().messages().len(), 4);
 }
 
 #[tokio::test]

@@ -98,7 +98,7 @@ impl InMemoryStorage {
 
     /// Send only the most recent `groups` turn groups, plus pinned turns.
     ///
-    /// Everything is still held. Dereferencing this value returns all of it,
+    /// Everything is still held. [`InMemoryStorage::messages`] returns all of it,
     /// so a window shapes what one turn puts on the wire and never discards
     /// anything.
     ///
@@ -114,6 +114,17 @@ impl InMemoryStorage {
     pub fn window(mut self, groups: usize) -> Self {
         self.window = Some(groups);
         self
+    }
+
+    /// Everything held, which a window never shrinks.
+    ///
+    /// Borrowed rather than cloned, which is why there is no `all()`. An
+    /// inherent method rather than a `Deref` to `[Message]`: this is a struct
+    /// with a vector inside, not a smart pointer, and a `Deref` would commit
+    /// the public API to every method a slice has, forever, while a later
+    /// inherent method of the same name would shadow one silently.
+    pub fn messages(&self) -> &[Message] {
+        &self.messages
     }
 }
 
@@ -139,18 +150,6 @@ impl Storage for InMemoryStorage {
             self.messages.clear();
             Ok(())
         })
-    }
-}
-
-/// Everything held, which a window never shrinks.
-///
-/// This is why there is no `all()`: the slice is the transcript, borrowed
-/// rather than cloned.
-impl std::ops::Deref for InMemoryStorage {
-    type Target = [Message];
-
-    fn deref(&self) -> &Self::Target {
-        &self.messages
     }
 }
 

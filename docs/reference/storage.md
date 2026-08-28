@@ -46,7 +46,7 @@ let run = chat.send("what's the weather?").await?;
 let mut chat = agent.conversation(InMemoryStorage::new().window(20));
 ```
 
-Windowing is a feature of the backend, not of `Conversation`, because a backend of your own decides its own trimming inside its own `load`, where it can push the limit into the query rather than fetching everything first. `InMemoryStorage::window(groups)` is the built-in backend's version of that same choice: the window is applied inside `InMemoryStorage::load`, not on the way in, so calling `window(groups)` does not discard anything. Everything ever appended is still held, and reachable by dereferencing the backend, `InMemoryStorage` implements `Deref<Target = [Message]>`, so `chat.storage().len()` or iterating `chat.storage()` sees the whole transcript even when a window is set. Only what one `send` puts on the wire is shaped. A turn group is a message, except that an assistant turn requesting tools and the results answering it are one group, so an exchange without tools costs two groups and one with tools costs three or more. `window(20)` therefore keeps roughly seven exchanges for a tool-using agent, not twenty. A backend of your own has no obligation to be group aware at all: it can trim by count, by age, by token budget, or not trim, since the repair pass downstream cleans up whatever cut it made.
+Windowing is a feature of the backend, not of `Conversation`, because a backend of your own decides its own trimming inside its own `load`, where it can push the limit into the query rather than fetching everything first. `InMemoryStorage::window(groups)` is the built-in backend's version of that same choice: the window is applied inside `InMemoryStorage::load`, not on the way in, so calling `window(groups)` does not discard anything. Everything ever appended is still held, and reachable through `InMemoryStorage::messages`, which borrows the transcript rather than cloning it, so `chat.storage().messages().len()` sees the whole transcript even when a window is set. Only what one `send` puts on the wire is shaped. A turn group is a message, except that an assistant turn requesting tools and the results answering it are one group, so an exchange without tools costs two groups and one with tools costs three or more. `window(20)` therefore keeps roughly seven exchanges for a tool-using agent, not twenty. A backend of your own has no obligation to be group aware at all: it can trim by count, by age, by token budget, or not trim, since the repair pass downstream cleans up whatever cut it made.
 
 ## `storage()` returns the backend
 
@@ -54,7 +54,7 @@ Windowing is a feature of the backend, not of `Conversation`, because a backend 
 let held = chat.storage();
 ```
 
-`Conversation::storage` returns a reference to the backend itself. For `InMemoryStorage` that reference derefs to `[Message]`, including everything a window would leave out of the next request, which is how a caller checks what has actually accumulated rather than what was last sent.
+`Conversation::storage` returns a reference to the backend itself. For `InMemoryStorage`, `messages` on that reference borrows the whole transcript, including everything a window would leave out of the next request, which is how a caller checks what has actually accumulated rather than what was last sent. It is an inherent method rather than a `Deref` to `[Message]`, because a struct holding a vector is not a smart pointer and a `Deref` would commit this type's public surface to every method a slice has.
 
 ## The repair pass
 
