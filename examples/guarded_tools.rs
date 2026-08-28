@@ -12,8 +12,8 @@
 //! ```
 
 use freyja::{
-    Agent, Client, Context, Decision, EndpointPreset, Message, Role, StopReason, Tool,
-    ToolDefinition, ToolError, ToolFuture, tool,
+    Agent, Client, Context, Decision, EndpointPreset, StopReason, Tool, ToolDefinition, ToolError,
+    ToolFuture, tool,
 };
 use serde_json::{Value, json};
 use std::sync::{Arc, Mutex};
@@ -157,14 +157,18 @@ async fn main() {
         let mut context = Context::new();
         context.insert(operator);
 
-        let mut messages = vec![Message::text(
-            Role::User,
-            // A-1003 does not exist: the first lookup fails, and the model
-            // recovers from the error text without the run ending.
-            "Refund order A-1003 in full. If that is not an order, refund A-1002 instead.",
-        )];
+        let mut messages = Vec::new();
 
-        match agent.messages_with(&mut messages, &context).await {
+        // A-1003 does not exist: the first lookup fails, and the model
+        // recovers from the error text without the run ending.
+        match agent
+            .conversation_in(&mut messages)
+            .send_with(
+                "Refund order A-1003 in full. If that is not an order, refund A-1002 instead.",
+                &context,
+            )
+            .await
+        {
             Ok(run) => {
                 println!("answer: {}", run.answer);
                 println!(

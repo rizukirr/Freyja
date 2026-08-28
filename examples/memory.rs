@@ -2,15 +2,14 @@
 //!
 //! `agent` keeps the whole conversation and sends all of it, which is fine
 //! until it is not: a transcript grows until the provider rejects it, and the
-//! error says nothing about length. `InMemoryStorage::window` decides what
-//! goes on the wire each turn, and the transcript here is never shortened.
+//! error says nothing about length. `Conversation::window` decides what goes
+//! on the wire each turn, and the transcript itself is never shortened.
 //!
 //! ```sh
 //! cargo run --example memory
 //! ```
 
-use freyja::{Agent, Client, EndpointPreset, InMemoryStorage};
-use std::sync::Arc;
+use freyja::{Agent, Client, EndpointPreset};
 
 #[tokio::main]
 async fn main() {
@@ -22,14 +21,8 @@ async fn main() {
         return;
     };
 
-    // Kept as an `Arc` so the length can be read back after the loop: `Agent`
-    // takes ownership of whatever is installed with `memory`, and `Storage`
-    // is implemented for `Arc<T>` for exactly this reason.
-    let storage = Arc::new(InMemoryStorage::new().window(2));
-
-    let agent = Agent::new(client)
-        .system("You are a concise assistant. Answer in one sentence.")
-        .memory(Arc::clone(&storage));
+    let agent = Agent::new(client).system("Answer in one short sentence.");
+    let mut chat = agent.conversation().window(2);
 
     for question in [
         "Name a Norwegian city.",
@@ -37,7 +30,7 @@ async fn main() {
         "What language do they speak there?",
         "What was the first thing I asked you?",
     ] {
-        match agent.message(question).await {
+        match chat.send(question).await {
             Ok(run) => println!("> {question}\n{}\n", run.answer),
             Err(error) => {
                 eprintln!("{error}");
@@ -46,10 +39,8 @@ async fn main() {
         }
     }
 
-    // Every turn is still here, held by storage rather than a vector we kept
-    // ourselves. The last request carried the system instruction and the most
-    // recent groups only, which is why the model could not answer the last
-    // question.
-    let held = storage.all();
-    println!("transcript still holds {} messages", held.len());
+    // Every turn is still here, held by the conversation's own storage. The
+    // last request carried only the most recent groups, which is why the
+    // model could not answer the last question.
+    println!("{} messages held", chat.storage().len());
 }

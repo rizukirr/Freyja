@@ -5,31 +5,33 @@
 mod common;
 use common::serve_once;
 use freyja::{Agent, Client, Dialect, EndpointConfig, Message, Storage, StorageFuture};
-use std::sync::{Arc, Mutex};
 
 /// A backend that records every append, so a test can see what was stored.
+///
+/// `Storage` takes `&mut self`, so the fields need no lock: a `Conversation`
+/// owns its backend outright, and nothing else can reach it while it does.
 #[derive(Default)]
 struct Recording {
-    messages: Mutex<Vec<Message>>,
-    appends: Mutex<usize>,
+    messages: Vec<Message>,
+    appends: usize,
 }
 
 impl Storage for Recording {
-    fn load(&self) -> StorageFuture<'_, Vec<Message>> {
-        Box::pin(async move { Ok(self.messages.lock().unwrap().clone()) })
+    fn load(&mut self) -> StorageFuture<'_, Vec<Message>> {
+        Box::pin(async move { Ok(self.messages.clone()) })
     }
 
-    fn append(&self, messages: Vec<Message>) -> StorageFuture<'_, ()> {
+    fn append(&mut self, messages: Vec<Message>) -> StorageFuture<'_, ()> {
         Box::pin(async move {
-            *self.appends.lock().unwrap() += 1;
-            self.messages.lock().unwrap().extend(messages);
+            self.appends += 1;
+            self.messages.extend(messages);
             Ok(())
         })
     }
 
-    fn clear(&self) -> StorageFuture<'_, ()> {
+    fn clear(&mut self) -> StorageFuture<'_, ()> {
         Box::pin(async move {
-            self.messages.lock().unwrap().clear();
+            self.messages.clear();
             Ok(())
         })
     }
@@ -40,13 +42,13 @@ impl Storage for Recording {
 struct Broken;
 
 impl Storage for Broken {
-    fn load(&self) -> StorageFuture<'_, Vec<Message>> {
+    fn load(&mut self) -> StorageFuture<'_, Vec<Message>> {
         Box::pin(async { Err(std::io::Error::other("backend unreachable").into()) })
     }
-    fn append(&self, _messages: Vec<Message>) -> StorageFuture<'_, ()> {
+    fn append(&mut self, _messages: Vec<Message>) -> StorageFuture<'_, ()> {
         Box::pin(async { Ok(()) })
     }
-    fn clear(&self) -> StorageFuture<'_, ()> {
+    fn clear(&mut self) -> StorageFuture<'_, ()> {
         Box::pin(async { Ok(()) })
     }
 }
@@ -63,32 +65,35 @@ fn ok_response() -> &'static str {
     Box::leak(head.into_boxed_str())
 }
 
-fn agent_for(base: String, storage: Arc<Recording>) -> Agent {
+fn agent_for(base: String) -> Agent {
     let config =
         EndpointConfig::new(Dialect::OpenAiChat, "local", base).default_model("test-model");
-    Agent::new(Client::new(config, "sk-test")).memory(storage)
+    Agent::new(Client::new(config, "sk-test"))
 }
 
 #[tokio::test]
 async fn a_third_party_backend_holds_the_conversation() {
     let (base, _requests) = serve_once(ok_response());
-    let storage = Arc::new(Recording::default());
-    let agent = agent_for(base, Arc::clone(&storage));
+    let agent = agent_for(base);
+    let mut chat = agent.conversation_in(Recording::default());
 
-    agent.message("a question").await.expect("run");
+    chat.send("a question").await.expect("run");
 
-    let held = storage.load().await.unwrap();
-    assert!(held.iter().any(|m| format!("{m:?}").contains("a question")));
-    assert_eq!(*storage.appends.lock().unwrap(), 1);
+    let held = chat.storage();
+    assert!(
+        held.messages
+            .iter()
+            .any(|m| format!("{m:?}").contains("a question"))
+    );
+    assert_eq!(held.appends, 1);
 }
 
 #[tokio::test]
 async fn a_failing_load_aborts_the_run() {
     let (base, requests) = serve_once(ok_response());
-    let config =
-        EndpointConfig::new(Dialect::OpenAiChat, "local", base).default_model("test-model");
-    let agent = Agent::new(Client::new(config, "sk-test")).memory(Broken);
+    let agent = agent_for(base);
+    let mut chat = agent.conversation_in(Broken);
 
-    assert!(agent.message("a question").await.is_err());
+    assert!(chat.send("a question").await.is_err());
     assert!(requests.try_recv().is_err(), "no request may be sent");
 }

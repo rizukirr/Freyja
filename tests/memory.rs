@@ -32,10 +32,13 @@ async fn no_policy_sends_the_whole_transcript() {
     let mut messages = vec![
         Message::text(Role::User, "turn-one"),
         Message::text(Role::User, "turn-two"),
-        Message::text(Role::User, "turn-three"),
     ];
 
-    agent.messages(&mut messages).await.expect("run succeeds");
+    agent
+        .conversation_in(&mut messages)
+        .send("turn-three")
+        .await
+        .expect("run succeeds");
 
     let sent = request.recv().expect("captured request");
     assert!(sent.contains("turn-one"), "{sent}");
@@ -56,13 +59,10 @@ async fn a_failed_request_does_not_shorten_the_caller_transcript() {
     let client = Client::new(config, "sk-test");
     let agent = Agent::new(client);
 
-    let mut messages = vec![
-        Message::text(Role::User, "turn-one"),
-        Message::text(Role::User, "turn-two"),
-    ];
+    let mut messages = vec![Message::text(Role::User, "turn-one")];
     let original_len = messages.len();
 
-    let result = agent.messages(&mut messages).await;
+    let result = agent.conversation_in(&mut messages).send("turn-two").await;
 
     assert!(result.is_err(), "a 500 must surface as Err");
     assert_eq!(

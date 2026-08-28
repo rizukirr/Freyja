@@ -5,8 +5,8 @@
 //! a plain conversation with no tools at all. This example needs both: every
 //! turn may call tools, more than once, before the model settles on an
 //! answer, and across turns the conversation itself continues. This example
-//! owns that transcript directly, as an explicit `Vec<Message>` it extends by
-//! calling [`Agent::messages`] on every turn.
+//! owns that transcript directly, as an explicit `Vec<Message>` it hands to a
+//! fresh [`freyja::Conversation`] on every turn.
 //!
 //! ```sh
 //! cargo run --example agent
@@ -14,7 +14,7 @@
 //!
 //! Type a message and press enter. `/reset` starts over, `/exit` quits.
 
-use freyja::{Agent, Client, EndpointPreset, Message, Role, StopReason, tool};
+use freyja::{Agent, Client, EndpointPreset, Message, StopReason, tool};
 use std::io::{BufRead, Write};
 
 /// A sync tool: no `.await` anywhere in its body.
@@ -74,7 +74,7 @@ async fn main() {
             }
         }
 
-        match line.trim() {
+        let text = match line.trim() {
             "" => continue,
             "/exit" | "/quit" => break,
             "/reset" => {
@@ -82,10 +82,13 @@ async fn main() {
                 println!("transcript cleared");
                 continue;
             }
-            text => messages.push(Message::text(Role::User, text)),
-        }
+            text => text,
+        };
 
-        match agent.messages(&mut messages).await {
+        // A fresh conversation over the same vector every turn: `send` only
+        // appends the user turn and the answer once the run succeeds, so a
+        // failed run leaves the transcript exactly as it found it.
+        match agent.conversation_in(&mut messages).send(text).await {
             Ok(run) => {
                 println!("\nbot> {}", run.answer);
                 if run.stop == StopReason::MaxTurns {
@@ -99,13 +102,6 @@ async fn main() {
                 if error.is_retryable() {
                     eprintln!("(transient — try again)");
                 }
-
-                // Drop the user turn that was never answered, exactly as
-                // `chat.rs` does. `run` restores the vector to the length it
-                // had when called — which already includes this turn, since
-                // it was pushed above — so without this the transcript would
-                // end in a question the model never saw answered.
-                messages.pop();
             }
         }
     }

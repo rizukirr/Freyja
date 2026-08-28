@@ -7,29 +7,25 @@ use freyja::{
     Agent, Client, Dialect, EndpointConfig, InputContent, Message, Role, Storage, StorageFuture,
     split, window_by_groups,
 };
-use std::sync::Mutex;
 
 struct Windowed {
-    messages: Mutex<Vec<Message>>,
+    messages: Vec<Message>,
     keep: usize,
 }
 
 impl Storage for Windowed {
-    fn load(&self) -> StorageFuture<'_, Vec<Message>> {
-        Box::pin(async move {
-            let all = self.messages.lock().unwrap().clone();
-            Ok(window_by_groups(&all, self.keep))
-        })
+    fn load(&mut self) -> StorageFuture<'_, Vec<Message>> {
+        Box::pin(async move { Ok(window_by_groups(&self.messages, self.keep)) })
     }
-    fn append(&self, messages: Vec<Message>) -> StorageFuture<'_, ()> {
+    fn append(&mut self, messages: Vec<Message>) -> StorageFuture<'_, ()> {
         Box::pin(async move {
-            self.messages.lock().unwrap().extend(messages);
+            self.messages.extend(messages);
             Ok(())
         })
     }
-    fn clear(&self) -> StorageFuture<'_, ()> {
+    fn clear(&mut self) -> StorageFuture<'_, ()> {
         Box::pin(async move {
-            self.messages.lock().unwrap().clear();
+            self.messages.clear();
             Ok(())
         })
     }
@@ -53,12 +49,16 @@ async fn a_backend_can_trim_with_the_public_grouping_function() {
     let config =
         EndpointConfig::new(Dialect::OpenAiChat, "local", base).default_model("test-model");
     let storage = Windowed {
-        messages: Mutex::new(vec![Message::text(freyja::Role::User, "SENTINEL-OLD")]),
+        messages: vec![Message::text(freyja::Role::User, "SENTINEL-OLD")],
         keep: 1,
     };
-    let agent = Agent::new(Client::new(config, "sk-test")).memory(storage);
+    let agent = Agent::new(Client::new(config, "sk-test"));
 
-    agent.message("SENTINEL-NEW").await.expect("run");
+    agent
+        .conversation_in(storage)
+        .send("SENTINEL-NEW")
+        .await
+        .expect("run");
 
     let sent = requests.recv().expect("request");
     assert!(sent.contains("SENTINEL-NEW"), "{sent}");
