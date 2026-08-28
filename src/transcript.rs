@@ -490,17 +490,36 @@ mod tests {
         history
     }
 
-    #[test]
-    fn split_is_linear() {
+    /// Every call opened before any is answered, so the whole transcript is one
+    /// group holding every call open at once.
+    ///
+    /// This is where an implementation that rescans the open span would go
+    /// quadratic, and interleaved calls fragmenting into separate groups was a
+    /// real defect once. Measured, this shape doubles at 2.01 against
+    /// `one_open_call_then_pinned`'s 1.22, so a slide toward quadratic shows
+    /// here first: that fixture is diluted by fixed costs, this one is not.
+    fn many_open_calls_then_results(n: usize) -> Vec<Message> {
+        let mut history: Vec<Message> = (0..n).map(|i| call(&format!("c{i}"))).collect();
+        history.extend(
+            (0..n)
+                .rev()
+                .map(|i| Message::tool_result(format!("c{i}"), "out")),
+        );
+        history
+    }
+
+    /// The cost at four thousand messages divided by the cost at two thousand.
+    ///
+    /// `split` is deterministic, so its true cost is the floor and everything
+    /// above it is interference from the rest of the machine. Taking the
+    /// minimum of several samples measures the function. Taking one sample
+    /// measures the machine, which is how this test came to fail once on a
+    /// loaded runner while the code under it was linear the whole time.
+    /// Measured on an idle machine, twenty-five single-sample ratios gave a
+    /// floor of 1.85 and a maximum of 2.57 against a threshold of 3.0.
+    fn doubling_ratio(shape: fn(usize) -> Vec<Message>) -> f64 {
         use std::time::Instant;
 
-        // split is deterministic, so its true cost is the floor and everything
-        // above it is interference from the rest of the machine. Taking the
-        // minimum measures the function. Taking one sample measures the
-        // machine, which is how this test came to fail once on a loaded runner
-        // while the code under it was linear the whole time. Measured on an
-        // idle machine, twenty-five ratios gave a floor of 1.85 and a maximum
-        // of 2.57 against the threshold of 3.0 below.
         fn timed(history: &[Message]) -> std::time::Duration {
             (0..5)
                 .map(|_| {
@@ -514,17 +533,30 @@ mod tests {
                 .expect("at least one sample")
         }
 
-        let small = one_open_call_then_pinned(2_000);
-        let large = one_open_call_then_pinned(4_000);
+        let small = shape(2_000);
+        let large = shape(4_000);
 
         // Warm up, so the first allocation does not land inside a measurement.
         let _ = timed(&small);
 
-        let ratio = timed(&large).as_secs_f64() / timed(&small).as_secs_f64();
+        timed(&large).as_secs_f64() / timed(&small).as_secs_f64()
+    }
 
+    #[test]
+    fn split_is_linear() {
         // Doubling the input doubles linear work and quadruples quadratic
         // work. Measured on the old implementation, doubling gave 4.10. Three
         // sits between the two curves with room on both sides.
+        let ratio = doubling_ratio(one_open_call_then_pinned);
+        assert!(ratio < 3.0, "doubling the input scaled by {ratio}");
+    }
+
+    #[test]
+    fn split_is_linear_with_interleaved_calls() {
+        // The same threshold on the shape most likely to go wrong. One fixture
+        // guards the property on one shape only, and the shape this test was
+        // first written for is the least sensitive of the ones measured.
+        let ratio = doubling_ratio(many_open_calls_then_results);
         assert!(ratio < 3.0, "doubling the input scaled by {ratio}");
     }
 }
