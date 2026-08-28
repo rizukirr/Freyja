@@ -25,10 +25,10 @@ Update imports and error matching with this rename table:
 | `Agent::request(GenerateRequest::new().model(..))` | `Agent::model(..)`, and the same for `max_tokens`, `temperature`, `top_p`, `reasoning_effort`, `tool_choice`, `extra_for` |
 | a system prompt on an `Agent` template | `Agent::system(..)` |
 | `Agent::run`, `Agent::run_with` | `Agent::messages`, `Agent::messages_with` |
-| `Agent::chat()` and `Chat::ask` | `Agent::memory(InMemoryStorage::new())` and `Agent::message` |
+| `Agent::chat()` and `Chat::ask` | `agent.conversation()` and `chat.send(..)` |
 | `Memory`, `MemoryError`, `MemoryFuture` | `Filter`, `FilterError`, `FilterFuture` |
-| `Agent::memory(impl Memory)` | `Agent::filter(impl Filter)`, and `Agent::memory` now takes `Storage` |
-| `Agent::filter(Window::groups(n))` | `Agent::memory(InMemoryStorage::new().window(n))` |
+| `Agent::memory(impl Memory)` | a `Storage` implementation trims inside `Storage::load`, supplied to `agent.conversation_in(..)` |
+| `Agent::filter(Window::groups(n))` | `agent.conversation().window(n)` |
 | `Filter`, `FilterError`, `FilterFuture`, `Window` | removed. A backend trims inside `Storage::load`, with `window_by_groups` if it wants groups |
 | `Agent::memory(store)` then `agent.message(..)` | `agent.conversation_in(store)` then `chat.send(..)`, or `agent.conversation()` for one held in this process |
 | `Agent::messages(&mut history)` | `agent.conversation_in(&mut history).send(..)`. The vector is still extended in place |
