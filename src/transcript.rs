@@ -494,12 +494,24 @@ mod tests {
     fn split_is_linear() {
         use std::time::Instant;
 
+        // split is deterministic, so its true cost is the floor and everything
+        // above it is interference from the rest of the machine. Taking the
+        // minimum measures the function. Taking one sample measures the
+        // machine, which is how this test came to fail once on a loaded runner
+        // while the code under it was linear the whole time. Measured on an
+        // idle machine, twenty-five ratios gave a floor of 1.85 and a maximum
+        // of 2.57 against the threshold of 3.0 below.
         fn timed(history: &[Message]) -> std::time::Duration {
-            let start = Instant::now();
-            for _ in 0..5 {
-                let _ = super::split(history);
-            }
-            start.elapsed()
+            (0..5)
+                .map(|_| {
+                    let start = Instant::now();
+                    for _ in 0..5 {
+                        let _ = super::split(history);
+                    }
+                    start.elapsed()
+                })
+                .min()
+                .expect("at least one sample")
         }
 
         let small = one_open_call_then_pinned(2_000);
