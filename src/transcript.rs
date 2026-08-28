@@ -21,9 +21,6 @@ use std::collections::{HashMap, HashSet};
 /// field of their own, and it means an instruction meant to apply from one
 /// point onward will instead frame the whole conversation.
 ///
-/// Public so a storage backend written elsewhere can trim on safe boundaries
-/// without reimplementing this.
-///
 /// A group stays open while any call in it is unanswered, so a call and the
 /// result answering it are always evicted together, whatever sits between
 /// them. Interleaved calls therefore share one group rather than fragmenting.
@@ -31,7 +28,7 @@ use std::collections::{HashMap, HashSet};
 /// A pinned turn arriving while a call is open therefore joins that group
 /// rather than the pinned list. It is not lost: [`window_by_groups`] rescues a
 /// pinned turn out of any group it drops and moves it to the front.
-pub fn split(history: &[Message]) -> (Vec<&Message>, Vec<&[Message]>) {
+pub(crate) fn split(history: &[Message]) -> (Vec<&Message>, Vec<&[Message]>) {
     let mut pinned = Vec::new();
     let mut groups: Vec<&[Message]> = Vec::new();
     let mut start: Option<usize> = None;
@@ -92,7 +89,7 @@ pub fn split(history: &[Message]) -> (Vec<&Message>, Vec<&[Message]>) {
 /// the exchange survives, and moves to the front once the exchange ages out.
 /// It is never dropped, so an instruction always reaches the model, but its
 /// position depends on the window size.
-pub fn window_by_groups(history: &[Message], keep: usize) -> Vec<Message> {
+pub(crate) fn window_by_groups(history: &[Message], keep: usize) -> Vec<Message> {
     let (pinned, groups) = split(history);
     let from = groups.len().saturating_sub(keep);
 

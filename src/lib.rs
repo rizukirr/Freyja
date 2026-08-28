@@ -133,7 +133,6 @@ pub use model::{
 };
 pub use storage::{InMemoryStorage, Storage, StorageError, StorageFuture};
 pub use stream::{EventStream, StreamEvent};
-pub use transcript::{split, window_by_groups};
 
 /// Private dependencies used by generated code.
 #[doc(hidden)]

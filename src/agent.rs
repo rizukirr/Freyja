@@ -353,30 +353,28 @@ impl Agent {
         })
     }
 
-    /// Starts a conversation held in this process.
+    /// Starts a conversation held in `storage`.
     ///
-    /// The transcript lives in a `Vec<Message>` the conversation owns, so
-    /// nothing else needs naming to get started:
+    /// Pass [`crate::InMemoryStorage`] for one held in this process, `&mut
+    /// history` to run over a transcript you already hold, which is extended
+    /// in place, or a backend of your own.
     ///
     /// ```no_run
     /// # async fn run(agent: freyja::Agent) -> Result<(), freyja::Error> {
-    /// let mut chat = agent.conversation();
+    /// use freyja::InMemoryStorage;
+    ///
+    /// let mut chat = agent.conversation(InMemoryStorage::new());
     /// println!("{}", chat.send("hello").await?.answer);
     /// # Ok(())
     /// # }
     /// ```
     ///
     /// Takes `&self`, so one agent hands out as many conversations as you
-    /// like. The agent is configuration, and configuration is shareable.
-    pub fn conversation(&self) -> Conversation<Vec<Message>> {
-        self.conversation_in(Vec::new())
-    }
-
-    /// Starts a conversation held in `storage`.
-    ///
-    /// Pass a backend of your own, or `&mut history` to run over a transcript
-    /// you already hold, which is extended in place.
-    pub fn conversation_in<S: Storage>(&self, storage: S) -> Conversation<S> {
+    /// like. The agent is configuration, and configuration is shareable. The
+    /// storage is taken by value, so the conversation owns it, which is what
+    /// makes the exclusive borrow on [`crate::Conversation::send`] a true
+    /// statement rather than a convention.
+    pub fn conversation<S: Storage>(&self, storage: S) -> Conversation<S> {
         Conversation::new(self.clone(), storage)
     }
 

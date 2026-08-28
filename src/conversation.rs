@@ -15,16 +15,11 @@ use crate::{Agent, Context, Error, Message, Run, Storage};
 pub struct Conversation<S: Storage> {
     agent: Agent,
     storage: S,
-    window: Option<usize>,
 }
 
 impl<S: Storage> Conversation<S> {
     pub(crate) fn new(agent: Agent, storage: S) -> Self {
-        Self {
-            agent,
-            storage,
-            window: None,
-        }
+        Self { agent, storage }
     }
 
     /// The backend holding this conversation.
@@ -82,9 +77,10 @@ impl<S: Storage> Conversation<S> {
 
     /// Adds one turn and runs the loop with per-run context.
     ///
-    /// Loads from storage, repairs the transcript, applies any window, appends
-    /// the turn, runs the loop, then writes the new turns back. Storage is
-    /// written last, so a failed run records nothing.
+    /// Loads from storage, repairs the transcript, appends the turn, runs the
+    /// loop, then writes the new turns back. Storage is written last, so a
+    /// failed run records nothing. Trimming is the backend's business and has
+    /// already happened inside `load`.
     pub async fn send_with(
         &mut self,
         message: impl Into<Message>,
@@ -102,10 +98,6 @@ impl<S: Storage> Conversation<S> {
         // mentions nothing about trimming.
         crate::transcript::repair(&mut history);
 
-        if let Some(groups) = self.window {
-            history = crate::transcript::window_by_groups(&history, groups);
-        }
-
         let before = history.len();
         history.push(message.into());
 
@@ -117,24 +109,5 @@ impl<S: Storage> Conversation<S> {
             .map_err(|error| self.agent.storage_error(format!("storage append: {error}")))?;
 
         Ok(run)
-    }
-}
-
-impl Conversation<Vec<Message>> {
-    /// Send only the most recent `groups` turn groups, plus pinned turns.
-    ///
-    /// Everything is still held, and [`Conversation::storage`] returns it.
-    ///
-    /// A group is a message, except that an assistant turn requesting tools
-    /// and the results answering it are one group. So an exchange costs two
-    /// groups without tools and three with them: `window(20)` keeps roughly
-    /// seven exchanges, not twenty.
-    ///
-    /// Only on a conversation held in this process. A backend of your own
-    /// trims inside its own `load`, where it can push the limit into the query
-    /// rather than fetching everything first.
-    pub fn window(mut self, groups: usize) -> Self {
-        self.window = Some(groups);
-        self
     }
 }
