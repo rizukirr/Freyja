@@ -29,16 +29,10 @@ A plain vector is a complete `Storage` implementation. It holds the conversation
 ## Starting a conversation
 
 ```rust
-let mut chat = agent.conversation();
+let mut chat = agent.conversation(InMemoryStorage::new());
 ```
 
-`Agent::conversation()` starts a conversation backed by a fresh `Vec<Message>` the conversation owns. It is the easy path, and it names no storage type at all.
-
-```rust
-let mut chat = agent.conversation_in(my_backend);
-```
-
-`Agent::conversation_in(storage)` starts one over any `Storage` you already have, including a borrowed vector or a backend of your own. Both return a `Conversation`, and both are driven the same way from there.
+`Agent::conversation(storage)` is the only constructor, and it always takes the backend as an argument, so nothing chooses one for you. Pass `InMemoryStorage::new()` for a conversation held in this process, a borrowed vector, or a backend of your own. All return a `Conversation<S>` over whichever `Storage` you passed, and all are driven the same way from there.
 
 ```rust
 let run = chat.send("what's the weather?").await?;
@@ -46,34 +40,25 @@ let run = chat.send("what's the weather?").await?;
 
 `Conversation::send` loads from storage, repairs the transcript, applies a window if one is set, appends the new turn, runs the tool-calling loop, then writes the turns the run produced back to storage, storage last, so a run that fails partway records nothing. `Conversation::send_with` is the same call with per-run `Context` attached, and `send` is exactly `send_with` with an empty one.
 
-## `window` lives on the conversation, and shapes what is sent
+## `window` lives on the backend, and shapes what is sent
 
 ```rust
-let chat = agent.conversation().window(20);
+let mut chat = agent.conversation(InMemoryStorage::new().window(20));
 ```
 
-`window` exists only on `Conversation<Vec<Message>>`, the kind `agent.conversation()` returns, because a backend of your own decides its own trimming inside its own `load` instead, where it can push the limit into the query rather than fetching everything first. Calling `window(groups)` does not discard anything: everything ever appended is still held, and only what one `send` puts on the wire is shaped. A group is a message, except that an assistant turn requesting tools and the results answering it are one group, so an exchange without tools costs two groups and one with tools costs three or more. `window(20)` therefore keeps roughly seven exchanges for a tool-using agent, not twenty.
+Windowing is a feature of the backend, not of `Conversation`, because a backend of your own decides its own trimming inside its own `load`, where it can push the limit into the query rather than fetching everything first. `InMemoryStorage::window(groups)` is the built-in backend's version of that same choice: the window is applied inside `InMemoryStorage::load`, not on the way in, so calling `window(groups)` does not discard anything. Everything ever appended is still held, and reachable by dereferencing the backend, `InMemoryStorage` implements `Deref<Target = [Message]>`, so `chat.storage().len()` or iterating `chat.storage()` sees the whole transcript even when a window is set. Only what one `send` puts on the wire is shaped. A turn group is a message, except that an assistant turn requesting tools and the results answering it are one group, so an exchange without tools costs two groups and one with tools costs three or more. `window(20)` therefore keeps roughly seven exchanges for a tool-using agent, not twenty. A backend of your own has no obligation to be group aware at all: it can trim by count, by age, by token budget, or not trim, since the repair pass downstream cleans up whatever cut it made.
 
 ## `storage()` returns the backend
 
 ```rust
-let held: &Vec<Message> = chat.storage();
+let held = chat.storage();
 ```
 
-`Conversation::storage` returns a reference to the backend itself. For `agent.conversation()` that is the whole `Vec<Message>`, including everything a window would leave out of the next request, which is how a caller checks what has actually accumulated rather than what was last sent.
+`Conversation::storage` returns a reference to the backend itself. For `InMemoryStorage` that reference derefs to `[Message]`, including everything a window would leave out of the next request, which is how a caller checks what has actually accumulated rather than what was last sent.
 
 ## The repair pass
 
 `send` runs a crate-private repair pass on whatever `load` returns, before sending it. The pass drops any tool result whose originating call is absent, and any tool call whose result is absent, removing a message left with no content once its dropped half is gone. It also checks position, not only presence: a result is kept only when the call it answers strictly precedes it, so a backend that hands back a result ahead of its call loses both messages, the call going too because a call with no usable answer is rejected on the wire anyway. This protects a hand-written backend that trims on the wrong boundary or sorts on the wrong column: a backend cut at an arbitrary message rather than a group boundary can hand back a dangling call or a dangling result, and a backend ordering by a timestamp can hand back a pair in the wrong order, and every provider rejects both shapes with an error that says nothing about trimming or ordering. Repair runs unconditionally, once, after every `load`, before any window is applied, so a backend that knows nothing about tool pairing cannot produce a request that fails this way.
-
-## `split` and `window_by_groups`
-
-```rust
-pub fn split(history: &[Message]) -> (Vec<&Message>, Vec<&[Message]>);
-pub fn window_by_groups(history: &[Message], keep: usize) -> Vec<Message>;
-```
-
-Both are public so a backend written outside the crate can trim on safe boundaries without reimplementing turn grouping. `split` divides a transcript into its pinned turns, meaning `Role::System` and `Role::Developer`, and its groups, in order. `window_by_groups` is what `Conversation::window` calls internally: pinned turns plus the most recent `keep` groups, cloned into one new `Vec<Message>`. A backend that trims for itself calls `window_by_groups` inside its own `load` rather than reimplementing the grouping rule.
 
 ## A worked external backend
 
@@ -106,8 +91,7 @@ impl Storage for PgStorage {
             .bind(self.conversation_id)
             .fetch_all(&self.pool)
             .await?;
-            let history: Vec<Message> = rows.into_iter().map(|row| row.payload).collect();
-            Ok(window_by_groups(&history, 40))
+            Ok(rows.into_iter().map(|row| row.payload).collect())
         })
     }
 
@@ -136,7 +120,7 @@ impl Storage for PgStorage {
 }
 ```
 
-`pool` is a clone of a connection pool the application already holds, so building a `PgStorage` per conversation is cheap. Trimming happens twice, and both halves matter. The `LIMIT 200` bounds what the database sends, so a long conversation does not stream its entire history across the wire on every turn. It is deliberately far larger than the window, because a raw row limit can cut between a tool call and the result answering it, and a transcript missing half a pair is rejected by every provider. `window_by_groups` then makes the real cut, on a boundary that never splits a group. Pick the `LIMIT` generously enough that the window is always reached before it, and treat it as a ceiling on transfer rather than as the trimming itself. Ordering is by `seq`, a column the schema defines as strictly monotonic, generated by the database on insert, never by a timestamp column: a timestamp only carries second, or at best millisecond, resolution, and two inserts issued close together can commit in either order relative to their clock reading, so a `SELECT ... ORDER BY inserted_at` can return a tool result ahead of the call it answers even though the call was appended first. A strictly monotonic sequence has no such window.
+`pool` is a clone of a connection pool the application already holds, so building a `PgStorage` per conversation is cheap. The `LIMIT 200` bounds what the database sends, so a long conversation does not stream its entire history across the wire on every turn, and that is the only trimming this backend does. The cut it makes may land anywhere, including between a tool call and the result answering it, and a raw row limit has no way to know the difference. That is fine: the crate-private repair pass that runs inside `Conversation::send` drops both halves of a pair the cut separated, before the request is built, so a backend author never needs to know what a turn group is or reach for anything group aware to stay safe. Ordering is by `seq`, a column the schema defines as strictly monotonic, generated by the database on insert, never by a timestamp column: a timestamp only carries second, or at best millisecond, resolution, and two inserts issued close together can commit in either order relative to their clock reading, so a `SELECT ... ORDER BY inserted_at` can return a tool result ahead of the call it answers even though the call was appended first. A strictly monotonic sequence has no such window.
 
 ## Two limits
 

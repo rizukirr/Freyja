@@ -142,7 +142,7 @@ struct UserId(String);
 let mut cx = Context::new();
 cx.insert(UserId("u_42".to_string()));
 
-let run = agent.conversation_in(&mut messages).send_with("what's the weather?", &cx).await?;
+let run = agent.conversation(&mut messages).send_with("what's the weather?", &cx).await?;
 ```
 
 `Conversation::send_with` takes the same context. `Conversation::send` is the same call with an empty one.
