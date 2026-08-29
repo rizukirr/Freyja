@@ -179,6 +179,82 @@ async fn the_backend_hands_back_what_it_holds_without_cloning() {
 }
 
 #[tokio::test]
+async fn a_pending_tool_call_is_repaired_after_the_answer_arrives() {
+    let (base, requests) = serve(&[ok_response()]);
+    let agent = agent_for(base);
+    let backend = Recording {
+        messages: vec![
+            Message::text(Role::User, "call a tool"),
+            Message::new(
+                Role::Assistant,
+                vec![InputContent::ToolCall {
+                    id: "call_1".to_string(),
+                    name: "t".to_string(),
+                    arguments: "{}".to_string(),
+                }],
+            ),
+        ],
+        appends: 0,
+    };
+    let mut chat = agent.conversation(backend);
+
+    chat.send(Message::tool_result("call_1", "42"))
+        .await
+        .expect("run");
+
+    let sent = requests.recv().expect("request");
+    assert!(
+        sent.contains(r#""id":"call_1""#),
+        "tool call missing from the request: {sent}"
+    );
+    assert!(
+        sent.contains(r#""tool_call_id":"call_1""#),
+        "tool result missing from the request: {sent}"
+    );
+}
+
+#[tokio::test]
+async fn an_unmatched_tool_result_is_refused_rather_than_recorded() {
+    let (base, _requests) = serve(&[ok_response()]);
+    let agent = agent_for(base);
+    let mut chat = agent.conversation(Recording::default());
+
+    chat.send(Message::tool_result("call_missing", "42"))
+        .await
+        .expect_err("a tool result answering no open call must be refused");
+
+    let held = chat.storage();
+    assert!(
+        held.messages.is_empty(),
+        "a refused turn must record nothing"
+    );
+}
+
+#[tokio::test]
+async fn a_turn_answering_no_open_call_is_refused() {
+    let (base, requests) = serve(&[ok_response()]);
+    let agent = agent_for(base);
+    let backend = Recording {
+        messages: vec![Message::text(Role::User, "hello")],
+        appends: 0,
+    };
+    let mut chat = agent.conversation(backend);
+    let before = chat.storage().messages.clone();
+
+    let error = chat
+        .send(Message::tool_result("call_missing", "42"))
+        .await
+        .expect_err("a tool result answering no open call must be refused");
+
+    assert!(
+        error.to_string().contains("call_missing"),
+        "error should name the orphaned call: {error}"
+    );
+    assert!(requests.try_recv().is_err(), "no request may be sent");
+    assert_eq!(chat.storage().messages, before);
+}
+
+#[tokio::test]
 async fn a_boxed_backend_is_forwarded_to() {
     let (base, _requests) = serve(&[ok_response()]);
     let agent = agent_for(base);

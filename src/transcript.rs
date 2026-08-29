@@ -129,7 +129,7 @@ pub(crate) fn window_by_groups(history: &[Message], keep: usize) -> Vec<Message>
 /// anyway. Where an id appears more than once, the first occurrence in each
 /// direction is the one compared.
 ///
-/// The one call site is [`crate::Agent::message`], applied to what
+/// The one call site is [`crate::Conversation::send`], applied to what
 /// [`crate::Storage::load`] returned, and nothing in this crate can produce a
 /// result ahead of its call. The order comes from a backend, which is why this
 /// is checked here at all: `Storage` is a boundary this crate does not review.
@@ -423,6 +423,22 @@ mod tests {
         ]
     }
 
+    /// A pinned turn outside any exchange, so it survives the pre-repair in
+    /// `a_window_output_needs_no_repair` with its tool pair intact.
+    ///
+    /// `pinned_inside_exchange` cannot: its `Developer` turn sits between a
+    /// call and its result, which the adjacency rule breaks, leaving three
+    /// plain messages that assert nothing about pairing at any window size.
+    fn pinned_outside_exchange() -> Vec<Message> {
+        vec![
+            Message::text(Role::User, "go"),
+            Message::text(Role::Developer, "mid"),
+            call("c1"),
+            Message::tool_result("c1", "out"),
+            Message::text(Role::Assistant, "done"),
+        ]
+    }
+
     /// Two calls open before either is answered, and the results arrive in the
     /// reverse order. Fragments into four groups before this change.
     fn interleaved() -> Vec<Message> {
@@ -496,13 +512,37 @@ mod tests {
         for history in [
             tool_conversation(),
             parallel_conversation(),
-            pinned_inside_exchange(),
+            pinned_outside_exchange(),
             interleaved(),
             interleaved_with_pinned(),
             answers_and_opens_in_one_message(),
         ] {
             let mut history = history;
             repair(&mut history);
+
+            // A fixture that loses all its tool content to the pre-repair
+            // asserts nothing at any window size. `pinned_inside_exchange`
+            // does exactly that under the adjacency rule, and it was added
+            // because it was the case that made this test pass while the
+            // property it asserts was false. Fail loudly rather than pass
+            // vacuously the next time a rule empties one.
+            let calls = history.iter().any(|message| {
+                message
+                    .content
+                    .iter()
+                    .any(|content| matches!(content, InputContent::ToolCall { .. }))
+            });
+            let results = history.iter().any(|message| {
+                message
+                    .content
+                    .iter()
+                    .any(|content| matches!(content, InputContent::ToolResult { .. }))
+            });
+            assert!(
+                calls && results,
+                "a fixture lost all its tool content to the pre-repair, so it \
+                 checks nothing: {history:?}"
+            );
 
             for keep in 0..=history.len() {
                 let mut selected = window_by_groups(&history, keep);
@@ -641,21 +681,48 @@ mod tests {
         timed(&large).as_secs_f64() / timed(&small).as_secs_f64()
     }
 
+    /// Fails only when every attempt exceeds the threshold.
+    ///
+    /// The two things that push this ratio up behave differently under
+    /// repetition, and that is the whole point. A quadratic implementation
+    /// exceeds the threshold in every attempt, so retrying never rescues it.
+    /// Interference from the rest of the machine exceeds it in some, so one
+    /// clean measurement is enough to know the code is linear.
+    ///
+    /// `timed` already takes the minimum of several samples, which defeats a
+    /// stall. It does not defeat sustained saturation, which is what a machine
+    /// compiling something else produces, and this is the layer that does.
+    ///
+    /// Doubling the input doubles linear work and quadruples quadratic work.
+    /// Measured on the old implementation, doubling gave 4.10. Three sits
+    /// between the two curves with room on both sides.
+    fn assert_linear(shape: fn(usize) -> Vec<Message>) {
+        let mut seen = Vec::new();
+
+        for _ in 0..5 {
+            let ratio = doubling_ratio(shape);
+            if ratio < 3.0 {
+                return;
+            }
+            seen.push(ratio);
+        }
+
+        // Every ratio, not just the last: five values near four read as a
+        // curve, where one value tells the reader nothing about which of the
+        // two causes they are looking at.
+        panic!("doubling the input scaled by {seen:?} in every attempt");
+    }
+
     #[test]
     fn split_is_linear() {
-        // Doubling the input doubles linear work and quadruples quadratic
-        // work. Measured on the old implementation, doubling gave 4.10. Three
-        // sits between the two curves with room on both sides.
-        let ratio = doubling_ratio(one_open_call_then_pinned);
-        assert!(ratio < 3.0, "doubling the input scaled by {ratio}");
+        assert_linear(one_open_call_then_pinned);
     }
 
     #[test]
     fn split_is_linear_with_interleaved_calls() {
-        // The same threshold on the shape most likely to go wrong. One fixture
-        // guards the property on one shape only, and the shape this test was
-        // first written for is the least sensitive of the ones measured.
-        let ratio = doubling_ratio(many_open_calls_then_results);
-        assert!(ratio < 3.0, "doubling the input scaled by {ratio}");
+        // The shape most likely to go wrong. One fixture guards the property
+        // on one shape only, and the shape this test was first written for is
+        // the least sensitive of the ones measured.
+        assert_linear(many_open_calls_then_results);
     }
 }
