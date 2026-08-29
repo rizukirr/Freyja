@@ -66,9 +66,23 @@ impl Storage for Broken {
 /// A backend whose clear deletes what it can and then fails, which is what a
 /// store with no transaction does. `Conversation` must neither roll this back
 /// nor hide it behind an `Ok`.
-#[derive(Default)]
+///
+/// `deletes` is how many messages it gets through before the failure, so one
+/// fixture covers a store that failed before deleting anything, one that got
+/// part way, and one that emptied the conversation and then lost the
+/// connection acknowledging it.
 struct HalfClearing {
     messages: Vec<Message>,
+    deletes: usize,
+}
+
+impl HalfClearing {
+    fn failing_after(deletes: usize) -> Self {
+        Self {
+            messages: Vec::new(),
+            deletes,
+        }
+    }
 }
 
 impl Storage for HalfClearing {
@@ -85,7 +99,8 @@ impl Storage for HalfClearing {
 
     fn clear(&mut self) -> StorageFuture<'_, ()> {
         Box::pin(async move {
-            self.messages.remove(0);
+            let deletes = self.deletes.min(self.messages.len());
+            self.messages.drain(..deletes);
             Err(std::io::Error::other("deleted some rows, then lost the connection").into())
         })
     }
@@ -460,28 +475,35 @@ async fn configuration_survives_a_clear() {
 }
 
 #[tokio::test]
-async fn a_half_cleared_backend_reports_what_survived() {
-    let (base, _requests) = serve(&[ok_response()]);
-    let agent = agent_for(base);
-    let mut chat = agent.conversation(HalfClearing::default());
+async fn a_failed_clear_leaves_exactly_what_the_backend_reached() {
+    // Every shape a transactionless store can fail in: before deleting
+    // anything, part way through, and after emptying the conversation. What
+    // `Conversation` must do is the same in all three, and asserting the exact
+    // survivor count rather than an inequality is what shows it neither rolls
+    // the failure back nor hides it behind an `Ok`.
+    for deletes in 0..=2 {
+        let (base, _requests) = serve(&[ok_response()]);
+        let agent = agent_for(base);
+        let mut chat = agent.conversation(HalfClearing::failing_after(deletes));
 
-    chat.send("a question").await.expect("run");
-    let before = chat.storage().messages.len();
+        chat.send("a question").await.expect("run");
+        let before = chat.storage().messages.len();
+        assert!(
+            before >= deletes,
+            "the turn must be long enough to test this"
+        );
 
-    assert!(
-        chat.clear().await.is_err(),
-        "a store with no transaction must surface a partial clear as an error"
-    );
+        assert!(
+            chat.clear().await.is_err(),
+            "a store with no transaction must surface a failed clear as an error"
+        );
 
-    let after = chat.storage().messages.len();
-    assert!(
-        after > 0,
-        "the backend must show what it did not get to delete"
-    );
-    assert!(
-        after < before,
-        "the backend must not hide the deletion behind an intact transcript"
-    );
+        assert_eq!(
+            chat.storage().messages.len(),
+            before - deletes,
+            "the backend must show exactly what it did not get to delete"
+        );
+    }
 }
 
 #[tokio::test]
