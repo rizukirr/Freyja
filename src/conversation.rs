@@ -88,25 +88,45 @@ impl<S: Storage> Conversation<S> {
         message: impl Into<Message>,
         cx: &Context,
     ) -> Result<Run, Error> {
+        // Held rather than pushed and forgotten: the append boundary below
+        // cannot be an index into `history`, because `repair` may remove
+        // messages before it and shift everything after.
+        let turn: Message = message.into();
+
         let mut history = self
             .storage
             .load()
             .await
             .map_err(|error| self.agent.storage_error(format!("storage load: {error}")))?;
 
+        history.push(turn.clone());
+
         // Every backend decides its own trimming, including ones nobody here
         // reviewed. This is what stops any of them sending a tool result whose
         // call it dropped, which every provider rejects with an error that
         // mentions nothing about trimming.
+        //
+        // It runs after the caller's turn is pushed, not before, so it judges
+        // the transcript that will actually be sent. Repairing the loaded
+        // history alone deletes a trailing unanswered call one step before the
+        // caller supplies the answer that would have made it valid, which is
+        // exactly the human-in-the-loop tool approval shape.
         crate::transcript::repair(&mut history);
 
         let before = history.len();
-        history.push(message.into());
 
         let run = self.agent.run_loop(&mut history, cx).await?;
 
+        // The caller's turn is recorded whether or not `repair` kept it in the
+        // request. `repair` never writes back, so content it drops from a
+        // loaded transcript stays in storage and is dropped again next time,
+        // and the caller's turn follows the same rule. Discarding it would
+        // return `Ok` while the message existed nowhere.
+        let mut new = vec![turn];
+        new.extend(history.split_off(before));
+
         self.storage
-            .append(history.split_off(before))
+            .append(new)
             .await
             .map_err(|error| self.agent.storage_error(format!("storage append: {error}")))?;
 
