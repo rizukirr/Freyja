@@ -30,6 +30,39 @@ impl<S: Storage> Conversation<S> {
         &self.storage
     }
 
+    /// Empties the conversation, in the backend as well as in this handle.
+    ///
+    /// The conversation stays usable: the next [`Conversation::send`] loads an
+    /// empty transcript and continues with the same agent, the same backend
+    /// and the same window. This is a reset, not a teardown.
+    ///
+    /// Dropping a `Conversation` is not a substitute. It is one for a
+    /// transcript held in this process, which dies with the value, and it is
+    /// not one for a backend that persists: rows keyed by a conversation id
+    /// outlive the `Conversation`, and building a new one over that id loads
+    /// them straight back.
+    ///
+    /// A failure leaves the backend in whatever state it reached. `Storage`
+    /// has no transaction, so a store that deletes some rows and then fails
+    /// leaves the conversation half cleared, and this returns `Err` without
+    /// being able to say which half. Treat the conversation as indeterminate
+    /// and clear it again rather than assuming either outcome.
+    ///
+    /// Calling it again is the recourse: [`crate::Storage::clear`] requires an
+    /// implementation to succeed on an already-empty conversation, so a retry
+    /// after a failure is safe on any backend honouring that.
+    ///
+    /// Two `Conversation` values over one deliberately shared backend can
+    /// interleave a clear with a send, the same way they can interleave two
+    /// sends. `&mut self` only stops that within one `Conversation`. See the
+    /// storage reference for the hazard in full.
+    pub async fn clear(&mut self) -> Result<(), Error> {
+        self.storage
+            .clear()
+            .await
+            .map_err(|error| self.agent.storage_error(format!("storage clear: {error}")))
+    }
+
     /// Two overlapping sends on one conversation do not compile. Both would
     /// load before either appended, so the second would answer against a
     /// transcript missing the first, and the stored order would be the order

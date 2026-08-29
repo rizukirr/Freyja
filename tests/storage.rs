@@ -6,8 +6,13 @@ mod common;
 use common::serve;
 use freyja::{
     Agent, Client, Dialect, EndpointConfig, InMemoryStorage, InputContent, Message, Role, Storage,
-    StorageFuture,
+    StorageFuture, tool,
 };
+
+#[tool(description = "adds two numbers together")]
+fn add(a: i64, b: i64) -> i64 {
+    a + b
+}
 
 /// A backend that records every append, so a test can see what was stored.
 ///
@@ -17,6 +22,7 @@ use freyja::{
 struct Recording {
     messages: Vec<Message>,
     appends: usize,
+    clears: usize,
 }
 
 impl Storage for Recording {
@@ -34,6 +40,7 @@ impl Storage for Recording {
 
     fn clear(&mut self) -> StorageFuture<'_, ()> {
         Box::pin(async move {
+            self.clears += 1;
             self.messages.clear();
             Ok(())
         })
@@ -52,7 +59,61 @@ impl Storage for Broken {
         Box::pin(async { Ok(()) })
     }
     fn clear(&mut self) -> StorageFuture<'_, ()> {
-        Box::pin(async { Ok(()) })
+        Box::pin(async { Err(std::io::Error::other("backend unreachable").into()) })
+    }
+}
+
+/// A backend whose clear deletes what it can and then fails, which is what a
+/// store with no transaction does. `Conversation` must neither roll this back
+/// nor hide it behind an `Ok`.
+#[derive(Default)]
+struct HalfClearing {
+    messages: Vec<Message>,
+}
+
+impl Storage for HalfClearing {
+    fn load(&mut self) -> StorageFuture<'_, Vec<Message>> {
+        Box::pin(async move { Ok(self.messages.clone()) })
+    }
+
+    fn append(&mut self, messages: Vec<Message>) -> StorageFuture<'_, ()> {
+        Box::pin(async move {
+            self.messages.extend(messages);
+            Ok(())
+        })
+    }
+
+    fn clear(&mut self) -> StorageFuture<'_, ()> {
+        Box::pin(async move {
+            self.messages.remove(0);
+            Err(std::io::Error::other("deleted some rows, then lost the connection").into())
+        })
+    }
+}
+
+/// One backend behind two conversations, which the storage reference warns
+/// against. The lock is what a deliberately shared backend costs; a
+/// `Conversation` that owns its backend outright needs none.
+#[derive(Clone, Default)]
+struct Shared(std::sync::Arc<std::sync::Mutex<Vec<Message>>>);
+
+impl Storage for Shared {
+    fn load(&mut self) -> StorageFuture<'_, Vec<Message>> {
+        Box::pin(async move { Ok(self.0.lock().expect("not poisoned").clone()) })
+    }
+
+    fn append(&mut self, messages: Vec<Message>) -> StorageFuture<'_, ()> {
+        Box::pin(async move {
+            self.0.lock().expect("not poisoned").extend(messages);
+            Ok(())
+        })
+    }
+
+    fn clear(&mut self) -> StorageFuture<'_, ()> {
+        Box::pin(async move {
+            self.0.lock().expect("not poisoned").clear();
+            Ok(())
+        })
     }
 }
 
@@ -195,6 +256,7 @@ async fn a_pending_tool_call_is_repaired_after_the_answer_arrives() {
             ),
         ],
         appends: 0,
+        clears: 0,
     };
     let mut chat = agent.conversation(backend);
 
@@ -237,6 +299,7 @@ async fn a_turn_answering_no_open_call_is_refused() {
     let backend = Recording {
         messages: vec![Message::text(Role::User, "hello")],
         appends: 0,
+        clears: 0,
     };
     let mut chat = agent.conversation(backend);
     let before = chat.storage().messages.clone();
@@ -255,6 +318,34 @@ async fn a_turn_answering_no_open_call_is_refused() {
 }
 
 #[tokio::test]
+async fn a_cleared_conversation_stays_usable() {
+    let (base, _requests) = serve(&[ok_response(), ok_response()]);
+    let agent = agent_for(base);
+    let mut chat = agent.conversation(Recording::default());
+
+    chat.send("first question").await.expect("run");
+    assert!(
+        !chat.storage().messages.is_empty(),
+        "the backend should hold the first turn"
+    );
+
+    chat.clear().await.expect("clear");
+    assert!(
+        chat.storage().messages.is_empty(),
+        "clear should empty the backend"
+    );
+
+    chat.send("second question").await.expect("run");
+    assert!(
+        chat.storage()
+            .messages
+            .iter()
+            .any(|m| format!("{m:?}").contains("second question")),
+        "the conversation should keep working after clear"
+    );
+}
+
+#[tokio::test]
 async fn a_boxed_backend_is_forwarded_to() {
     let (base, _requests) = serve(&[ok_response()]);
     let agent = agent_for(base);
@@ -264,4 +355,176 @@ async fn a_boxed_backend_is_forwarded_to() {
     let run = chat.send("a question").await.expect("run");
 
     assert_eq!(run.answer, "ok");
+}
+
+#[tokio::test]
+async fn a_window_survives_a_clear() {
+    let (base, requests) = serve(&[ok_response(), ok_response(), ok_response(), ok_response()]);
+    let agent = agent_for(base);
+    let mut chat = agent.conversation(InMemoryStorage::new().window(1));
+
+    chat.send("first").await.expect("run");
+    chat.send("second").await.expect("run");
+    chat.clear().await.expect("clear");
+    chat.send("third").await.expect("run");
+    chat.send("fourth").await.expect("run");
+
+    let sent_len = |raw: String| -> usize {
+        let split_at = raw.rfind("\r\n").expect("a header line") + 2;
+        let body = &raw[split_at..];
+        let sent: serde_json::Value = serde_json::from_str(body).expect("json body");
+        sent["messages"].as_array().expect("messages array").len()
+    };
+
+    let first_len = sent_len(requests.recv().expect("first request"));
+    let second_len = sent_len(requests.recv().expect("second request"));
+    let third_len = sent_len(requests.recv().expect("third request"));
+    let fourth_len = sent_len(requests.recv().expect("fourth request"));
+
+    assert!(fourth_len < chat.storage().messages().len());
+    assert_eq!(third_len, first_len);
+    assert_eq!(fourth_len, second_len);
+}
+
+#[tokio::test]
+async fn a_failing_clear_surfaces_as_an_error() {
+    let (base, _requests) = serve(&[ok_response()]);
+    let agent = agent_for(base);
+    let mut chat = agent.conversation(Broken);
+
+    assert!(chat.clear().await.is_err());
+}
+
+#[tokio::test]
+async fn clear_invokes_the_backends_clear() {
+    let (base, _requests) = serve(&[ok_response()]);
+    let agent = agent_for(base);
+    let mut chat = agent.conversation(Recording::default());
+
+    chat.send("a question").await.expect("run");
+    assert_eq!(chat.storage().clears, 0);
+
+    chat.clear().await.expect("clear");
+    assert_eq!(chat.storage().clears, 1);
+}
+
+#[tokio::test]
+async fn clearing_twice_succeeds_on_recording() {
+    let (base, _requests) = serve(&[]);
+    let agent = agent_for(base);
+    let mut chat = agent.conversation(Recording::default());
+
+    assert!(chat.clear().await.is_ok(), "first clear");
+    assert!(
+        chat.clear().await.is_ok(),
+        "second clear on an empty conversation"
+    );
+}
+
+#[tokio::test]
+async fn clearing_twice_succeeds_on_in_memory_storage() {
+    let (base, _requests) = serve(&[]);
+    let agent = agent_for(base);
+    let mut chat = agent.conversation(InMemoryStorage::new());
+
+    assert!(chat.clear().await.is_ok(), "first clear");
+    assert!(
+        chat.clear().await.is_ok(),
+        "second clear on an empty conversation"
+    );
+}
+
+#[tokio::test]
+async fn configuration_survives_a_clear() {
+    let (base, requests) = serve(&[ok_response(), ok_response()]);
+    let config =
+        EndpointConfig::new(Dialect::OpenAiChat, "local", base).default_model("test-model");
+    let agent = Agent::new(Client::new(config, "sk-test"))
+        .system("be terse")
+        .tool(add);
+    let mut chat = agent.conversation(InMemoryStorage::new());
+
+    chat.send("first").await.expect("run");
+    chat.clear().await.expect("clear");
+    chat.send("second").await.expect("run");
+
+    requests.recv().expect("first request");
+    let last = requests.recv().expect("second request");
+    let split_at = last.rfind("\r\n").expect("a header line") + 2;
+    let body = &last[split_at..];
+    let sent: serde_json::Value = serde_json::from_str(body).expect("json body");
+
+    assert!(sent["messages"].to_string().contains("be terse"));
+    assert_eq!(sent["model"].as_str(), Some("test-model"));
+    assert!(sent["tools"].to_string().contains("add"));
+}
+
+#[tokio::test]
+async fn a_half_cleared_backend_reports_what_survived() {
+    let (base, _requests) = serve(&[ok_response()]);
+    let agent = agent_for(base);
+    let mut chat = agent.conversation(HalfClearing::default());
+
+    chat.send("a question").await.expect("run");
+    let before = chat.storage().messages.len();
+
+    assert!(
+        chat.clear().await.is_err(),
+        "a store with no transaction must surface a partial clear as an error"
+    );
+
+    let after = chat.storage().messages.len();
+    assert!(
+        after > 0,
+        "the backend must show what it did not get to delete"
+    );
+    assert!(
+        after < before,
+        "the backend must not hide the deletion behind an intact transcript"
+    );
+}
+
+#[tokio::test]
+async fn a_shared_backend_lets_a_clear_reach_across_conversations() {
+    let (base, requests) = serve(&[ok_response(), ok_response()]);
+    let agent = agent_for(base);
+    let backend = Shared::default();
+    let mut first = agent.conversation(backend.clone());
+    let mut second = agent.conversation(backend.clone());
+
+    first.send("first question").await.expect("run");
+    second.clear().await.expect("clear");
+    first.send("second question").await.expect("run");
+
+    requests.recv().expect("first request");
+    requests.recv().expect("second request");
+
+    // This demonstrates that `&mut self` scopes exclusion to one `Conversation`
+    // and does nothing across two conversations sharing a backend: clearing
+    // through `second` erases history `first` had already written, with no
+    // relationship between the two handles. It is not a concurrency test: a
+    // clear landing between one conversation's `load` and its `append` cannot
+    // be staged without a hook in `send_with` that would exist only for the
+    // test, and the gap it would show is the same one this test already
+    // demonstrates.
+    let held = backend.0.lock().expect("not poisoned");
+    assert_eq!(
+        held.len(),
+        2,
+        "the store should hold only the second exchange"
+    );
+    assert!(
+        held.iter()
+            .any(|m| m.content.iter().any(
+                |c| matches!(c, InputContent::Text(text) if text.contains("second question"))
+            )),
+        "the store should hold the second exchange"
+    );
+    assert!(
+        !held.iter().any(|m| m
+            .content
+            .iter()
+            .any(|c| matches!(c, InputContent::Text(text) if text.contains("first question")))),
+        "the first conversation's history should have been destroyed"
+    );
 }
