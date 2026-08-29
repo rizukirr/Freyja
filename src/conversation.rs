@@ -30,6 +30,24 @@ impl<S: Storage> Conversation<S> {
         &self.storage
     }
 
+    /// Empties the conversation, in the backend as well as in this handle.
+    ///
+    /// The conversation stays usable: the next [`Conversation::send`] loads an
+    /// empty transcript and continues with the same agent, the same backend
+    /// and the same window. This is a reset, not a teardown.
+    ///
+    /// Dropping a `Conversation` is not a substitute. It is one for a
+    /// transcript held in this process, which dies with the value, and it is
+    /// not one for a backend that persists: rows keyed by a conversation id
+    /// outlive the `Conversation`, and building a new one over that id loads
+    /// them straight back.
+    pub async fn clear(&mut self) -> Result<(), Error> {
+        self.storage
+            .clear()
+            .await
+            .map_err(|error| self.agent.storage_error(format!("storage clear: {error}")))
+    }
+
     /// Two overlapping sends on one conversation do not compile. Both would
     /// load before either appended, so the second would answer against a
     /// transcript missing the first, and the stored order would be the order

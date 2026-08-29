@@ -255,6 +255,34 @@ async fn a_turn_answering_no_open_call_is_refused() {
 }
 
 #[tokio::test]
+async fn a_cleared_conversation_stays_usable() {
+    let (base, _requests) = serve(&[ok_response(), ok_response()]);
+    let agent = agent_for(base);
+    let mut chat = agent.conversation(Recording::default());
+
+    chat.send("first question").await.expect("run");
+    assert!(
+        !chat.storage().messages.is_empty(),
+        "the backend should hold the first turn"
+    );
+
+    chat.clear().await.expect("clear");
+    assert!(
+        chat.storage().messages.is_empty(),
+        "clear should empty the backend"
+    );
+
+    chat.send("second question").await.expect("run");
+    assert!(
+        chat.storage()
+            .messages
+            .iter()
+            .any(|m| format!("{m:?}").contains("second question")),
+        "the conversation should keep working after clear"
+    );
+}
+
+#[tokio::test]
 async fn a_boxed_backend_is_forwarded_to() {
     let (base, _requests) = serve(&[ok_response()]);
     let agent = agent_for(base);
