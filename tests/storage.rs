@@ -348,3 +348,24 @@ async fn clear_invokes_the_backends_clear() {
     chat.clear().await.expect("clear");
     assert_eq!(chat.storage().clears, 1);
 }
+
+#[tokio::test]
+async fn configuration_survives_a_clear() {
+    let (base, requests) = serve(&[ok_response(), ok_response()]);
+    let config =
+        EndpointConfig::new(Dialect::OpenAiChat, "local", base).default_model("test-model");
+    let agent = Agent::new(Client::new(config, "sk-test")).system("be terse");
+    let mut chat = agent.conversation(InMemoryStorage::new());
+
+    chat.send("first").await.expect("run");
+    chat.clear().await.expect("clear");
+    chat.send("second").await.expect("run");
+
+    requests.recv().expect("first request");
+    let last = requests.recv().expect("second request");
+    let split_at = last.rfind("\r\n").expect("a header line") + 2;
+    let body = &last[split_at..];
+    let sent: serde_json::Value = serde_json::from_str(body).expect("json body");
+
+    assert!(sent["messages"].to_string().contains("be terse"));
+}

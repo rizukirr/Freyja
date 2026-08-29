@@ -124,7 +124,7 @@ impl Storage for PgStorage {
 
 ## Two limits
 
-A caller who deliberately shares one backend between two conversations still races: `Storage`'s `&mut self` methods only stop two `send` calls on the same `Conversation` from overlapping, they do nothing about two different `Conversation` values pointed at the same underlying rows, and a backend built to allow that has to serialize it itself.
+A caller who deliberately shares one backend between two conversations still races: `Storage`'s `&mut self` methods only stop two `send` calls, or a `send` and a `clear`, on the same `Conversation` from overlapping, they do nothing about two different `Conversation` values pointed at the same underlying rows, and a backend built to allow that has to serialize it itself.
 
 `Conversation::send` always appends a turn before running the loop, there is no way to replay a stored transcript with nothing new added. A run that stopped at `StopReason::MaxTurns` therefore cannot be resumed by calling `send` again with nothing to say, the next `send` both continues the run and adds a turn to it, so resuming a cut-off run means sending something, even if that something is a short nudge like "continue".
 

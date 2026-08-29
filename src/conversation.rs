@@ -47,6 +47,15 @@ impl<S: Storage> Conversation<S> {
     /// leaves the conversation half cleared, and this returns `Err` without
     /// being able to say which half. Treat the conversation as indeterminate
     /// and clear it again rather than assuming either outcome.
+    ///
+    /// Calling it again is safe: clearing a conversation that is already empty
+    /// succeeds, so a retry is the recourse after a failure rather than a
+    /// second problem.
+    ///
+    /// Two `Conversation` values over one deliberately shared backend can
+    /// interleave a clear with a send, the same way they can interleave two
+    /// sends. `&mut self` only stops that within one `Conversation`. See the
+    /// storage reference for the hazard in full.
     pub async fn clear(&mut self) -> Result<(), Error> {
         self.storage
             .clear()
