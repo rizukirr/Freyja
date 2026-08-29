@@ -63,6 +63,60 @@ impl Storage for Broken {
     }
 }
 
+/// A backend whose clear deletes what it can and then fails, which is what a
+/// store with no transaction does. `Conversation` must neither roll this back
+/// nor hide it behind an `Ok`.
+#[derive(Default)]
+struct HalfClearing {
+    messages: Vec<Message>,
+}
+
+impl Storage for HalfClearing {
+    fn load(&mut self) -> StorageFuture<'_, Vec<Message>> {
+        Box::pin(async move { Ok(self.messages.clone()) })
+    }
+
+    fn append(&mut self, messages: Vec<Message>) -> StorageFuture<'_, ()> {
+        Box::pin(async move {
+            self.messages.extend(messages);
+            Ok(())
+        })
+    }
+
+    fn clear(&mut self) -> StorageFuture<'_, ()> {
+        Box::pin(async move {
+            self.messages.remove(0);
+            Err(std::io::Error::other("deleted some rows, then lost the connection").into())
+        })
+    }
+}
+
+/// One backend behind two conversations, which the storage reference warns
+/// against. The lock is what a deliberately shared backend costs; a
+/// `Conversation` that owns its backend outright needs none.
+#[derive(Clone, Default)]
+struct Shared(std::sync::Arc<std::sync::Mutex<Vec<Message>>>);
+
+impl Storage for Shared {
+    fn load(&mut self) -> StorageFuture<'_, Vec<Message>> {
+        Box::pin(async move { Ok(self.0.lock().expect("not poisoned").clone()) })
+    }
+
+    fn append(&mut self, messages: Vec<Message>) -> StorageFuture<'_, ()> {
+        Box::pin(async move {
+            self.0.lock().expect("not poisoned").extend(messages);
+            Ok(())
+        })
+    }
+
+    fn clear(&mut self) -> StorageFuture<'_, ()> {
+        Box::pin(async move {
+            self.0.lock().expect("not poisoned").clear();
+            Ok(())
+        })
+    }
+}
+
 /// Built with a derived `Content-Length` and leaked to satisfy `serve`'s
 /// `&'static str`, the same way `tests/memory.rs` does it.
 fn ok_response() -> &'static str {
@@ -403,4 +457,71 @@ async fn configuration_survives_a_clear() {
     assert!(sent["messages"].to_string().contains("be terse"));
     assert_eq!(sent["model"].as_str(), Some("test-model"));
     assert!(sent["tools"].to_string().contains("add"));
+}
+
+#[tokio::test]
+async fn a_half_cleared_backend_reports_what_survived() {
+    let (base, _requests) = serve(&[ok_response()]);
+    let agent = agent_for(base);
+    let mut chat = agent.conversation(HalfClearing::default());
+
+    chat.send("a question").await.expect("run");
+    let before = chat.storage().messages.len();
+
+    assert!(
+        chat.clear().await.is_err(),
+        "a store with no transaction must surface a partial clear as an error"
+    );
+
+    let after = chat.storage().messages.len();
+    assert!(
+        after > 0,
+        "the backend must show what it did not get to delete"
+    );
+    assert!(
+        after < before,
+        "the backend must not hide the deletion behind an intact transcript"
+    );
+}
+
+#[tokio::test]
+async fn a_shared_backend_lets_a_clear_reach_across_conversations() {
+    let (base, requests) = serve(&[ok_response(), ok_response()]);
+    let agent = agent_for(base);
+    let backend = Shared::default();
+    let mut first = agent.conversation(backend.clone());
+    let mut second = agent.conversation(backend.clone());
+
+    first.send("first question").await.expect("run");
+    second.clear().await.expect("clear");
+    first.send("second question").await.expect("run");
+
+    requests.recv().expect("first request");
+    requests.recv().expect("second request");
+
+    // This demonstrates that `&mut self` scopes exclusion to one `Conversation`
+    // and does nothing across two conversations sharing a backend: clearing
+    // through `second` erases history `first` had already written, with no
+    // relationship between the two handles. It is not a concurrency test: a
+    // clear landing between one conversation's `load` and its `append` cannot
+    // be staged without a hook in `send_with` that would exist only for the
+    // test, and the gap it would show is the same one this test already
+    // demonstrates.
+    let held = backend.0.lock().expect("not poisoned");
+    assert_eq!(
+        held.len(),
+        2,
+        "the store should hold only the second exchange"
+    );
+    assert!(
+        held.iter()
+            .any(|m| format!("{m:?}").contains("second question")),
+        "the store should hold the second exchange"
+    );
+    assert!(
+        !held
+            .iter()
+            .any(|m| format!("{m:?}").contains("first question")),
+        "the first conversation's history should have been destroyed"
+    );
 }
