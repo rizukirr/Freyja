@@ -435,6 +435,17 @@ mod tests {
         ]
     }
 
+    /// The same, with a pinned turn between the two calls.
+    fn interleaved_with_pinned() -> Vec<Message> {
+        vec![
+            call("c1"),
+            Message::text(Role::Developer, "mid"),
+            call("c2"),
+            Message::tool_result("c1", "a"),
+            Message::tool_result("c2", "b"),
+        ]
+    }
+
     /// One message that answers `c1` and opens `c2` in the same content
     /// vector. `split` removes answered ids before inserting newly opened
     /// ones, and this is the shape that ordering exists for.
@@ -475,16 +486,24 @@ mod tests {
         }
     }
 
-    // `pinned_inside_exchange`, `interleaved` and
-    // `answers_and_opens_in_one_message` are excluded here. Each places
-    // something other than a lone answering result between a call and its
-    // result (a pinned turn, or a second call), which `repair`'s call
-    // adjacency rule now treats as breaking the pair on purpose. Their window
-    // output does need repair, and that repair is the point of this change,
-    // not a regression of `split` or `window_by_groups`.
     #[test]
     fn a_window_output_needs_no_repair() {
-        for history in [tool_conversation(), parallel_conversation()] {
+        // Windowing preserves whatever it is handed, so a window output needs
+        // no repair only when its input needed none. Repairing the fixture
+        // first is what makes the property true rather than merely narrow: a
+        // transcript that is already valid on the wire stays valid at every
+        // window size.
+        for history in [
+            tool_conversation(),
+            parallel_conversation(),
+            pinned_inside_exchange(),
+            interleaved(),
+            interleaved_with_pinned(),
+            answers_and_opens_in_one_message(),
+        ] {
+            let mut history = history;
+            repair(&mut history);
+
             for keep in 0..=history.len() {
                 let mut selected = window_by_groups(&history, keep);
                 let before = selected.clone();
