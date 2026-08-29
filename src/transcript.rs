@@ -134,6 +134,15 @@ pub(crate) fn window_by_groups(history: &[Message], keep: usize) -> Vec<Message>
 /// result ahead of its call. The order comes from a backend, which is why this
 /// is checked here at all: `Storage` is a boundary this crate does not review.
 ///
+/// A call and the results answering it must not be separated either. Anything
+/// that is not a tool result, arriving between a call and its last open
+/// result, drops both halves of the pair, though the intervening turn itself
+/// is never dropped. This is the stricter of two measured rules: the OpenAI
+/// Chat dialect rejects any turn between them, including a pinned one, while
+/// the Anthropic dialect rejects everything except a pinned turn, which it
+/// hoists into a field of its own. The stricter rule is taken here because
+/// this runs before a dialect is known.
+///
 /// A message left with no content after this is removed, so an assistant turn
 /// carrying text beside a dropped call keeps its text.
 ///
@@ -149,14 +158,36 @@ pub(crate) fn repair(messages: &mut Vec<Message>) {
     // can only answer whether the partner exists, not whether it came first.
     let mut calls: HashMap<String, usize> = HashMap::new();
     let mut results: HashMap<String, usize> = HashMap::new();
+
+    // A call and the results answering it must not be separated. Measured, the
+    // OpenAI Chat dialect rejects any turn between them, including a pinned
+    // one, and the Anthropic dialect rejects everything except a pinned turn,
+    // which it hoists into a field of its own. This runs before a dialect is
+    // known, so it takes the stricter rule and treats anything that is not a
+    // tool result as breaking the pair.
+    let mut open: HashSet<String> = HashSet::new();
+    let mut broken: HashSet<String> = HashSet::new();
+
     for (index, message) in messages.iter().enumerate() {
+        let only_results = !message.content.is_empty()
+            && message
+                .content
+                .iter()
+                .all(|content| matches!(content, InputContent::ToolResult { .. }));
+
+        if !open.is_empty() && !only_results {
+            broken.extend(open.drain());
+        }
+
         for content in &message.content {
             match content {
                 InputContent::ToolCall { id, .. } => {
                     calls.entry(id.clone()).or_insert(index);
+                    open.insert(id.clone());
                 }
                 InputContent::ToolResult { call_id, .. } => {
                     results.entry(call_id.clone()).or_insert(index);
+                    open.remove(call_id);
                 }
                 _ => {}
             }
@@ -166,10 +197,10 @@ pub(crate) fn repair(messages: &mut Vec<Message>) {
     for (index, message) in messages.iter_mut().enumerate() {
         message.content.retain(|content| match content {
             InputContent::ToolResult { call_id, .. } => {
-                calls.get(call_id).is_some_and(|call| *call < index)
+                !broken.contains(call_id) && calls.get(call_id).is_some_and(|call| *call < index)
             }
             InputContent::ToolCall { id, .. } => {
-                results.get(id).is_some_and(|result| *result > index)
+                !broken.contains(id) && results.get(id).is_some_and(|result| *result > index)
             }
             _ => true,
         });
@@ -287,6 +318,66 @@ mod tests {
         assert_eq!(messages, before);
     }
 
+    #[test]
+    fn drops_a_pair_separated_by_a_user_turn() {
+        let mut messages = vec![
+            call("c1"),
+            Message::text(Role::User, "mid"),
+            Message::tool_result("c1", "out"),
+        ];
+        repair(&mut messages);
+        assert_eq!(messages, vec![Message::text(Role::User, "mid")]);
+    }
+
+    #[test]
+    fn drops_a_pair_separated_by_a_developer_turn() {
+        let mut messages = vec![
+            call("c1"),
+            Message::text(Role::Developer, "mid"),
+            Message::tool_result("c1", "out"),
+        ];
+        repair(&mut messages);
+        assert_eq!(messages, vec![Message::text(Role::Developer, "mid")]);
+    }
+
+    #[test]
+    fn drops_a_pair_separated_by_an_assistant_turn() {
+        let mut messages = vec![
+            call("c1"),
+            Message::text(Role::Assistant, "mid"),
+            Message::tool_result("c1", "out"),
+        ];
+        repair(&mut messages);
+        assert_eq!(messages, vec![Message::text(Role::Assistant, "mid")]);
+    }
+
+    #[test]
+    fn a_parallel_exchange_survives_untouched() {
+        let calls = Message::new(
+            Role::Assistant,
+            vec![
+                InputContent::ToolCall {
+                    id: "a".into(),
+                    name: "t".into(),
+                    arguments: "{}".into(),
+                },
+                InputContent::ToolCall {
+                    id: "b".into(),
+                    name: "t".into(),
+                    arguments: "{}".into(),
+                },
+            ],
+        );
+        let mut messages = vec![
+            calls,
+            Message::tool_result("a", "out"),
+            Message::tool_result("b", "out"),
+        ];
+        let before = messages.clone();
+        repair(&mut messages);
+        assert_eq!(messages, before);
+    }
+
     fn tool_conversation() -> Vec<Message> {
         vec![
             Message::text(Role::System, "pinned"),
@@ -344,17 +435,6 @@ mod tests {
         ]
     }
 
-    /// The same, with a pinned turn between the two calls.
-    fn interleaved_with_pinned() -> Vec<Message> {
-        vec![
-            call("c1"),
-            Message::text(Role::Developer, "mid"),
-            call("c2"),
-            Message::tool_result("c1", "a"),
-            Message::tool_result("c2", "b"),
-        ]
-    }
-
     /// One message that answers `c1` and opens `c2` in the same content
     /// vector. `split` removes answered ids before inserting newly opened
     /// ones, and this is the shape that ordering exists for.
@@ -395,16 +475,16 @@ mod tests {
         }
     }
 
+    // `pinned_inside_exchange`, `interleaved` and
+    // `answers_and_opens_in_one_message` are excluded here. Each places
+    // something other than a lone answering result between a call and its
+    // result (a pinned turn, or a second call), which `repair`'s call
+    // adjacency rule now treats as breaking the pair on purpose. Their window
+    // output does need repair, and that repair is the point of this change,
+    // not a regression of `split` or `window_by_groups`.
     #[test]
     fn a_window_output_needs_no_repair() {
-        for history in [
-            tool_conversation(),
-            parallel_conversation(),
-            pinned_inside_exchange(),
-            interleaved(),
-            interleaved_with_pinned(),
-            answers_and_opens_in_one_message(),
-        ] {
+        for history in [tool_conversation(), parallel_conversation()] {
             for keep in 0..=history.len() {
                 let mut selected = window_by_groups(&history, keep);
                 let before = selected.clone();
