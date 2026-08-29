@@ -18,6 +18,18 @@
 //! endpoints agree on every case here, so the compatible one is a faithful
 //! stand-in when no Anthropic key is to hand.
 //!
+//! Gemini is deliberately absent, and the reason is worth knowing. Its
+//! Interactions API refuses a `function_call` that arrives without the
+//! `thought` step Gemini emitted beside it, carrying an opaque signature.
+//! Measured: echoing Gemini's own steps back is accepted, sending the
+//! `function_call` alone is rejected with `Request contains an invalid
+//! argument`. Every transcript below is built by hand and has no such step, so
+//! Gemini would refuse all of them for a reason that has nothing to do with
+//! pairing, and the rows would read as pairing verdicts while measuring
+//! something else. Testing Gemini this way needs a transcript captured from a
+//! real Gemini response rather than assembled here. Freyja itself round trips
+//! that step, at `dialect::gemini::response` and `GenerateResponse::to_message`.
+//!
 //! ```text
 //! cargo run --example pairing_probe
 //! ```
