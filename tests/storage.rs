@@ -310,16 +310,21 @@ async fn a_window_survives_a_clear() {
     chat.send("third").await.expect("run");
     chat.send("fourth").await.expect("run");
 
-    requests.recv().expect("first request");
-    requests.recv().expect("second request");
-    requests.recv().expect("third request");
-    let last = requests.recv().expect("fourth request");
-    let split_at = last.rfind("\r\n").expect("a header line") + 2;
-    let body = &last[split_at..];
-    let sent: serde_json::Value = serde_json::from_str(body).expect("json body");
-    let sent_len = sent["messages"].as_array().expect("messages array").len();
+    let sent_len = |raw: String| -> usize {
+        let split_at = raw.rfind("\r\n").expect("a header line") + 2;
+        let body = &raw[split_at..];
+        let sent: serde_json::Value = serde_json::from_str(body).expect("json body");
+        sent["messages"].as_array().expect("messages array").len()
+    };
 
-    assert!(sent_len < chat.storage().messages().len());
+    let first_len = sent_len(requests.recv().expect("first request"));
+    let second_len = sent_len(requests.recv().expect("second request"));
+    let third_len = sent_len(requests.recv().expect("third request"));
+    let fourth_len = sent_len(requests.recv().expect("fourth request"));
+
+    assert!(fourth_len < chat.storage().messages().len());
+    assert_eq!(third_len, first_len);
+    assert_eq!(fourth_len, second_len);
 }
 
 #[tokio::test]

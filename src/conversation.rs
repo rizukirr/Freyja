@@ -41,6 +41,12 @@ impl<S: Storage> Conversation<S> {
     /// not one for a backend that persists: rows keyed by a conversation id
     /// outlive the `Conversation`, and building a new one over that id loads
     /// them straight back.
+    ///
+    /// A failure leaves the backend in whatever state it reached. `Storage`
+    /// has no transaction, so a store that deletes some rows and then fails
+    /// leaves the conversation half cleared, and this returns `Err` without
+    /// being able to say which half. Treat the conversation as indeterminate
+    /// and clear it again rather than assuming either outcome.
     pub async fn clear(&mut self) -> Result<(), Error> {
         self.storage
             .clear()
