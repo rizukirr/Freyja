@@ -7,10 +7,16 @@
 //! It is an example rather than a test because it needs keys, a network and
 //! money, and it makes real calls.
 //!
-//! Set any of `OPENAI_API_KEY` or `DEEPSEEK_API_KEY` in the environment or in
-//! a `.env` file. An endpoint with no key is skipped. DeepSeek serves an
-//! OpenAI Chat compatible API and an Anthropic compatible one, which is how
-//! two dialects are covered by one key.
+//! Set any of `OPENAI_API_KEY`, `DEEPSEEK_API_KEY` or `ANTHROPIC_API_KEY` in
+//! the environment or in a `.env` file. An endpoint with no key is skipped.
+//! DeepSeek serves an OpenAI Chat compatible API and an Anthropic compatible
+//! one, which is how two dialects are covered by one key.
+//!
+//! An Anthropic key scoped to all workspaces also needs
+//! `ANTHROPIC_WORKSPACE_ID`, since such a key is identity-linked and every
+//! request has to name the workspace it acts in. Measured, the two Anthropic
+//! endpoints agree on every case here, so the compatible one is a faithful
+//! stand-in when no Anthropic key is to hand.
 //!
 //! ```text
 //! cargo run --example pairing_probe
@@ -131,6 +137,13 @@ async fn main() {
             "https://api.deepseek.com/anthropic",
             "deepseek-chat",
         ),
+        (
+            "Anthropic",
+            "ANTHROPIC_API_KEY",
+            Dialect::Anthropic,
+            "https://api.anthropic.com/v1",
+            "claude-haiku-4-5-20251001",
+        ),
     ];
 
     for (label, variable, dialect, url, model) in endpoints {
@@ -138,7 +151,21 @@ async fn main() {
             println!("{label}: no {variable}, skipped");
             continue;
         };
-        let config = EndpointConfig::new(dialect, label, url).default_model(model);
+        let mut config = EndpointConfig::new(dialect, label, url).default_model(model);
+
+        // An Anthropic key scoped to all workspaces is identity-linked, and
+        // every request from one has to name the workspace it acts in. The
+        // console shows a dash rather than an id for such a key, and a literal
+        // dash is refused, so the id comes from the environment.
+        if url.starts_with("https://api.anthropic.com") {
+            match std::env::var("ANTHROPIC_WORKSPACE_ID") {
+                Ok(workspace) => config = config.header("anthropic-workspace-id", workspace),
+                Err(_) => println!(
+                    "{label}: no ANTHROPIC_WORKSPACE_ID, which an identity-linked key requires"
+                ),
+            }
+        }
+
         let client = Client::new(config, key);
 
         println!("\n{label}");
