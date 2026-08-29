@@ -17,6 +17,7 @@ use freyja::{
 struct Recording {
     messages: Vec<Message>,
     appends: usize,
+    clears: usize,
 }
 
 impl Storage for Recording {
@@ -34,6 +35,7 @@ impl Storage for Recording {
 
     fn clear(&mut self) -> StorageFuture<'_, ()> {
         Box::pin(async move {
+            self.clears += 1;
             self.messages.clear();
             Ok(())
         })
@@ -52,7 +54,7 @@ impl Storage for Broken {
         Box::pin(async { Ok(()) })
     }
     fn clear(&mut self) -> StorageFuture<'_, ()> {
-        Box::pin(async { Ok(()) })
+        Box::pin(async { Err(std::io::Error::other("backend unreachable").into()) })
     }
 }
 
@@ -195,6 +197,7 @@ async fn a_pending_tool_call_is_repaired_after_the_answer_arrives() {
             ),
         ],
         appends: 0,
+        clears: 0,
     };
     let mut chat = agent.conversation(backend);
 
@@ -237,6 +240,7 @@ async fn a_turn_answering_no_open_call_is_refused() {
     let backend = Recording {
         messages: vec![Message::text(Role::User, "hello")],
         appends: 0,
+        clears: 0,
     };
     let mut chat = agent.conversation(backend);
     let before = chat.storage().messages.clone();
@@ -292,4 +296,50 @@ async fn a_boxed_backend_is_forwarded_to() {
     let run = chat.send("a question").await.expect("run");
 
     assert_eq!(run.answer, "ok");
+}
+
+#[tokio::test]
+async fn a_window_survives_a_clear() {
+    let (base, requests) = serve(&[ok_response(), ok_response(), ok_response(), ok_response()]);
+    let agent = agent_for(base);
+    let mut chat = agent.conversation(InMemoryStorage::new().window(1));
+
+    chat.send("first").await.expect("run");
+    chat.send("second").await.expect("run");
+    chat.clear().await.expect("clear");
+    chat.send("third").await.expect("run");
+    chat.send("fourth").await.expect("run");
+
+    requests.recv().expect("first request");
+    requests.recv().expect("second request");
+    requests.recv().expect("third request");
+    let last = requests.recv().expect("fourth request");
+    let split_at = last.rfind("\r\n").expect("a header line") + 2;
+    let body = &last[split_at..];
+    let sent: serde_json::Value = serde_json::from_str(body).expect("json body");
+    let sent_len = sent["messages"].as_array().expect("messages array").len();
+
+    assert!(sent_len < chat.storage().messages().len());
+}
+
+#[tokio::test]
+async fn a_failing_clear_surfaces_as_an_error() {
+    let (base, _requests) = serve(&[ok_response()]);
+    let agent = agent_for(base);
+    let mut chat = agent.conversation(Broken);
+
+    assert!(chat.clear().await.is_err());
+}
+
+#[tokio::test]
+async fn clear_invokes_the_backends_clear() {
+    let (base, _requests) = serve(&[ok_response()]);
+    let agent = agent_for(base);
+    let mut chat = agent.conversation(Recording::default());
+
+    chat.send("a question").await.expect("run");
+    assert_eq!(chat.storage().clears, 0);
+
+    chat.clear().await.expect("clear");
+    assert_eq!(chat.storage().clears, 1);
 }
