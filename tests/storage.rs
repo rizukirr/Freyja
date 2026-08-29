@@ -6,8 +6,13 @@ mod common;
 use common::serve;
 use freyja::{
     Agent, Client, Dialect, EndpointConfig, InMemoryStorage, InputContent, Message, Role, Storage,
-    StorageFuture,
+    StorageFuture, tool,
 };
+
+#[tool(description = "adds two numbers together")]
+fn add(a: i64, b: i64) -> i64 {
+    a + b
+}
 
 /// A backend that records every append, so a test can see what was stored.
 ///
@@ -350,11 +355,39 @@ async fn clear_invokes_the_backends_clear() {
 }
 
 #[tokio::test]
+async fn clearing_twice_succeeds_on_recording() {
+    let (base, _requests) = serve(&[]);
+    let agent = agent_for(base);
+    let mut chat = agent.conversation(Recording::default());
+
+    assert!(chat.clear().await.is_ok(), "first clear");
+    assert!(
+        chat.clear().await.is_ok(),
+        "second clear on an empty conversation"
+    );
+}
+
+#[tokio::test]
+async fn clearing_twice_succeeds_on_in_memory_storage() {
+    let (base, _requests) = serve(&[]);
+    let agent = agent_for(base);
+    let mut chat = agent.conversation(InMemoryStorage::new());
+
+    assert!(chat.clear().await.is_ok(), "first clear");
+    assert!(
+        chat.clear().await.is_ok(),
+        "second clear on an empty conversation"
+    );
+}
+
+#[tokio::test]
 async fn configuration_survives_a_clear() {
     let (base, requests) = serve(&[ok_response(), ok_response()]);
     let config =
         EndpointConfig::new(Dialect::OpenAiChat, "local", base).default_model("test-model");
-    let agent = Agent::new(Client::new(config, "sk-test")).system("be terse");
+    let agent = Agent::new(Client::new(config, "sk-test"))
+        .system("be terse")
+        .tool(add);
     let mut chat = agent.conversation(InMemoryStorage::new());
 
     chat.send("first").await.expect("run");
@@ -368,4 +401,6 @@ async fn configuration_survives_a_clear() {
     let sent: serde_json::Value = serde_json::from_str(body).expect("json body");
 
     assert!(sent["messages"].to_string().contains("be terse"));
+    assert_eq!(sent["model"].as_str(), Some("test-model"));
+    assert!(sent["tools"].to_string().contains("add"));
 }

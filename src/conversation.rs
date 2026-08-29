@@ -48,9 +48,9 @@ impl<S: Storage> Conversation<S> {
     /// being able to say which half. Treat the conversation as indeterminate
     /// and clear it again rather than assuming either outcome.
     ///
-    /// Calling it again is safe: clearing a conversation that is already empty
-    /// succeeds, so a retry is the recourse after a failure rather than a
-    /// second problem.
+    /// Calling it again is the recourse: [`crate::Storage::clear`] requires an
+    /// implementation to succeed on an already-empty conversation, so a retry
+    /// after a failure is safe on any backend honouring that.
     ///
     /// Two `Conversation` values over one deliberately shared backend can
     /// interleave a clear with a send, the same way they can interleave two

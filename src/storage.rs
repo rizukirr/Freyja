@@ -42,6 +42,15 @@ pub trait Storage: Send {
     fn append(&mut self, messages: Vec<Message>) -> StorageFuture<'_, ()>;
 
     /// Empties the conversation.
+    ///
+    /// Must succeed on a conversation that is already empty. A caller whose
+    /// clear failed has no way to ask what the backend deleted, so the only
+    /// recourse offered is to call this again, and a backend that errors on
+    /// an empty conversation turns that recourse into a second failure.
+    ///
+    /// Freyja does not promise this on a backend's behalf. It is stated here
+    /// because [`crate::Conversation::clear`] tells callers a retry is safe,
+    /// and that sentence is only true of backends that honour this.
     fn clear(&mut self) -> StorageFuture<'_, ()>;
 }
 
