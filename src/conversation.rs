@@ -1,6 +1,6 @@
 //! One conversation, and the storage holding it.
 
-use crate::{Agent, Context, Error, Message, Run, Storage};
+use crate::{Agent, Context, Error, InputContent, Message, Run, Storage};
 
 /// One conversation, driven one turn at a time.
 ///
@@ -112,6 +112,59 @@ impl<S: Storage> Conversation<S> {
         // caller supplies the answer that would have made it valid, which is
         // exactly the human-in-the-loop tool approval shape.
         crate::transcript::repair(&mut history);
+
+        // `repair` only removes content and never reorders, and the turn was
+        // pushed last, so it is still last and still equal unless the repair
+        // pass took it or part of it. Checking here rather than after the run
+        // is what makes the refusal free: no request is sent and storage is
+        // never appended to.
+        //
+        // Partial removal counts. A turn of text plus an orphaned tool result
+        // keeps its text and loses the result, and sending the surviving half
+        // under an `Ok` is the same silent loss at a smaller scale.
+        if history.last() != Some(&turn) {
+            // Only the ids that actually answer nothing, not every result in
+            // the turn: a turn may carry one good result and one orphan, and
+            // naming the good one would send the reader looking for a bug that
+            // is not there.
+            let answered: Vec<&str> = history
+                .iter()
+                .flat_map(|message| message.content.iter())
+                .filter_map(|content| match content {
+                    InputContent::ToolCall { id, .. } => Some(id.as_str()),
+                    _ => None,
+                })
+                .collect();
+
+            let orphans: Vec<&str> = turn
+                .content
+                .iter()
+                .filter_map(|content| match content {
+                    InputContent::ToolResult { call_id, .. }
+                        if !answered.contains(&call_id.as_str()) =>
+                    {
+                        Some(call_id.as_str())
+                    }
+                    _ => None,
+                })
+                .collect();
+
+            // The ids are opaque and provider-generated, so naming them costs
+            // no conversation content and turns a puzzling error into an
+            // obvious one. The tool's output and the caller's text stay out.
+            let detail = if orphans.is_empty() {
+                "the repair pass removed it".to_string()
+            } else {
+                format!(
+                    "a tool result for {} answers no tool call in this conversation",
+                    orphans.join(", ")
+                )
+            };
+
+            return Err(self
+                .agent
+                .storage_error(format!("this turn cannot be sent: {detail}")));
+        }
 
         let before = history.len();
 
