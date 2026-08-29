@@ -423,6 +423,22 @@ mod tests {
         ]
     }
 
+    /// A pinned turn outside any exchange, so it survives the pre-repair in
+    /// `a_window_output_needs_no_repair` with its tool pair intact.
+    ///
+    /// `pinned_inside_exchange` cannot: its `Developer` turn sits between a
+    /// call and its result, which the adjacency rule breaks, leaving three
+    /// plain messages that assert nothing about pairing at any window size.
+    fn pinned_outside_exchange() -> Vec<Message> {
+        vec![
+            Message::text(Role::User, "go"),
+            Message::text(Role::Developer, "mid"),
+            call("c1"),
+            Message::tool_result("c1", "out"),
+            Message::text(Role::Assistant, "done"),
+        ]
+    }
+
     /// Two calls open before either is answered, and the results arrive in the
     /// reverse order. Fragments into four groups before this change.
     fn interleaved() -> Vec<Message> {
@@ -496,13 +512,37 @@ mod tests {
         for history in [
             tool_conversation(),
             parallel_conversation(),
-            pinned_inside_exchange(),
+            pinned_outside_exchange(),
             interleaved(),
             interleaved_with_pinned(),
             answers_and_opens_in_one_message(),
         ] {
             let mut history = history;
             repair(&mut history);
+
+            // A fixture that loses all its tool content to the pre-repair
+            // asserts nothing at any window size. `pinned_inside_exchange`
+            // does exactly that under the adjacency rule, and it was added
+            // because it was the case that made this test pass while the
+            // property it asserts was false. Fail loudly rather than pass
+            // vacuously the next time a rule empties one.
+            let calls = history.iter().any(|message| {
+                message
+                    .content
+                    .iter()
+                    .any(|content| matches!(content, InputContent::ToolCall { .. }))
+            });
+            let results = history.iter().any(|message| {
+                message
+                    .content
+                    .iter()
+                    .any(|content| matches!(content, InputContent::ToolResult { .. }))
+            });
+            assert!(
+                calls && results,
+                "a fixture lost all its tool content to the pre-repair, so it \
+                 checks nothing: {history:?}"
+            );
 
             for keep in 0..=history.len() {
                 let mut selected = window_by_groups(&history, keep);
