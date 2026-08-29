@@ -681,21 +681,48 @@ mod tests {
         timed(&large).as_secs_f64() / timed(&small).as_secs_f64()
     }
 
+    /// Fails only when every attempt exceeds the threshold.
+    ///
+    /// The two things that push this ratio up behave differently under
+    /// repetition, and that is the whole point. A quadratic implementation
+    /// exceeds the threshold in every attempt, so retrying never rescues it.
+    /// Interference from the rest of the machine exceeds it in some, so one
+    /// clean measurement is enough to know the code is linear.
+    ///
+    /// `timed` already takes the minimum of several samples, which defeats a
+    /// stall. It does not defeat sustained saturation, which is what a machine
+    /// compiling something else produces, and this is the layer that does.
+    ///
+    /// Doubling the input doubles linear work and quadruples quadratic work.
+    /// Measured on the old implementation, doubling gave 4.10. Three sits
+    /// between the two curves with room on both sides.
+    fn assert_linear(shape: fn(usize) -> Vec<Message>) {
+        let mut seen = Vec::new();
+
+        for _ in 0..5 {
+            let ratio = doubling_ratio(shape);
+            if ratio < 3.0 {
+                return;
+            }
+            seen.push(ratio);
+        }
+
+        // Every ratio, not just the last: five values near four read as a
+        // curve, where one value tells the reader nothing about which of the
+        // two causes they are looking at.
+        panic!("doubling the input scaled by {seen:?} in every attempt");
+    }
+
     #[test]
     fn split_is_linear() {
-        // Doubling the input doubles linear work and quadruples quadratic
-        // work. Measured on the old implementation, doubling gave 4.10. Three
-        // sits between the two curves with room on both sides.
-        let ratio = doubling_ratio(one_open_call_then_pinned);
-        assert!(ratio < 3.0, "doubling the input scaled by {ratio}");
+        assert_linear(one_open_call_then_pinned);
     }
 
     #[test]
     fn split_is_linear_with_interleaved_calls() {
-        // The same threshold on the shape most likely to go wrong. One fixture
-        // guards the property on one shape only, and the shape this test was
-        // first written for is the least sensitive of the ones measured.
-        let ratio = doubling_ratio(many_open_calls_then_results);
-        assert!(ratio < 3.0, "doubling the input scaled by {ratio}");
+        // The shape most likely to go wrong. One fixture guards the property
+        // on one shape only, and the shape this test was first written for is
+        // the least sensitive of the ones measured.
+        assert_linear(many_open_calls_then_results);
     }
 }
