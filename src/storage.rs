@@ -51,8 +51,9 @@ pub trait Storage: Send {
 /// writing one needs nothing from this crate beyond [`Storage`], since
 /// [`Message`] already derives `Serialize` and `Deserialize`.
 ///
-/// This is what [`crate::Agent::conversation`] hands you, so the easy path
-/// names no storage type at all.
+/// This is what a caller passes when they want to hold the transcript
+/// themselves, as `agent.conversation(&mut history)`, and it is extended in
+/// place.
 impl Storage for Vec<Message> {
     fn load(&mut self) -> StorageFuture<'_, Vec<Message>> {
         Box::pin(async move { Ok(self.clone()) })

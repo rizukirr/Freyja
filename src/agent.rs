@@ -221,10 +221,12 @@ impl Agent {
     /// Runs the tool loop over `messages`, extending it in place.
     ///
     /// Crate-private: the public way in is [`crate::Conversation::send`],
-    /// which owns the transcript rather than borrowing the caller's. The
-    /// caller's vector is moved in and moved back out, so no copy is made. On
-    /// error it is restored to its original length, so a failed call never
-    /// leaves a dangling turn behind.
+    /// which owns the transcript rather than borrowing the caller's. This
+    /// function's own argument is moved in and moved back out, so no copy is
+    /// made here, but a conversation over a borrowed vector still clones it
+    /// once per turn in [`crate::Storage::load`]. On error it is restored to
+    /// its original length, so a failed call never leaves a dangling turn
+    /// behind.
     ///
     /// `ToolChoice::Required` is sent on the first turn only and downgraded to
     /// `ToolChoice::Auto` afterwards. Left in place it would force a tool call

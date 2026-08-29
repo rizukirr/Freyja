@@ -129,7 +129,7 @@ pub(crate) fn window_by_groups(history: &[Message], keep: usize) -> Vec<Message>
 /// anyway. Where an id appears more than once, the first occurrence in each
 /// direction is the one compared.
 ///
-/// The one call site is [`crate::Agent::message`], applied to what
+/// The one call site is [`crate::Conversation::send`], applied to what
 /// [`crate::Storage::load`] returned, and nothing in this crate can produce a
 /// result ahead of its call. The order comes from a backend, which is why this
 /// is checked here at all: `Storage` is a boundary this crate does not review.
