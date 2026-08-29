@@ -3,33 +3,38 @@
 //! Stands in for a third-party persistence crate: if this compiles, so does one.
 
 mod common;
-use common::serve_once;
-use freyja::{Agent, Client, Dialect, EndpointConfig, Message, Storage, StorageFuture};
-use std::sync::{Arc, Mutex};
+use common::serve;
+use freyja::{
+    Agent, Client, Dialect, EndpointConfig, InMemoryStorage, InputContent, Message, Role, Storage,
+    StorageFuture,
+};
 
 /// A backend that records every append, so a test can see what was stored.
+///
+/// `Storage` takes `&mut self`, so the fields need no lock: a `Conversation`
+/// owns its backend outright, and nothing else can reach it while it does.
 #[derive(Default)]
 struct Recording {
-    messages: Mutex<Vec<Message>>,
-    appends: Mutex<usize>,
+    messages: Vec<Message>,
+    appends: usize,
 }
 
 impl Storage for Recording {
-    fn load(&self) -> StorageFuture<'_, Vec<Message>> {
-        Box::pin(async move { Ok(self.messages.lock().unwrap().clone()) })
+    fn load(&mut self) -> StorageFuture<'_, Vec<Message>> {
+        Box::pin(async move { Ok(self.messages.clone()) })
     }
 
-    fn append(&self, messages: Vec<Message>) -> StorageFuture<'_, ()> {
+    fn append(&mut self, messages: Vec<Message>) -> StorageFuture<'_, ()> {
         Box::pin(async move {
-            *self.appends.lock().unwrap() += 1;
-            self.messages.lock().unwrap().extend(messages);
+            self.appends += 1;
+            self.messages.extend(messages);
             Ok(())
         })
     }
 
-    fn clear(&self) -> StorageFuture<'_, ()> {
+    fn clear(&mut self) -> StorageFuture<'_, ()> {
         Box::pin(async move {
-            self.messages.lock().unwrap().clear();
+            self.messages.clear();
             Ok(())
         })
     }
@@ -40,18 +45,18 @@ impl Storage for Recording {
 struct Broken;
 
 impl Storage for Broken {
-    fn load(&self) -> StorageFuture<'_, Vec<Message>> {
+    fn load(&mut self) -> StorageFuture<'_, Vec<Message>> {
         Box::pin(async { Err(std::io::Error::other("backend unreachable").into()) })
     }
-    fn append(&self, _messages: Vec<Message>) -> StorageFuture<'_, ()> {
+    fn append(&mut self, _messages: Vec<Message>) -> StorageFuture<'_, ()> {
         Box::pin(async { Ok(()) })
     }
-    fn clear(&self) -> StorageFuture<'_, ()> {
+    fn clear(&mut self) -> StorageFuture<'_, ()> {
         Box::pin(async { Ok(()) })
     }
 }
 
-/// Built with a derived `Content-Length` and leaked to satisfy `serve_once`'s
+/// Built with a derived `Content-Length` and leaked to satisfy `serve`'s
 /// `&'static str`, the same way `tests/memory.rs` does it.
 fn ok_response() -> &'static str {
     let body = r#"{"id":"x","model":"test-model","choices":[{"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}"#;
@@ -63,32 +68,124 @@ fn ok_response() -> &'static str {
     Box::leak(head.into_boxed_str())
 }
 
-fn agent_for(base: String, storage: Arc<Recording>) -> Agent {
+fn agent_for(base: String) -> Agent {
     let config =
         EndpointConfig::new(Dialect::OpenAiChat, "local", base).default_model("test-model");
-    Agent::new(Client::new(config, "sk-test")).memory(storage)
+    Agent::new(Client::new(config, "sk-test"))
 }
 
 #[tokio::test]
 async fn a_third_party_backend_holds_the_conversation() {
-    let (base, _requests) = serve_once(ok_response());
-    let storage = Arc::new(Recording::default());
-    let agent = agent_for(base, Arc::clone(&storage));
+    let (base, _requests) = serve(&[ok_response()]);
+    let agent = agent_for(base);
+    let mut chat = agent.conversation(Recording::default());
 
-    agent.message("a question").await.expect("run");
+    chat.send("a question").await.expect("run");
 
-    let held = storage.load().await.unwrap();
-    assert!(held.iter().any(|m| format!("{m:?}").contains("a question")));
-    assert_eq!(*storage.appends.lock().unwrap(), 1);
+    let held = chat.storage();
+    assert!(
+        held.messages
+            .iter()
+            .any(|m| format!("{m:?}").contains("a question"))
+    );
+    assert_eq!(held.appends, 1);
 }
 
 #[tokio::test]
 async fn a_failing_load_aborts_the_run() {
-    let (base, requests) = serve_once(ok_response());
-    let config =
-        EndpointConfig::new(Dialect::OpenAiChat, "local", base).default_model("test-model");
-    let agent = Agent::new(Client::new(config, "sk-test")).memory(Broken);
+    let (base, requests) = serve(&[ok_response()]);
+    let agent = agent_for(base);
+    let mut chat = agent.conversation(Broken);
 
-    assert!(agent.message("a question").await.is_err());
+    assert!(chat.send("a question").await.is_err());
     assert!(requests.try_recv().is_err(), "no request may be sent");
+}
+
+#[tokio::test]
+async fn a_borrowed_vector_is_extended_in_place() {
+    let (base, _requests) = serve(&[ok_response()]);
+    let agent = agent_for(base);
+    let mut history: Vec<Message> = Vec::new();
+    let starting_len = history.len();
+
+    let mut chat = agent.conversation(&mut history);
+    chat.send("a question").await.expect("run");
+    drop(chat);
+
+    assert!(history.len() > starting_len);
+}
+
+#[tokio::test]
+async fn window_shapes_what_is_sent_while_the_backend_keeps_everything() {
+    let (base, requests) = serve(&[ok_response(), ok_response(), ok_response()]);
+    let agent = agent_for(base);
+    let mut chat = agent.conversation(InMemoryStorage::new().window(1));
+
+    chat.send("first").await.expect("run");
+    chat.send("second").await.expect("run");
+    chat.send("third").await.expect("run");
+
+    requests.recv().expect("first request");
+    requests.recv().expect("second request");
+    let last = requests.recv().expect("third request");
+    let split_at = last.rfind("\r\n").expect("a header line") + 2;
+    let body = &last[split_at..];
+    let sent: serde_json::Value = serde_json::from_str(body).expect("json body");
+    let sent_len = sent["messages"].as_array().expect("messages array").len();
+
+    assert!(sent_len < chat.storage().messages().len());
+}
+
+#[tokio::test]
+async fn send_carries_every_content_block() {
+    let (base, requests) = serve(&[ok_response()]);
+    let agent = agent_for(base);
+    let mut chat = agent.conversation(InMemoryStorage::new());
+
+    let message = Message::new(
+        Role::User,
+        vec![
+            InputContent::Text("first block".to_string()),
+            InputContent::Text("second block".to_string()),
+        ],
+    );
+    chat.send(message).await.expect("run");
+
+    let sent = requests.recv().expect("request");
+    assert!(sent.contains("first block"));
+    assert!(sent.contains("second block"));
+}
+
+#[tokio::test]
+async fn the_backend_hands_back_what_it_holds_without_cloning() {
+    let (base, _requests) = serve(&[ok_response()]);
+    let agent = agent_for(base);
+    let mut chat = agent.conversation(InMemoryStorage::new());
+
+    chat.send("a question").await.expect("run");
+
+    // `messages` borrows rather than cloning, so the slice it returns is the
+    // transcript itself and not a copy of it.
+    let held: &[Message] = chat.storage().messages();
+    assert!(std::ptr::eq(held, chat.storage().messages()));
+
+    // And it is the transcript, not some other vector: the turn just sent is
+    // in it, followed by the answer.
+    assert_eq!(held.first().map(|message| message.role), Some(Role::User));
+    assert_eq!(
+        held.last().map(|message| message.role),
+        Some(Role::Assistant)
+    );
+}
+
+#[tokio::test]
+async fn a_boxed_backend_is_forwarded_to() {
+    let (base, _requests) = serve(&[ok_response()]);
+    let agent = agent_for(base);
+    let backend = Box::new(Vec::<Message>::new()) as Box<dyn Storage>;
+    let mut chat = agent.conversation(backend);
+
+    let run = chat.send("a question").await.expect("run");
+
+    assert_eq!(run.answer, "ok");
 }

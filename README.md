@@ -24,12 +24,21 @@ Update imports and error matching with this rename table:
 | `error.provider()` | `error.endpoint()` |
 | `Agent::request(GenerateRequest::new().model(..))` | `Agent::model(..)`, and the same for `max_tokens`, `temperature`, `top_p`, `reasoning_effort`, `tool_choice`, `extra_for` |
 | a system prompt on an `Agent` template | `Agent::system(..)` |
-| `Agent::run`, `Agent::run_with` | `Agent::messages`, `Agent::messages_with` |
-| `Agent::chat()` and `Chat::ask` | `Agent::memory(InMemoryStorage::new())` and `Agent::message` |
+| `Agent::run`, `Agent::run_with` | `agent.conversation(&mut history).send(..)`, which extends the vector in place |
+| `Agent::chat()` and `Chat::ask` | `agent.conversation(InMemoryStorage::new())` and `chat.send(..)` |
 | `Memory`, `MemoryError`, `MemoryFuture` | `Filter`, `FilterError`, `FilterFuture` |
-| `Agent::memory(impl Memory)` | `Agent::filter(impl Filter)`, and `Agent::memory` now takes `Storage` |
-| `Agent::filter(Window::groups(n))` | `Agent::memory(InMemoryStorage::new().window(n))` |
-| `Filter`, `FilterError`, `FilterFuture`, `Window` | removed. A backend trims inside `Storage::load`, with `window_by_groups` if it wants groups |
+| `Agent::memory(impl Memory)` | a `Storage` implementation trims inside `Storage::load`, supplied to `agent.conversation(..)` |
+| `Agent::filter(Window::groups(n))` | `agent.conversation(InMemoryStorage::new().window(n))` |
+| `Filter`, `FilterError`, `FilterFuture`, `Window` | removed. A backend trims inside `Storage::load`, and may cut anywhere, because the repair pass drops both halves of a pair the cut separated |
+| `Agent::memory(store)` then `agent.message(..)` | `agent.conversation(store)` then `chat.send(..)`, or `agent.conversation(InMemoryStorage::new())` for one held in this process |
+| `Agent::messages(&mut history)` | `agent.conversation(&mut history).send(..)`. The vector is still extended in place |
+| `InMemoryStorage::new().window(n)` | `agent.conversation(InMemoryStorage::new().window(n))` |
+| `InMemoryStorage::all()` | `chat.storage()`, which is the `Vec<Message>` itself |
+| `Arc<dyn Storage>` and `impl Storage for Arc<T>` | removed. A conversation owns its backend, so `Storage` takes `&mut self` and needs no interior mutability |
+| `Agent::conversation()` | `agent.conversation(InMemoryStorage::new())`. The backend is always named, so nothing chooses one for you |
+| `Agent::conversation_in(store)` | `agent.conversation(store)` |
+| `Conversation::window(n)` | `InMemoryStorage::new().window(n)`. Windowing is a feature of the backend, and a backend of your own trims inside its own `load` |
+| `split`, `window_by_groups` | removed from the public API. A backend may cut anywhere, because the repair pass drops both halves of a pair the cut separated |
 
 You write one request. Freyja translates it into whatever wire format the model you picked actually speaks, sends it, and translates the answer back. Changing vendor is changing one line.
 

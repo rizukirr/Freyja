@@ -49,6 +49,16 @@ struct MessageWire {
     content: Vec<BlockWire>,
 }
 
+/// Whether every block in a turn is a `tool_result`.
+///
+/// An empty turn is not, since it carries nothing to merge.
+fn only_tool_results(blocks: &[BlockWire]) -> bool {
+    !blocks.is_empty()
+        && blocks
+            .iter()
+            .all(|block| matches!(block, BlockWire::Typed(TypedBlockWire::ToolResult { .. })))
+}
+
 #[derive(Serialize)]
 #[serde(untagged)]
 enum BlockWire {
@@ -103,7 +113,7 @@ impl Request {
         }
 
         let mut system = Vec::new();
-        let mut messages = Vec::new();
+        let mut messages: Vec<MessageWire> = Vec::new();
 
         for message in &value.messages {
             if matches!(message.role, Role::System | Role::Developer) {
@@ -119,8 +129,13 @@ impl Request {
             }
 
             // Tool results are user-turn blocks here, so Role::Tool collapses
-            // into "user". Consecutive same-role turns are legal; the API
-            // merges them.
+            // into "user". They do not merge themselves: every `tool_result`
+            // answering one `tool_use` turn must be in the single message
+            // immediately after it, and two consecutive user turns each
+            // holding one result are rejected. Measured against an
+            // Anthropic-compatible endpoint, which answers a split pair with
+            // `tool_use` ids were found without `tool_result` blocks
+            // immediately after. The merge happens below, at the push.
             let role = if message.role == Role::Assistant {
                 "assistant"
             } else {
@@ -166,9 +181,23 @@ impl Request {
                 }
             }
 
-            // A turn with no blocks is rejected by the API; drop it instead.
-            if !content.is_empty() {
-                messages.push(MessageWire { role, content });
+            // A turn with no blocks is rejected by the API, so drop it.
+            if content.is_empty() {
+                continue;
+            }
+
+            // The agent loop emits one message per tool result, which is what
+            // the OpenAI Chat dialect requires and what this one forbids, so
+            // the two shapes are reconciled here rather than upstream.
+            match messages.last_mut() {
+                Some(previous)
+                    if previous.role == role
+                        && only_tool_results(&previous.content)
+                        && only_tool_results(&content) =>
+                {
+                    previous.content.append(&mut content);
+                }
+                _ => messages.push(MessageWire { role, content }),
             }
         }
 
@@ -369,6 +398,58 @@ mod tests {
         assert_eq!(messages[2]["content"][0]["type"], "tool_result");
         assert_eq!(messages[2]["content"][0]["tool_use_id"], "toolu_1");
         assert_eq!(messages[2]["content"][0]["content"], "42");
+    }
+
+    #[test]
+    fn merges_parallel_tool_results_into_one_user_turn() {
+        let request = GenerateRequest::new()
+            .message(Message::text(Role::User, "What is 20 + 22, and 1 + 1?"))
+            .message(Message::new(
+                Role::Assistant,
+                vec![
+                    InputContent::ToolCall {
+                        id: "call_1".into(),
+                        name: "add".into(),
+                        arguments: "{\"a\":20,\"b\":22}".into(),
+                    },
+                    InputContent::ToolCall {
+                        id: "call_2".into(),
+                        name: "add".into(),
+                        arguments: "{\"a\":1,\"b\":1}".into(),
+                    },
+                ],
+            ))
+            .message(Message::tool_result("call_1", "42"))
+            .message(Message::tool_result("call_2", "2"));
+
+        let json = serde_json::to_value(Request::build(&request, &config()).unwrap()).unwrap();
+        let messages = json["messages"].as_array().unwrap();
+
+        // The two tool results, sent by the agent loop as separate messages,
+        // land on a single user turn immediately after the assistant turn.
+        assert_eq!(messages.len(), 3);
+        assert_eq!(messages[2]["role"], "user");
+        let results = messages[2]["content"].as_array().unwrap();
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0]["type"], "tool_result");
+        assert_eq!(results[0]["tool_use_id"], "call_1");
+        assert_eq!(results[1]["type"], "tool_result");
+        assert_eq!(results[1]["tool_use_id"], "call_2");
+    }
+
+    #[test]
+    fn does_not_merge_consecutive_plain_text_user_turns() {
+        let request = GenerateRequest::new()
+            .message(Message::text(Role::User, "First"))
+            .message(Message::text(Role::User, "Second"));
+
+        let json = serde_json::to_value(Request::build(&request, &config()).unwrap()).unwrap();
+        let messages = json["messages"].as_array().unwrap();
+
+        // Merging is confined to tool results; unrelated user turns stay separate.
+        assert_eq!(messages.len(), 2);
+        assert_eq!(messages[0]["content"][0]["text"], "First");
+        assert_eq!(messages[1]["content"][0]["text"], "Second");
     }
 
     #[test]

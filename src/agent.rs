@@ -1,8 +1,8 @@
 //! Driving the tool-calling loop.
 
 use crate::{
-    Client, Context, Dialect, Error, GenerateRequest, Message, OutputContent, ReasoningEffort,
-    ResponseStatus, Storage, Tool, ToolChoice, ToolDefinition, Usage,
+    Client, Context, Conversation, Dialect, Error, GenerateRequest, Message, OutputContent,
+    ReasoningEffort, ResponseStatus, Storage, Tool, ToolChoice, ToolDefinition, Usage,
 };
 use serde_json::Value;
 use std::sync::Arc;
@@ -29,12 +29,12 @@ pub struct Agent {
     max_turns: usize,
     guard: Option<Arc<GuardFn>>,
     system: Option<String>,
-    storage: Option<Arc<dyn Storage>>,
 }
 
-/// What one call to [`Agent::messages`] produced.
+/// What one turn of a [`Conversation`] produced.
 ///
-/// The transcript is not here: `run` extends the caller's vector in place.
+/// The transcript is not here: sending a turn extends the caller's storage in
+/// place.
 #[derive(Debug, Clone)]
 pub struct Run {
     /// The final assistant text, empty when the loop ended without one.
@@ -47,7 +47,7 @@ pub struct Run {
     pub turns: usize,
 }
 
-/// Why [`Agent::messages`] stopped.
+/// Why a [`Conversation`] turn stopped.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StopReason {
     /// The model answered without requesting more tools.
@@ -86,7 +86,6 @@ impl Agent {
             max_turns: 5,
             guard: None,
             system: None,
-            storage: None,
         }
     }
 
@@ -185,10 +184,10 @@ impl Agent {
 
     /// Sets a system instruction sent ahead of the transcript on every turn.
     ///
-    /// It is not part of the caller's transcript, so it is never returned by
-    /// [`Agent::messages`] and never counted in the caller's vector. It is
-    /// always prepended just before the request is sent, so nothing else here
-    /// can drop it or see it first.
+    /// It is not part of the caller's transcript, so it is never written to
+    /// storage and never counted in the caller's vector. It is always
+    /// prepended just before the request is sent, so nothing else here can
+    /// drop it or see it first.
     pub fn system(mut self, instruction: impl Into<String>) -> Self {
         self.system = Some(instruction.into());
         self
@@ -219,28 +218,20 @@ impl Agent {
         self
     }
 
-    /// Sets where this agent's conversation lives.
+    /// Runs the tool loop over `messages`, extending it in place.
     ///
-    /// Only [`Agent::message`] uses it. [`Agent::messages`] takes the
-    /// transcript as an argument, so it never reads or writes storage, and a
-    /// conversation is never held in two places at once.
-    pub fn memory(mut self, storage: impl Storage + 'static) -> Self {
-        self.storage = Some(Arc::new(storage));
-        self
-    }
-
-    /// Runs the tool loop, extending `messages` in place.
-    ///
-    /// The caller's vector is moved in and moved back out, so no copy of the
-    /// transcript is made. On error it is restored to its original length, so a
-    /// failed call never leaves a dangling turn behind.
+    /// Crate-private: the public way in is [`crate::Conversation::send`],
+    /// which owns the transcript rather than borrowing the caller's. The
+    /// caller's vector is moved in and moved back out, so no copy is made. On
+    /// error it is restored to its original length, so a failed call never
+    /// leaves a dangling turn behind.
     ///
     /// `ToolChoice::Required` is sent on the first turn only and downgraded to
     /// `ToolChoice::Auto` afterwards. Left in place it would force a tool call
     /// every round, and the model could never produce a final answer.
     ///
     /// `cx` is handed to every tool call and is never sent to the model.
-    pub async fn messages_with(
+    pub(crate) async fn run_loop(
         &self,
         messages: &mut Vec<Message>,
         cx: &Context,
@@ -363,64 +354,37 @@ impl Agent {
         })
     }
 
-    /// Runs the tool loop, extending `messages` in place.
+    /// Starts a conversation held in `storage`.
     ///
-    /// Equivalent to [`Agent::messages_with`] with an empty context.
-    pub async fn messages(&self, messages: &mut Vec<Message>) -> Result<Run, Error> {
-        self.messages_with(messages, &Context::new()).await
+    /// Pass [`crate::InMemoryStorage`] for one held in this process, `&mut
+    /// history` to run over a transcript you already hold, which is extended
+    /// in place, or a backend of your own.
+    ///
+    /// ```no_run
+    /// # async fn run(agent: freyja::Agent) -> Result<(), freyja::Error> {
+    /// use freyja::InMemoryStorage;
+    ///
+    /// let mut chat = agent.conversation(InMemoryStorage::new());
+    /// println!("{}", chat.send("hello").await?.answer);
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// Takes `&self`, so one agent hands out as many conversations as you
+    /// like. The agent is configuration, and configuration is shareable. The
+    /// storage is taken by value, so the conversation owns it, which is what
+    /// makes the exclusive borrow on [`crate::Conversation::send`] a true
+    /// statement rather than a convention.
+    pub fn conversation<S: Storage>(&self, storage: S) -> Conversation<S> {
+        Conversation::new(self.clone(), storage)
     }
 
-    /// Adds one user turn to the stored conversation and runs the loop.
-    ///
-    /// Equivalent to [`Agent::message_with`] with an empty context.
-    pub async fn message(&self, text: impl Into<String>) -> Result<Run, Error> {
-        self.message_with(text, &Context::new()).await
-    }
-
-    /// Adds one user turn to the stored conversation and runs the loop with
-    /// per-run context.
-    ///
-    /// Fails when no storage is installed, rather than answering with no
-    /// memory: an agent that silently forgets every turn is rarely what was
-    /// meant. Install one with [`Agent::memory`], or use [`Agent::messages`]
-    /// and hold the transcript yourself.
-    pub async fn message_with(&self, text: impl Into<String>, cx: &Context) -> Result<Run, Error> {
-        let Some(storage) = &self.storage else {
-            return Err(Error::InvalidRequest {
-                endpoint: self.client.config().name.clone(),
-                message: "Agent::message needs storage: install one with Agent::memory, \
-                          or use Agent::messages and hold the transcript yourself"
-                    .to_string(),
-            });
-        };
-
-        let mut history = storage
-            .load()
-            .await
-            .map_err(|error| Error::InvalidRequest {
-                endpoint: self.client.config().name.clone(),
-                message: format!("storage load: {error}"),
-            })?;
-
-        // Every backend decides its own trimming, including ones nobody here
-        // reviewed. This is what stops any of them sending a tool result whose
-        // call it dropped, which every provider rejects with an error that
-        // mentions nothing about trimming.
-        crate::transcript::repair(&mut history);
-
-        let before = history.len();
-        history.push(Message::text(crate::Role::User, text.into()));
-
-        let run = self.messages_with(&mut history, cx).await?;
-
-        storage
-            .append(history.split_off(before))
-            .await
-            .map_err(|error| Error::InvalidRequest {
-                endpoint: self.client.config().name.clone(),
-                message: format!("storage append: {error}"),
-            })?;
-        Ok(run)
+    /// Wraps a backend failure, which has no endpoint of its own.
+    pub(crate) fn storage_error(&self, message: String) -> Error {
+        Error::InvalidRequest {
+            endpoint: self.client.config().name.clone(),
+            message,
+        }
     }
 
     /// Runs one requested call, turning every refusal and failure into text

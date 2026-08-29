@@ -7,18 +7,16 @@
 use freyja::{Client, Dialect, EndpointConfig, GenerateRequest, Message, Role, StreamEvent};
 
 mod common;
-use common::serve_once;
+use common::serve;
 
 #[tokio::test]
 async fn streams_text_from_a_live_server() {
-    let (base, request) = serve_once(
-        "HTTP/1.1 200 OK\r\n\
+    let (base, request) = serve(&["HTTP/1.1 200 OK\r\n\
          Content-Type: text/event-stream\r\n\
          Connection: close\r\n\r\n\
          data: {\"id\":\"chatcmpl-1\",\"model\":\"gpt-4o\",\"choices\":[{\"delta\":{\"content\":\"Hel\"}}]}\n\n\
          data: {\"choices\":[{\"delta\":{\"content\":\"lo\"}},{\"finish_reason\":\"stop\"}]}\n\n\
-         data: [DONE]\n\n",
-    );
+         data: [DONE]\n\n"]);
 
     let config =
         EndpointConfig::new(Dialect::OpenAiChat, "local", base).default_model("test-model");
@@ -59,13 +57,11 @@ async fn streams_text_from_a_live_server() {
 
 #[tokio::test]
 async fn surfaces_an_error_status_before_streaming() {
-    let (base, _request) = serve_once(
-        "HTTP/1.1 429 Too Many Requests\r\n\
+    let (base, _request) = serve(&["HTTP/1.1 429 Too Many Requests\r\n\
          Content-Type: application/json\r\n\
          Retry-After: 30\r\n\
          Connection: close\r\n\r\n\
-         {\"error\":{\"message\":\"slow down\"}}",
-    );
+         {\"error\":{\"message\":\"slow down\"}}"]);
 
     let config =
         EndpointConfig::new(Dialect::OpenAiChat, "local", base).default_model("test-model");
@@ -105,12 +101,10 @@ async fn surfaces_an_error_status_before_streaming() {
 
 #[tokio::test]
 async fn gemini_requests_sse_by_query_parameter() {
-    let (base, request) = serve_once(
-        "HTTP/1.1 200 OK\r\n\
+    let (base, request) = serve(&["HTTP/1.1 200 OK\r\n\
          Content-Type: text/event-stream\r\n\
          Connection: close\r\n\r\n\
-         data: {\"interaction\":{\"id\":\"v1_1\",\"model\":\"gemini-test\",\"status\":\"completed\"},\"event_type\":\"interaction.completed\"}\n\n",
-    );
+         data: {\"interaction\":{\"id\":\"v1_1\",\"model\":\"gemini-test\",\"status\":\"completed\"},\"event_type\":\"interaction.completed\"}\n\n"]);
 
     let config = EndpointConfig::new(Dialect::Gemini, "local", base).default_model("test-model");
     let client = Client::new(config, "key");
@@ -141,12 +135,10 @@ async fn gemini_requests_sse_by_query_parameter() {
 /// because until now nothing exercised `generate()` over a socket either.
 #[tokio::test]
 async fn generate_does_not_request_sse() {
-    let (base, request) = serve_once(
-        "HTTP/1.1 200 OK\r\n\
+    let (base, request) = serve(&["HTTP/1.1 200 OK\r\n\
          Content-Type: application/json\r\n\
          Connection: close\r\n\r\n\
-         {\"id\":\"int_1\",\"model\":\"gemini-test\",\"status\":\"completed\",\"steps\":[]}",
-    );
+         {\"id\":\"int_1\",\"model\":\"gemini-test\",\"status\":\"completed\",\"steps\":[]}"]);
 
     let config = EndpointConfig::new(Dialect::Gemini, "local", base).default_model("test-model");
     let client = Client::new(config, "key");
