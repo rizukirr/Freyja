@@ -104,6 +104,10 @@
 //! # }
 //! ```
 
+// Zero `unsafe` is a property this crate documents, and `forbid` is what makes
+// it enforced rather than merely true so far: it cannot be re-allowed from
+// inside the crate. It says nothing about dependencies, which contain plenty.
+#![forbid(unsafe_code)]
 #![deny(missing_docs)]
 
 mod agent;
