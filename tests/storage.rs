@@ -515,13 +515,16 @@ async fn a_shared_backend_lets_a_clear_reach_across_conversations() {
     );
     assert!(
         held.iter()
-            .any(|m| format!("{m:?}").contains("second question")),
+            .any(|m| m.content.iter().any(
+                |c| matches!(c, InputContent::Text(text) if text.contains("second question"))
+            )),
         "the store should hold the second exchange"
     );
     assert!(
-        !held
+        !held.iter().any(|m| m
+            .content
             .iter()
-            .any(|m| format!("{m:?}").contains("first question")),
+            .any(|c| matches!(c, InputContent::Text(text) if text.contains("first question")))),
         "the first conversation's history should have been destroyed"
     );
 }
