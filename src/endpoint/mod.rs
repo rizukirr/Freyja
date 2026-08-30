@@ -118,7 +118,7 @@ pub struct EndpointConfig {
 const SECRET_NAME_MARKERS: [&str; 6] = ["auth", "key", "token", "secret", "cookie", "password"];
 
 /// Whether a header or query parameter's value should be withheld from `Debug`.
-fn is_secret_name(name: &str) -> bool {
+pub(crate) fn is_secret_name(name: &str) -> bool {
     let name = name.to_ascii_lowercase();
     SECRET_NAME_MARKERS
         .iter()

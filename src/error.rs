@@ -1,5 +1,6 @@
 //! Errors returned while preparing, sending, or decoding a generation request.
 
+use crate::endpoint::is_secret_name;
 use std::borrow::Cow;
 use std::fmt;
 use std::sync::Arc;
@@ -42,6 +43,53 @@ impl TransportError {
             Self::Other => "transport failed",
         }
     }
+}
+
+/// Replaces `url` inside `message` with a copy whose credential-shaped query
+/// values are withheld.
+///
+/// `reqwest` puts the whole URL in its `Display`, and it already strips
+/// userinfo, so the query is what is left. An endpoint taking its key as
+/// `?key=...` is a real shape, and [`crate::EndpointConfig::query`] is where
+/// that key goes, so without this the value `Debug` withholds is printed in
+/// full by every transport failure. Errors reach a log far more often than a
+/// config does.
+///
+/// Unconditional rather than gated on the build profile: a redaction that is
+/// absent in development and present in production is one nobody ever sees
+/// working.
+///
+/// The same name heuristic as [`crate::EndpointConfig`]'s `Debug`, and the same
+/// caveat: it cannot know that `?passport=` is a credential.
+///
+/// The placeholder is bare rather than the `<redacted>` used elsewhere: a query
+/// value is percent-encoded on the way back in, and `%3Credacted%3E` in an
+/// error message is harder to read than the thing it stands for.
+fn redact_url_in(message: String, url: Option<&reqwest::Url>) -> String {
+    const REDACTED: &str = "REDACTED";
+
+    let Some(url) = url else {
+        return message;
+    };
+    if !url.query_pairs().any(|(name, _)| is_secret_name(&name)) {
+        return message;
+    }
+
+    let mut safe = url.clone();
+    let pairs: Vec<(String, String)> = url
+        .query_pairs()
+        .map(|(name, value)| {
+            let value = if is_secret_name(&name) {
+                REDACTED.to_string()
+            } else {
+                value.into_owned()
+            };
+            (name.into_owned(), value)
+        })
+        .collect();
+    safe.query_pairs_mut().clear().extend_pairs(pairs);
+
+    message.replace(url.as_str(), safe.as_str())
 }
 
 /// Everything that can go wrong on the way to a generation response.
@@ -191,7 +239,7 @@ impl Error {
         Self::Http {
             endpoint,
             kind: TransportError::classify(error),
-            message: error.to_string(),
+            message: redact_url_in(error.to_string(), error.url()),
         }
     }
     /// Whether repeating the identical request could plausibly succeed.
@@ -482,6 +530,31 @@ mod tests {
         }
         body.push_str(r#""}}"#);
         Error::from_status("OpenAI".into(), 400, None, body)
+    }
+
+    #[test]
+    fn a_credential_shaped_query_value_is_withheld_from_the_message() {
+        let url =
+            reqwest::Url::parse("https://x.test/v1/messages?api-version=2024-02-01&key=SECRET")
+                .expect("a valid url");
+        let message = format!("error sending request for url ({url})");
+
+        let redacted = super::redact_url_in(message, Some(&url));
+
+        assert!(!redacted.contains("SECRET"), "{redacted}");
+        assert!(redacted.contains("key=REDACTED"), "{redacted}");
+        // A parameter that is not credential shaped is what a reader needs.
+        assert!(redacted.contains("api-version=2024-02-01"), "{redacted}");
+    }
+
+    #[test]
+    fn a_message_with_nothing_to_hide_is_left_alone() {
+        let url = reqwest::Url::parse("https://x.test/v1/messages?api-version=2024-02-01")
+            .expect("a valid url");
+        let message = format!("error sending request for url ({url})");
+
+        assert_eq!(super::redact_url_in(message.clone(), Some(&url)), message);
+        assert_eq!(super::redact_url_in(message.clone(), None), message);
     }
 
     #[test]

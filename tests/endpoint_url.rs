@@ -78,3 +78,24 @@ fn a_credential_shaped_query_parameter_is_withheld_from_debug() {
     assert!(!printed.contains("super-secret"), "{printed}");
     assert!(printed.contains("2024-02-01"), "{printed}");
 }
+
+#[tokio::test]
+async fn a_credential_shaped_query_parameter_is_withheld_from_a_transport_error() {
+    // Port 1 refuses, so the failure carries the URL it tried. `Debug` already
+    // withholds this value, and an error reaches a log far more often than a
+    // config does.
+    let config = EndpointConfig::new(Dialect::OpenAiChat, "local", "http://127.0.0.1:1")
+        .default_model("test-model")
+        .query("api-version", "2024-02-01")
+        .query("key", "super-secret");
+
+    let error = Client::new(config, "sk-test")
+        .generate(&ask())
+        .await
+        .expect_err("nothing listens on port 1");
+
+    for rendered in [error.to_string(), format!("{error:?}")] {
+        assert!(!rendered.contains("super-secret"), "{rendered}");
+        assert!(rendered.contains("api-version=2024-02-01"), "{rendered}");
+    }
+}
