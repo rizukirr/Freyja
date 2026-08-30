@@ -1,6 +1,6 @@
 //! Errors returned while preparing, sending, or decoding a generation request.
 
-use crate::endpoint::EndpointConfig;
+use crate::endpoint::{EndpointConfig, is_secret_name};
 use std::borrow::Cow;
 use std::fmt;
 use std::sync::Arc;
@@ -61,7 +61,9 @@ impl TransportError {
 ///
 /// What counts as secret is [`crate::EndpointConfig::is_secret`], the same
 /// predicate that type's `Debug` uses, so a value cannot be hidden in one
-/// rendering and printed in the other.
+/// rendering and printed in the other. Where no config is in reach, and
+/// `read_body` and the streaming pump are both such places, the name heuristic
+/// still applies on its own.
 ///
 /// The placeholder is bare rather than the `<redacted>` used elsewhere: a query
 /// value is percent-encoded on the way back in, and `%3Credacted%3E` in an
@@ -76,11 +78,11 @@ fn redact_url_in(
     let Some(url) = url else {
         return message;
     };
-    // One predicate, shared with `EndpointConfig`'s `Debug`: what the caller
-    // classified, what this endpoint's auth uses, and the name heuristic
-    // behind both. A path with no config in reach redacts nothing, because it
-    // has nothing to redact by.
-    let secret = |name: &str| config.is_some_and(|config| config.is_secret(name));
+    // The heuristic is the floor, so a path with no config in reach keeps the
+    // cover it had before classification existed. `is_secret` layers what the
+    // caller classified and what this endpoint's auth uses on top of it.
+    let secret =
+        |name: &str| is_secret_name(name) || config.is_some_and(|config| config.is_secret(name));
     if !url.query_pairs().any(|(name, _)| secret(&name)) {
         return message;
     }
@@ -576,11 +578,29 @@ mod tests {
             message
         );
         assert_eq!(super::redact_url_in(message.clone(), None, None), message);
-        // No config means nothing to redact by, so the message survives whole.
+        // No config still means no classification, so a parameter that is not
+        // credential shaped survives whole.
         assert_eq!(
             super::redact_url_in(message.clone(), Some(&url), None),
             message
         );
+    }
+
+    #[test]
+    fn the_heuristic_still_covers_a_path_with_no_config() {
+        // `read_body` and the streaming pump build errors from an endpoint
+        // name alone. They had this cover before classification existed and
+        // must not lose it to a narrower predicate.
+        let url =
+            reqwest::Url::parse("https://x.test/v1/messages?api-version=2024-02-01&key=SECRET")
+                .expect("a valid url");
+        let message = format!("error sending request for url ({url})");
+
+        let redacted = super::redact_url_in(message, Some(&url), None);
+
+        assert!(!redacted.contains("SECRET"), "{redacted}");
+        assert!(redacted.contains("key=REDACTED"), "{redacted}");
+        assert!(redacted.contains("api-version=2024-02-01"), "{redacted}");
     }
 
     #[test]
