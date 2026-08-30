@@ -18,8 +18,12 @@ fn public_types_are_available_from_flat_and_categorized_paths() {
     let dialect = Dialect::OpenAiResponses;
     let _: CategorizedDialect = dialect;
 
-    let config = EndpointConfig::new(dialect, "test", "https://example.test");
+    let config = EndpointConfig::new(dialect, "test", "https://example.test")
+        .path("/custom")
+        .query("api-version", "2024-02-01");
     let _: CategorizedEndpointConfig = config;
+
+    let _: Option<(&'static str, &'static str)> = Dialect::Gemini.stream_query();
 
     let preset = EndpointPreset::OpenAi;
     let _: CategorizedEndpointPreset = preset;

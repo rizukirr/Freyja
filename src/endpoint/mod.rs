@@ -76,6 +76,22 @@ pub struct EndpointConfig {
     /// API key is redacted everywhere Freyja prints itself, and a header value
     /// is only redacted when its *name* gives it away. See this type's `Debug`.
     pub extra_headers: Vec<(String, String)>,
+    /// Path appended to `base_url`, replacing [`Dialect::path`] when set.
+    ///
+    /// For an endpoint that does not follow its dialect's convention, such as
+    /// a deployment-scoped Azure URL. A caller setting this owns the whole
+    /// path: Freyja does not check that it agrees with the dialect, because
+    /// the paths that need this option agree with nothing.
+    pub path: Option<String>,
+    /// Query parameters sent with every request, percent-encoded by Freyja.
+    ///
+    /// For what a deployment pins on every call — an API version, a tenant, a
+    /// region. Pairs rather than a query string so the joining and the
+    /// escaping are not the caller's problem.
+    ///
+    /// Redacted in `Debug` on the same name heuristic as `extra_headers`, and
+    /// with the same advice: a credential belongs in [`EndpointConfig::auth`].
+    pub query: Vec<(String, String)>,
     /// Extra body fields, for what this endpoint wants on every request.
     ///
     /// The companion to `extra_headers`, one layer down. Deep-merged into the
@@ -95,16 +111,16 @@ pub struct EndpointConfig {
     pub token_limit_field: TokenLimitField,
 }
 
-/// Substrings that mark a header as carrying a secret.
+/// Substrings that mark a header or query parameter as carrying a secret.
 ///
-/// Matched case-insensitively against the header *name*. A heuristic, and named
-/// as one: it cannot know that `x-acme-passport` is a credential.
-const SECRET_HEADER_MARKERS: [&str; 6] = ["auth", "key", "token", "secret", "cookie", "password"];
+/// Matched case-insensitively against the *name*. A heuristic, and named as
+/// one: it cannot know that `x-acme-passport` is a credential.
+const SECRET_NAME_MARKERS: [&str; 6] = ["auth", "key", "token", "secret", "cookie", "password"];
 
-/// Whether a header's value should be withheld from `Debug`.
-fn is_secret_header(name: &str) -> bool {
+/// Whether a header or query parameter's value should be withheld from `Debug`.
+fn is_secret_name(name: &str) -> bool {
     let name = name.to_ascii_lowercase();
-    SECRET_HEADER_MARKERS
+    SECRET_NAME_MARKERS
         .iter()
         .any(|marker| name.contains(marker))
 }
@@ -118,23 +134,28 @@ fn is_secret_header(name: &str) -> bool {
 ///
 /// Names are always shown, and a value is withheld only when its name contains
 /// `auth`, `key`, `token`, `secret`, `cookie`, or `password`, so a routing hint
-/// stays as readable as it was. A heuristic, and stated as one: it cannot know
-/// that `x-acme-passport` is a credential. Put credentials in
-/// [`EndpointConfig::auth`], which is redacted whatever it is called.
+/// or an API version stays as readable as it was. The same rule covers
+/// [`EndpointConfig::query`], because `?key=<secret>` is how some endpoints
+/// take credentials. A heuristic, and stated as one: it cannot know that
+/// `x-acme-passport` is a credential, and it does not look inside
+/// [`EndpointConfig::base_url`], which prints whatever was put there. Put
+/// credentials in [`EndpointConfig::auth`], which is redacted whatever it is
+/// called.
 impl fmt::Debug for EndpointConfig {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let headers: Vec<(&str, &str)> = self
-            .extra_headers
-            .iter()
-            .map(|(name, value)| {
-                let value = if is_secret_header(name) {
-                    "<redacted>"
-                } else {
-                    value.as_str()
-                };
-                (name.as_str(), value)
-            })
-            .collect();
+        let redact = |pairs: &[(String, String)]| -> Vec<(String, String)> {
+            pairs
+                .iter()
+                .map(|(name, value)| {
+                    let value = if is_secret_name(name) {
+                        "<redacted>".to_string()
+                    } else {
+                        value.clone()
+                    };
+                    (name.clone(), value)
+                })
+                .collect()
+        };
 
         f.debug_struct("EndpointConfig")
             .field("dialect", &self.dialect)
@@ -143,7 +164,9 @@ impl fmt::Debug for EndpointConfig {
             .field("auth", &self.auth)
             .field("api_key_env", &self.api_key_env)
             .field("default_model", &self.default_model)
-            .field("extra_headers", &headers)
+            .field("path", &self.path)
+            .field("query", &redact(&self.query))
+            .field("extra_headers", &redact(&self.extra_headers))
             .field("extra_body", &self.extra_body)
             .field("token_limit_field", &self.token_limit_field)
             .finish()
@@ -161,6 +184,8 @@ impl EndpointConfig {
             api_key_env: None,
             default_model: None,
             extra_headers: Vec::new(),
+            path: None,
+            query: Vec::new(),
             extra_body: serde_json::Map::new(),
             token_limit_field: TokenLimitField::MaxTokens,
         }
@@ -191,6 +216,37 @@ impl EndpointConfig {
     /// left here is redacted only if its name says what it is.
     pub fn header(mut self, name: impl Into<String>, value: impl Into<String>) -> Self {
         self.extra_headers.push((name.into(), value.into()));
+        self
+    }
+
+    /// Replaces the path [`Dialect::path`] would supply.
+    ///
+    /// ```
+    /// use freyja::{EndpointConfig, Dialect};
+    ///
+    /// let config = EndpointConfig::new(
+    ///         Dialect::OpenAiChat,
+    ///         "Azure",
+    ///         "https://acme.openai.azure.com",
+    ///     )
+    ///     .path("/openai/deployments/gpt4/chat/completions")
+    ///     .query("api-version", "2024-02-01");
+    /// assert_eq!(
+    ///     config.url(),
+    ///     "https://acme.openai.azure.com/openai/deployments/gpt4/chat/completions?api-version=2024-02-01"
+    /// );
+    /// ```
+    pub fn path(mut self, path: impl Into<String>) -> Self {
+        self.path = Some(path.into());
+        self
+    }
+
+    /// Adds a query parameter sent with every request.
+    ///
+    /// Percent-encoded on the way out, so the value is written as it means to
+    /// be read. A credential belongs in [`EndpointConfig::auth`].
+    pub fn query(mut self, name: impl Into<String>, value: impl Into<String>) -> Self {
+        self.query.push((name.into(), value.into()));
         self
     }
 
@@ -246,19 +302,52 @@ impl EndpointConfig {
 
     /// The full URL requests are sent to.
     pub fn url(&self) -> String {
-        format!(
-            "{}{}",
-            self.base_url.trim_end_matches('/'),
-            self.dialect.path()
-        )
+        self.build_url(&[])
     }
 
     /// The full URL streaming requests are sent to.
     pub fn stream_url(&self) -> String {
         match self.dialect.stream_query() {
-            Some(query) => format!("{}?{}", self.url(), query),
-            None => self.url(),
+            Some(pair) => self.build_url(&[pair]),
+            None => self.build_url(&[]),
         }
+    }
+
+    /// Assembles the request URL, appending `extra` after the endpoint's own
+    /// query parameters.
+    ///
+    /// Goes through [`reqwest::Url`] so the path lands before the query rather
+    /// than inside it, and so joining and escaping are never done by hand. A
+    /// `base_url` that will not parse falls back to plain concatenation, which
+    /// keeps a malformed base failing where it always has: at send time, as a
+    /// transport error naming the endpoint.
+    fn build_url(&self, extra: &[(&str, &str)]) -> String {
+        let path = self.path.as_deref().unwrap_or_else(|| self.dialect.path());
+
+        let Ok(mut url) = reqwest::Url::parse(&self.base_url) else {
+            return format!("{}{}", self.base_url.trim_end_matches('/'), path);
+        };
+
+        let joined = format!(
+            "{}/{}",
+            url.path().trim_end_matches('/'),
+            path.trim_start_matches('/')
+        );
+        url.set_path(&joined);
+
+        // Guarded, because `query_pairs_mut` leaves a bare `?` behind when it
+        // is handed nothing to append.
+        if !self.query.is_empty() || !extra.is_empty() {
+            let mut pairs = url.query_pairs_mut();
+            for (name, value) in &self.query {
+                pairs.append_pair(name, value);
+            }
+            for (name, value) in extra {
+                pairs.append_pair(name, value);
+            }
+        }
+
+        url.into()
     }
 
     /// Resolves the model for a request, preferring the request's own choice.
