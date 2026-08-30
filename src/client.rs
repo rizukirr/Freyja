@@ -513,6 +513,26 @@ mod tests {
 
         let trailing = EndpointConfig::new(Dialect::OpenAiResponses, "test", "https://x.test/v1/");
         assert_eq!(trailing.url(), "https://x.test/v1/responses");
+
+        // A query in the base URL keeps its place: the path goes before it.
+        let with_query =
+            EndpointConfig::new(Dialect::OpenAiChat, "test", "https://x.test/v1?tenant=acme");
+        assert_eq!(
+            with_query.url(),
+            "https://x.test/v1/chat/completions?tenant=acme"
+        );
+
+        // An explicit path replaces the dialect's.
+        let overridden = EndpointConfig::new(Dialect::OpenAiChat, "test", "https://x.test")
+            .path("/openai/deployments/gpt4/chat/completions");
+        assert_eq!(
+            overridden.url(),
+            "https://x.test/openai/deployments/gpt4/chat/completions"
+        );
+
+        // A base URL that will not parse is left to fail at send time.
+        let unparseable = EndpointConfig::new(Dialect::Anthropic, "test", "not a url");
+        assert_eq!(unparseable.url(), "not a url/messages");
     }
 
     #[test]
@@ -559,6 +579,15 @@ mod tests {
         // Every other dialect streams from the same URL it generates from.
         let anthropic = EndpointConfig::new(Dialect::Anthropic, "a", "https://x.test/v1");
         assert_eq!(anthropic.stream_url(), anthropic.url());
+
+        // One `?` in the URL however many parameters reach it.
+        let pinned = EndpointConfig::new(Dialect::Gemini, "g", "https://x.test/v1")
+            .query("api-version", "2024-02-01");
+        assert_eq!(
+            pinned.stream_url(),
+            "https://x.test/v1/interactions?api-version=2024-02-01&alt=sse"
+        );
+        assert_eq!(pinned.stream_url().matches('?').count(), 1);
     }
 
     const DIALECTS: [Dialect; 4] = [

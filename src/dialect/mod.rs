@@ -65,10 +65,14 @@ impl Dialect {
         }
     }
 
-    /// The query string that enables SSE where one is required.
-    pub fn stream_query(self) -> Option<&'static str> {
+    /// The query parameter that enables SSE where one is required.
+    ///
+    /// A pair rather than a preformatted `alt=sse`, so the caller appends it
+    /// like any other parameter and nothing in the crate decides between `?`
+    /// and `&`.
+    pub fn stream_query(self) -> Option<(&'static str, &'static str)> {
         match self {
-            Self::Gemini => Some("alt=sse"),
+            Self::Gemini => Some(("alt", "sse")),
             Self::OpenAiResponses | Self::OpenAiChat | Self::Anthropic => None,
         }
     }

@@ -16,18 +16,68 @@ pub(crate) fn default_http() -> reqwest::Client {
         .expect("the TLS backend could not be initialized")
 }
 
-pub(crate) async fn post<T: Serialize>(
-    http: &reqwest::Client,
+/// The header name the endpoint's auth would set, if it sets one.
+fn auth_header_name(auth: &Auth) -> Option<&'static str> {
+    match auth {
+        Auth::Bearer => Some("authorization"),
+        Auth::Header(name) => Some(*name),
+        Auth::None => None,
+    }
+}
+
+/// The dialect's required headers and the endpoint's extra ones, resolved.
+///
+/// `reqwest`'s `header` appends rather than replaces, so a name written by two
+/// layers goes out twice and a server rejecting the request says nothing about
+/// which copy it read. Three layers can collide: a required header, an extra
+/// header, and auth.
+///
+/// Later wins, so an endpoint pinned to a different `anthropic-version` can
+/// say so and a second `header` call with the same name supersedes the first.
+/// Auth outranks both and is applied by the caller rather than folded in here,
+/// so `bearer_auth` keeps marking the credential sensitive.
+fn resolved_headers<'a>(
+    config: &'a EndpointConfig,
+    api_key: Option<&str>,
+) -> Vec<(&'a str, &'a str)> {
+    let reserved = api_key.and(auth_header_name(&config.auth));
+
+    let mut all: Vec<(&str, &str)> = config
+        .dialect
+        .required_headers()
+        .iter()
+        .map(|(name, value)| (*name, *value))
+        .chain(
+            config
+                .extra_headers
+                .iter()
+                .map(|(name, value)| (name.as_str(), value.as_str())),
+        )
+        .filter(|(name, _)| !reserved.is_some_and(|taken| name.eq_ignore_ascii_case(taken)))
+        .collect();
+
+    let mut kept: Vec<(&str, &str)> = Vec::with_capacity(all.len());
+    while let Some((name, value)) = all.pop() {
+        if !kept.iter().any(|(seen, _)| seen.eq_ignore_ascii_case(name)) {
+            kept.push((name, value));
+        }
+    }
+    kept.reverse();
+    kept
+}
+
+/// Applies the endpoint's headers and its credential to a request builder.
+///
+/// Separate from `post` so a test can read the request that comes out. The
+/// only property worth reading is one `post` cannot expose: `bearer_auth`
+/// marks the credential sensitive, and a hand-built `Authorization` header
+/// would silently not.
+fn apply_headers(
+    mut post: reqwest::RequestBuilder,
     config: &EndpointConfig,
     api_key: Option<&str>,
-    url: String,
-    wire: &T,
-) -> Result<reqwest::Response, Error> {
-    let mut post = http.post(url);
-    for (name, value) in config.dialect.required_headers() {
-        post = post.header(*name, *value);
-    }
-    for (name, value) in &config.extra_headers {
+) -> reqwest::RequestBuilder {
+    for (name, value) in resolved_headers(config, api_key) {
         post = post.header(name, value);
     }
     if let Some(key) = api_key {
@@ -37,6 +87,17 @@ pub(crate) async fn post<T: Serialize>(
             Auth::None => post,
         };
     }
+    post
+}
+
+pub(crate) async fn post<T: Serialize>(
+    http: &reqwest::Client,
+    config: &EndpointConfig,
+    api_key: Option<&str>,
+    url: String,
+    wire: &T,
+) -> Result<reqwest::Response, Error> {
+    let post = apply_headers(http.post(url), config, api_key);
 
     post.json(wire)
         .send()
@@ -119,4 +180,48 @@ pub(crate) fn to_value<T: Serialize>(
     }
 
     Ok(Value::Object(body))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::dialect::Dialect;
+
+    #[test]
+    fn the_key_sets_a_sensitive_authorization_header() {
+        let config = EndpointConfig::new(Dialect::OpenAiChat, "test", "https://x.test");
+        let request = apply_headers(
+            default_http().post("https://x.test"),
+            &config,
+            Some("sk-test"),
+        )
+        .build()
+        .expect("the request builds");
+
+        let value = request
+            .headers()
+            .get(reqwest::header::AUTHORIZATION)
+            .expect("a key was supplied, so auth set a header");
+        assert!(
+            value.is_sensitive(),
+            "the credential must stay out of anything that prints headers"
+        );
+    }
+
+    #[test]
+    fn a_caller_header_is_not_marked_sensitive() {
+        // The negative case, so the assertion above cannot pass by every
+        // header being sensitive.
+        let config = EndpointConfig::new(Dialect::OpenAiChat, "test", "https://x.test")
+            .header("X-Route", "eu");
+        let request = apply_headers(default_http().post("https://x.test"), &config, None)
+            .build()
+            .expect("the request builds");
+
+        let value = request
+            .headers()
+            .get("x-route")
+            .expect("the extra header was applied");
+        assert!(!value.is_sensitive(), "{value:?}");
+    }
 }
