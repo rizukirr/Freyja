@@ -139,6 +139,8 @@ Configuration stays readable either way: `x-acme-tenant` and `api-version` above
 
 Classification is by name, and one set covers both headers and query parameters. Marking `sig` secret as a parameter also hides a header called `sig`.
 
+`secrets` holds only the names you classified, which is narrower than what gets withheld. Ask `config.is_secret(name)` for the whole answer: it covers your classification, the parameter `Auth::Query` uses, and the name heuristic. Reading the set alone would tell you that `x-api-key` is not classified, which is true and not the same as saying it is printed.
+
 ## Extra body fields
 
 Some endpoints want a field on every request that the neutral model has no name for — a safety configuration, a routing hint, a tier. `body` is the companion to `header`, one layer down:
