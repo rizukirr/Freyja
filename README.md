@@ -48,6 +48,19 @@ let client = Client::from_env(EndpointPreset::OpenAi).expect("OPENAI_API_KEY");
 // or Anthropic, or Gemini, or any compatible endpoint. Nothing else changes.
 ```
 
+"Any compatible endpoint" includes ones whose URL follows neither the dialect nor the vendor, and gateways that want a credential of their own beside the key:
+
+```rust
+let config = EndpointConfig::new(Dialect::OpenAiChat, "acme-gw", "https://gw.acme.test/v1")
+    .api_key_env("ACME_API_KEY")
+    .path("/openai/deployments/gpt4/chat/completions") // replaces the dialect's path
+    .query("api-version", "2024-02-01")                // pinned on every request
+    .header("x-acme-tenant", "engineering")            // printed, it is configuration
+    .secret_header("x-acme-passport", &passport);      // withheld, it is a credential
+```
+
+Freyja does the URL joining and escaping, so a request never grows a second `?`. A classified value is withheld from `Debug` and from error messages; an unclassified one only if its name happens to look like a credential. For an endpoint that wants the key in the URL rather than a header, `Auth::Query("key")` keeps it out of `config.url()`. See [Custom endpoints](docs/providers/custom.md).
+
 That matters because every vendor invented a different shape for the same ideas. A tool call is a flat item on OpenAI, a typed step on Gemini, a nested block on Anthropic, and a fourth arrangement on the Chat Completions format most other vendors copy. Your code sees none of it.
 
 ## Quick start
