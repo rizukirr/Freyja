@@ -20,7 +20,10 @@ fn public_types_are_available_from_flat_and_categorized_paths() {
 
     let config = EndpointConfig::new(dialect, "test", "https://example.test")
         .path("/custom")
-        .query("api-version", "2024-02-01");
+        .query("api-version", "2024-02-01")
+        .secret_query("sig", "signature")
+        .secret_header("x-acme-passport", "passport");
+    let _: usize = config.secrets.len();
     let _: CategorizedEndpointConfig = config;
 
     let _: Option<(&'static str, &'static str)> = Dialect::Gemini.stream_query();
