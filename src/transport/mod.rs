@@ -21,7 +21,7 @@ fn auth_header_name(auth: &Auth) -> Option<&'static str> {
     match auth {
         Auth::Bearer => Some("authorization"),
         Auth::Header(name) => Some(*name),
-        Auth::None => None,
+        Auth::Query(_) | Auth::None => None,
     }
 }
 
@@ -84,10 +84,44 @@ fn apply_headers(
         post = match config.auth {
             Auth::Bearer => post.bearer_auth(key),
             Auth::Header(name) => post.header(name, key),
-            Auth::None => post,
+            Auth::Query(_) | Auth::None => post,
         };
     }
     post
+}
+
+/// Adds the credential to the URL when the endpoint carries it there.
+///
+/// Applied at send time rather than in `EndpointConfig::build_url`, because
+/// `url()` is public and is what a caller reaches for to print where requests
+/// go. A public method returning a live key is the shape two earlier fixes
+/// undid: safe where people rarely look, exposed where they always do.
+///
+/// An existing parameter of the same name is dropped first, so auth wins a
+/// collision exactly as `resolved_headers` makes it win one between headers.
+///
+/// A URL that will not parse is returned untouched, which leaves it to fail at
+/// send time the way `EndpointConfig::build_url`'s own fallback does.
+fn apply_query_auth(url: String, config: &EndpointConfig, api_key: Option<&str>) -> String {
+    let (Auth::Query(name), Some(key)) = (&config.auth, api_key) else {
+        return url;
+    };
+    let Ok(mut parsed) = reqwest::Url::parse(&url) else {
+        return url;
+    };
+
+    let kept: Vec<(String, String)> = parsed
+        .query_pairs()
+        .filter(|(existing, _)| existing.as_ref() != *name)
+        .map(|(existing, value)| (existing.into_owned(), value.into_owned()))
+        .collect();
+    parsed
+        .query_pairs_mut()
+        .clear()
+        .extend_pairs(kept)
+        .append_pair(name, key);
+
+    parsed.into()
 }
 
 pub(crate) async fn post<T: Serialize>(
@@ -97,6 +131,7 @@ pub(crate) async fn post<T: Serialize>(
     url: String,
     wire: &T,
 ) -> Result<reqwest::Response, Error> {
+    let url = apply_query_auth(url, config, api_key);
     let post = apply_headers(http.post(url), config, api_key);
 
     post.json(wire)

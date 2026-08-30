@@ -13,11 +13,23 @@ use std::sync::Arc;
 
 /// How an endpoint expects credentials to be presented.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Auth {
     /// `Authorization: Bearer <key>`.
     Bearer,
     /// A named header carrying the raw key, such as `x-api-key`.
     Header(&'static str),
+    /// A named URL query parameter carrying the raw key, such as `?key=<key>`.
+    ///
+    /// For endpoints that take their credential in the URL rather than in a
+    /// header. The key is added when the request is sent, not when the URL is
+    /// built, so [`EndpointConfig::url`] stays safe to print: the URL a request
+    /// actually goes to differs from what `url()` reports by this one
+    /// parameter, and that is the trade deliberately made.
+    ///
+    /// An [`EndpointConfig::query`] entry of the same name is replaced, so the
+    /// credential wins a collision the way header auth does.
+    Query(&'static str),
     /// No credentials at all, for local runtimes like Ollama.
     None,
 }
