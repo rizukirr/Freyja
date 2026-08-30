@@ -102,3 +102,24 @@ fn debug_still_withholds_an_unclassified_credential_shaped_name() {
 
     assert!(!format!("{config:?}").contains("live-key"));
 }
+
+#[tokio::test]
+async fn a_classified_query_parameter_is_withheld_from_a_transport_error() {
+    // Port 1 refuses, so the failure carries the URL it tried. Neither name
+    // contains a marker the heuristic knows, so the classification is doing
+    // the work.
+    let config = EndpointConfig::new(Dialect::OpenAiChat, "local", "http://127.0.0.1:1")
+        .default_model("test-model")
+        .secret_query("sig", "live-signature")
+        .query("api-version", "2024-02-01");
+
+    let error = Client::new(config, "sk-test")
+        .generate(&ask())
+        .await
+        .expect_err("nothing listens on port 1");
+
+    for rendered in [error.to_string(), format!("{error:?}")] {
+        assert!(!rendered.contains("live-signature"), "{rendered}");
+        assert!(rendered.contains("api-version=2024-02-01"), "{rendered}");
+    }
+}

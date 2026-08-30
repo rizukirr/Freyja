@@ -1,6 +1,6 @@
 //! Errors returned while preparing, sending, or decoding a generation request.
 
-use crate::endpoint::is_secret_name;
+use crate::endpoint::EndpointConfig;
 use std::borrow::Cow;
 use std::fmt;
 use std::sync::Arc;
@@ -59,25 +59,28 @@ impl TransportError {
 /// absent in development and present in production is one nobody ever sees
 /// working.
 ///
-/// The same name heuristic as [`crate::EndpointConfig`]'s `Debug`, and the same
-/// caveat: it cannot know that `?passport=` is a credential.
-///
-/// A name given by [`crate::Auth::Query`] is withheld whatever it is called,
-/// because that one is not a guess.
+/// What counts as secret is [`crate::EndpointConfig::is_secret`], the same
+/// predicate that type's `Debug` uses, so a value cannot be hidden in one
+/// rendering and printed in the other.
 ///
 /// The placeholder is bare rather than the `<redacted>` used elsewhere: a query
 /// value is percent-encoded on the way back in, and `%3Credacted%3E` in an
 /// error message is harder to read than the thing it stands for.
-fn redact_url_in(message: String, url: Option<&reqwest::Url>, credential: Option<&str>) -> String {
+fn redact_url_in(
+    message: String,
+    url: Option<&reqwest::Url>,
+    config: Option<&EndpointConfig>,
+) -> String {
     const REDACTED: &str = "REDACTED";
 
     let Some(url) = url else {
         return message;
     };
-    // The heuristic covers what a caller put in `EndpointConfig::query`. The
-    // exact name covers what `Auth::Query` put there, where guessing would be
-    // a choice to ignore what we were told.
-    let secret = |name: &str| is_secret_name(name) || credential == Some(name);
+    // One predicate, shared with `EndpointConfig`'s `Debug`: what the caller
+    // classified, what this endpoint's auth uses, and the name heuristic
+    // behind both. A path with no config in reach redacts nothing, because it
+    // has nothing to redact by.
+    let secret = |name: &str| config.is_some_and(|config| config.is_secret(name));
     if !url.query_pairs().any(|(name, _)| secret(&name)) {
         return message;
     }
@@ -245,12 +248,12 @@ impl Error {
     pub(crate) fn transport(
         endpoint: Arc<str>,
         error: &reqwest::Error,
-        credential: Option<&str>,
+        config: Option<&EndpointConfig>,
     ) -> Self {
         Self::Http {
             endpoint,
             kind: TransportError::classify(error),
-            message: redact_url_in(error.to_string(), error.url(), credential),
+            message: redact_url_in(error.to_string(), error.url(), config),
         }
     }
     /// Whether repeating the identical request could plausibly succeed.
@@ -549,8 +552,10 @@ mod tests {
             reqwest::Url::parse("https://x.test/v1/messages?api-version=2024-02-01&key=SECRET")
                 .expect("a valid url");
         let message = format!("error sending request for url ({url})");
+        let config =
+            crate::EndpointConfig::new(crate::Dialect::Anthropic, "x", "https://x.test/v1");
 
-        let redacted = super::redact_url_in(message, Some(&url), None);
+        let redacted = super::redact_url_in(message, Some(&url), Some(&config));
 
         assert!(!redacted.contains("SECRET"), "{redacted}");
         assert!(redacted.contains("key=REDACTED"), "{redacted}");
@@ -563,12 +568,19 @@ mod tests {
         let url = reqwest::Url::parse("https://x.test/v1/messages?api-version=2024-02-01")
             .expect("a valid url");
         let message = format!("error sending request for url ({url})");
+        let config =
+            crate::EndpointConfig::new(crate::Dialect::Anthropic, "x", "https://x.test/v1");
 
+        assert_eq!(
+            super::redact_url_in(message.clone(), Some(&url), Some(&config)),
+            message
+        );
+        assert_eq!(super::redact_url_in(message.clone(), None, None), message);
+        // No config means nothing to redact by, so the message survives whole.
         assert_eq!(
             super::redact_url_in(message.clone(), Some(&url), None),
             message
         );
-        assert_eq!(super::redact_url_in(message.clone(), None, None), message);
     }
 
     #[test]
