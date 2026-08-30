@@ -16,6 +16,56 @@ pub(crate) fn default_http() -> reqwest::Client {
         .expect("the TLS backend could not be initialized")
 }
 
+/// The header name the endpoint's auth would set, if it sets one.
+fn auth_header_name(auth: &Auth) -> Option<&'static str> {
+    match auth {
+        Auth::Bearer => Some("authorization"),
+        Auth::Header(name) => Some(*name),
+        Auth::None => None,
+    }
+}
+
+/// The dialect's required headers and the endpoint's extra ones, resolved.
+///
+/// `reqwest`'s `header` appends rather than replaces, so a name written by two
+/// layers goes out twice and a server rejecting the request says nothing about
+/// which copy it read. Three layers can collide: a required header, an extra
+/// header, and auth.
+///
+/// Later wins, so an endpoint pinned to a different `anthropic-version` can
+/// say so and a second `header` call with the same name supersedes the first.
+/// Auth outranks both and is applied by the caller rather than folded in here,
+/// so `bearer_auth` keeps marking the credential sensitive.
+fn resolved_headers<'a>(
+    config: &'a EndpointConfig,
+    api_key: Option<&str>,
+) -> Vec<(&'a str, &'a str)> {
+    let reserved = api_key.and(auth_header_name(&config.auth));
+
+    let mut all: Vec<(&str, &str)> = config
+        .dialect
+        .required_headers()
+        .iter()
+        .map(|(name, value)| (*name, *value))
+        .chain(
+            config
+                .extra_headers
+                .iter()
+                .map(|(name, value)| (name.as_str(), value.as_str())),
+        )
+        .filter(|(name, _)| !reserved.is_some_and(|taken| name.eq_ignore_ascii_case(taken)))
+        .collect();
+
+    let mut kept: Vec<(&str, &str)> = Vec::with_capacity(all.len());
+    while let Some((name, value)) = all.pop() {
+        if !kept.iter().any(|(seen, _)| seen.eq_ignore_ascii_case(name)) {
+            kept.push((name, value));
+        }
+    }
+    kept.reverse();
+    kept
+}
+
 pub(crate) async fn post<T: Serialize>(
     http: &reqwest::Client,
     config: &EndpointConfig,
@@ -24,10 +74,7 @@ pub(crate) async fn post<T: Serialize>(
     wire: &T,
 ) -> Result<reqwest::Response, Error> {
     let mut post = http.post(url);
-    for (name, value) in config.dialect.required_headers() {
-        post = post.header(*name, *value);
-    }
-    for (name, value) in &config.extra_headers {
+    for (name, value) in resolved_headers(config, api_key) {
         post = post.header(name, value);
     }
     if let Some(key) = api_key {
