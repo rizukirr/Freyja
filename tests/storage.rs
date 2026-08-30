@@ -3,7 +3,7 @@
 //! Stands in for a third-party persistence crate: if this compiles, so does one.
 
 mod common;
-use common::serve;
+use common::{ok_response, serve};
 use freyja::{
     Agent, Client, Dialect, EndpointConfig, InMemoryStorage, InputContent, Message, Role, Storage,
     StorageFuture, tool,
@@ -130,18 +130,6 @@ impl Storage for Shared {
             Ok(())
         })
     }
-}
-
-/// Built with a derived `Content-Length` and leaked to satisfy `serve`'s
-/// `&'static str`, the same way `tests/memory.rs` does it.
-fn ok_response() -> &'static str {
-    let body = r#"{"id":"x","model":"test-model","choices":[{"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}"#;
-    let head = format!(
-        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{}",
-        body.len(),
-        body
-    );
-    Box::leak(head.into_boxed_str())
 }
 
 fn agent_for(base: String) -> Agent {

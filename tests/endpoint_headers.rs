@@ -6,17 +6,7 @@
 use freyja::{Auth, Client, Dialect, EndpointConfig, GenerateRequest, Message, Role};
 
 mod common;
-use common::serve;
-
-fn ok_response() -> &'static str {
-    let body = r#"{"id":"x","model":"test-model","choices":[{"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}"#;
-    let head = format!(
-        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{}",
-        body.len(),
-        body
-    );
-    Box::leak(head.into_boxed_str())
-}
+use common::{ok_response, serve};
 
 /// Every occurrence of `name` in the captured head, value only, lowercased
 /// name so a server's own casing does not decide the outcome.

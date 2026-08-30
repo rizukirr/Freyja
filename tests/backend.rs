@@ -8,7 +8,7 @@
 //! still be a request the provider accepts.
 
 mod common;
-use common::serve;
+use common::{ok_response, serve};
 use freyja::{
     Agent, Client, Dialect, EndpointConfig, InputContent, Message, Role, Storage, StorageFuture,
 };
@@ -42,18 +42,6 @@ impl Storage for Naive {
             Ok(())
         })
     }
-}
-
-/// Built with a derived `Content-Length` and leaked to satisfy `serve`'s
-/// `&'static str`, the same way the other integration tests do it.
-fn ok_response() -> &'static str {
-    let body = r#"{"id":"x","model":"test-model","choices":[{"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}"#;
-    let head = format!(
-        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{}",
-        body.len(),
-        body
-    );
-    Box::leak(head.into_boxed_str())
 }
 
 /// A stored transcript where the last two messages are a tool result and the
