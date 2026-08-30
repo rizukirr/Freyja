@@ -123,3 +123,29 @@ async fn a_classified_query_parameter_is_withheld_from_a_transport_error() {
         assert!(rendered.contains("api-version=2024-02-01"), "{rendered}");
     }
 }
+
+#[test]
+fn a_name_classified_in_one_place_is_not_classified_in_the_other() {
+    // A header and a query parameter that share a name are different values,
+    // and only one of them was said to be a credential.
+    let config = EndpointConfig::new(Dialect::OpenAiChat, "gw", "https://gw.test/v1")
+        .secret_query("sig", "live-signature")
+        .header("sig", "a-routing-hint");
+
+    let printed = format!("{config:?}");
+
+    assert!(!printed.contains("live-signature"), "{printed}");
+    assert!(printed.contains("a-routing-hint"), "{printed}");
+}
+
+#[test]
+fn a_url_credential_does_not_classify_a_header_of_the_same_name() {
+    // `Auth::Query` names a parameter, not a header.
+    let config = EndpointConfig::new(Dialect::Gemini, "g", "https://x.test/v1")
+        .auth(freyja::Auth::Query("route"))
+        .header("route", "a-routing-hint");
+
+    assert!(config.is_secret_query("route"));
+    assert!(!config.is_secret_header("route"));
+    assert!(format!("{config:?}").contains("a-routing-hint"));
+}
