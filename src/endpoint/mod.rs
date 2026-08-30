@@ -8,16 +8,29 @@ use crate::dialect::Dialect;
 use crate::error::Error;
 use crate::model::GenerateRequest;
 use serde_json::Value;
+use std::collections::HashSet;
 use std::fmt;
 use std::sync::Arc;
 
 /// How an endpoint expects credentials to be presented.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Auth {
     /// `Authorization: Bearer <key>`.
     Bearer,
     /// A named header carrying the raw key, such as `x-api-key`.
     Header(&'static str),
+    /// A named URL query parameter carrying the raw key, such as `?key=<key>`.
+    ///
+    /// For endpoints that take their credential in the URL rather than in a
+    /// header. The key is added when the request is sent, not when the URL is
+    /// built, so [`EndpointConfig::url`] stays safe to print: the URL a request
+    /// actually goes to differs from what `url()` reports by this one
+    /// parameter, and that is the trade deliberately made.
+    ///
+    /// An [`EndpointConfig::query`] entry of the same name is replaced, so the
+    /// credential wins a collision the way header auth does.
+    Query(&'static str),
     /// No credentials at all, for local runtimes like Ollama.
     None,
 }
@@ -92,6 +105,17 @@ pub struct EndpointConfig {
     /// Redacted in `Debug` on the same name heuristic as `extra_headers`, and
     /// with the same advice: a credential belongs in [`EndpointConfig::auth`].
     pub query: Vec<(String, String)>,
+    /// Names whose values the caller has classified as credentials.
+    ///
+    /// Populated by [`EndpointConfig::secret_header`] and
+    /// [`EndpointConfig::secret_query`]. One set covers both, so a name marked
+    /// once is withheld wherever it appears. That over-redacts a header and a
+    /// query parameter sharing a name, which is unlikely and costs a reader
+    /// one line.
+    ///
+    /// The classification is what Freyja prints by, not what it sends by: a
+    /// classified value goes on the wire exactly as an unclassified one does.
+    pub secrets: HashSet<String>,
     /// Extra body fields, for what this endpoint wants on every request.
     ///
     /// The companion to `extra_headers`, one layer down. Deep-merged into the
@@ -132,22 +156,21 @@ pub(crate) fn is_secret_name(name: &str) -> bool {
 /// [`EndpointConfig::extra_headers`]. A derived `Debug` would print that
 /// verbatim and undo the redaction one field over.
 ///
-/// Names are always shown, and a value is withheld only when its name contains
-/// `auth`, `key`, `token`, `secret`, `cookie`, or `password`, so a routing hint
-/// or an API version stays as readable as it was. The same rule covers
-/// [`EndpointConfig::query`], because `?key=<secret>` is how some endpoints
-/// take credentials. A heuristic, and stated as one: it cannot know that
-/// `x-acme-passport` is a credential, and it does not look inside
-/// [`EndpointConfig::base_url`], which prints whatever was put there. Put
-/// credentials in [`EndpointConfig::auth`], which is redacted whatever it is
-/// called.
+/// Names are always shown. A value is withheld when the caller classified it
+/// with [`EndpointConfig::secret_header`] or [`EndpointConfig::secret_query`],
+/// when it is the parameter this endpoint's [`EndpointConfig::auth`] uses, or
+/// when its name contains `auth`, `key`, `token`, `secret`, `cookie` or
+/// `password`. The last of those is a heuristic and stated as one: it cannot
+/// know that `x-acme-passport` is a credential, which is why the first two
+/// exist. None of them look inside [`EndpointConfig::base_url`], which prints
+/// whatever was put there.
 impl fmt::Debug for EndpointConfig {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let redact = |pairs: &[(String, String)]| -> Vec<(String, String)> {
             pairs
                 .iter()
                 .map(|(name, value)| {
-                    let value = if is_secret_name(name) {
+                    let value = if self.is_secret(name) {
                         "<redacted>".to_string()
                     } else {
                         value.clone()
@@ -186,6 +209,7 @@ impl EndpointConfig {
             extra_headers: Vec::new(),
             path: None,
             query: Vec::new(),
+            secrets: HashSet::new(),
             extra_body: serde_json::Map::new(),
             token_limit_field: TokenLimitField::MaxTokens,
         }
@@ -219,6 +243,30 @@ impl EndpointConfig {
         self
     }
 
+    /// Adds an extra header whose value is a credential.
+    ///
+    /// The same as [`EndpointConfig::header`] on the wire. The difference is
+    /// what Freyja prints: this value is withheld from `Debug` and from error
+    /// messages whatever the name looks like, so a second credential no longer
+    /// depends on its name resembling one.
+    ///
+    /// ```
+    /// use freyja::{EndpointConfig, Dialect};
+    ///
+    /// let config = EndpointConfig::new(Dialect::OpenAiChat, "gw", "https://gw.test/v1")
+    ///     .header("x-acme-tenant", "engineering")
+    ///     .secret_header("x-acme-passport", "live-value");
+    ///
+    /// let printed = format!("{config:?}");
+    /// assert!(!printed.contains("live-value"));
+    /// assert!(printed.contains("engineering"));
+    /// ```
+    pub fn secret_header(mut self, name: impl Into<String>, value: impl Into<String>) -> Self {
+        let name = name.into();
+        self.secrets.insert(name.clone());
+        self.header(name, value)
+    }
+
     /// Replaces the path [`Dialect::path`] would supply.
     ///
     /// ```
@@ -248,6 +296,33 @@ impl EndpointConfig {
     pub fn query(mut self, name: impl Into<String>, value: impl Into<String>) -> Self {
         self.query.push((name.into(), value.into()));
         self
+    }
+
+    /// Adds a query parameter whose value is a credential.
+    ///
+    /// The companion to [`EndpointConfig::secret_header`], and the same trade:
+    /// identical on the wire, withheld from everything Freyja prints.
+    ///
+    /// The endpoint's own API key belongs in [`EndpointConfig::auth`], which
+    /// has [`Auth::Query`] for an endpoint that wants it in the URL. This is
+    /// for a second credential beside it.
+    pub fn secret_query(mut self, name: impl Into<String>, value: impl Into<String>) -> Self {
+        let name = name.into();
+        self.secrets.insert(name.clone());
+        self.query(name, value)
+    }
+
+    /// Whether this name's value must be withheld from anything Freyja prints.
+    ///
+    /// Three sources, in order of certainty: what the caller classified, the
+    /// parameter this endpoint's own auth uses, and the name heuristic behind
+    /// both. The heuristic stays because a caller who classifies nothing is
+    /// still covered, and because it errs toward hiding, which is the right
+    /// direction when the alternative is a key in a log.
+    pub(crate) fn is_secret(&self, name: &str) -> bool {
+        self.secrets.contains(name)
+            || matches!(self.auth, Auth::Query(parameter) if parameter == name)
+            || is_secret_name(name)
     }
 
     /// Adds body fields sent with every request to this endpoint.

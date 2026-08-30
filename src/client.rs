@@ -536,6 +536,34 @@ mod tests {
     }
 
     #[test]
+    fn a_query_credential_never_reaches_the_public_url() {
+        let config =
+            EndpointConfig::new(Dialect::Gemini, "g", "https://x.test/v1").auth(Auth::Query("key"));
+
+        // `url()` is what a caller prints. The credential is added at send
+        // time, so there is nothing here to leak.
+        assert_eq!(config.url(), "https://x.test/v1/interactions");
+        assert_eq!(
+            config.stream_url(),
+            "https://x.test/v1/interactions?alt=sse"
+        );
+    }
+
+    #[test]
+    fn from_env_needs_a_key_for_every_variant_but_none() {
+        // `Auth::None` is the only variant that builds without one.
+        let open =
+            EndpointConfig::new(Dialect::OpenAiChat, "local", "https://x.test").auth(Auth::None);
+        assert!(Client::from_env(open).is_some());
+
+        // A query credential is a credential: with no variable named, there is
+        // nothing to load and no client to build.
+        let pinned =
+            EndpointConfig::new(Dialect::Gemini, "g", "https://x.test").auth(Auth::Query("key"));
+        assert!(Client::from_env(pinned).is_none());
+    }
+
+    #[test]
     fn takes_the_dialects_auth_style_by_default() {
         let anthropic = EndpointConfig::new(Dialect::Anthropic, "a", "https://x.test");
         assert_eq!(anthropic.auth, Auth::Header("x-api-key"));

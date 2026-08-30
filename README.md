@@ -39,6 +39,7 @@ Update imports and error matching with this rename table:
 | `Agent::conversation_in(store)` | `agent.conversation(store)` |
 | `Conversation::window(n)` | `InMemoryStorage::new().window(n)`. Windowing is a feature of the backend, and a backend of your own trims inside its own `load` |
 | `split`, `window_by_groups` | removed from the public API. A backend may cut anywhere, because the repair pass drops both halves of a pair the cut separated |
+| a `match` on `Auth` with no wildcard arm | add one. `Auth` is `#[non_exhaustive]` and has gained `Auth::Query(name)` for endpoints that take the key in the URL |
 
 You write one request. Freyja translates it into whatever wire format the model you picked actually speaks, sends it, and translates the answer back. Changing vendor is changing one line.
 
@@ -46,6 +47,19 @@ You write one request. Freyja translates it into whatever wire format the model 
 let client = Client::from_env(EndpointPreset::OpenAi).expect("OPENAI_API_KEY");
 // or Anthropic, or Gemini, or any compatible endpoint. Nothing else changes.
 ```
+
+"Any compatible endpoint" includes ones whose URL follows neither the dialect nor the vendor, and gateways that want a credential of their own beside the key:
+
+```rust
+let config = EndpointConfig::new(Dialect::OpenAiChat, "acme-gw", "https://gw.acme.test/v1")
+    .api_key_env("ACME_API_KEY")
+    .path("/openai/deployments/gpt4/chat/completions") // replaces the dialect's path
+    .query("api-version", "2024-02-01")                // pinned on every request
+    .header("x-acme-tenant", "engineering")            // printed, it is configuration
+    .secret_header("x-acme-passport", &passport);      // withheld, it is a credential
+```
+
+Freyja does the URL joining and escaping, so a request never grows a second `?`. A classified value is withheld from `Debug` and from error messages; an unclassified one only if its name happens to look like a credential. For an endpoint that wants the key in the URL rather than a header, `Auth::Query("key")` keeps it out of `config.url()`. See [Custom endpoints](docs/providers/custom.md).
 
 That matters because every vendor invented a different shape for the same ideas. A tool call is a flat item on OpenAI, a typed step on Gemini, a nested block on Anthropic, and a fourth arrangement on the Chat Completions format most other vendors copy. Your code sees none of it.
 
@@ -124,12 +138,14 @@ Then [providers](docs/providers/README.md), the [API reference](docs/README.md#r
 
 ## Status
 
-Phases 0 through 2 are complete, and Phase 3 has started: the neutral core is stable, four wire dialects are implemented, tool calling works end to end, typed `#[tool]` functions derive their schemas and dispatchers and may be sync or async, every dialect streams, failures are classified by cause, and `Memory` decides what part of a transcript reaches the model on each turn.
+Phases 0 through 2 are complete, and Phase 3 has started: the neutral core is stable, four wire dialects are implemented, tool calling works end to end, typed `#[tool]` functions derive their schemas and dispatchers and may be sync or async, every dialect streams, failures are classified by cause, and a `Storage` backend decides what part of a transcript reaches the model on each turn, inside its own `load`.
 
 | Area | State |
 |---|---|
 | Built-in providers | OpenAI, Gemini, Anthropic, all verified against live APIs |
 | Other endpoints | DeepSeek, Groq, OpenRouter, Ollama and friends via `Client::custom` |
+| Non-conventional URLs | `path` and `query` reach a gateway whose URL follows neither the dialect nor the vendor |
+| Credential safety | The key is redacted wherever Freyja prints itself; `secret_header` and `secret_query` extend that to a second credential |
 | Tool calling | Typed `#[tool]` declarations and the full round trip |
 | Streaming | All four dialects, text verified live; tool calls offline only |
 | Dependencies | `reqwest`, `serde`, `serde_json`, `schemars`, and the companion macro crate |
@@ -150,7 +166,7 @@ The goal: everything you need to build an AI agent in Rust, with no vendor lock-
 
 **Phase 2, the agent.** Complete. `Tool` and `#[tool]` derive schemas from sync or async function signatures and provide typed execution, and `Agent` drives the tool-calling loop automatically, dispatching parallel tool calls concurrently. `Tool` is now a trait, so a tool can hold state in its fields, be built at runtime, and report failure as text the model recovers from; `Context` carries per-run data to every call without exposing it to the model. `Agent::guard` vets every requested call before dispatch, so a policy can refuse one and the model reads why.
 
-**Phase 3, memory and context.** Started. `Memory` decides what reaches the model each turn and `Window` bounds a conversation by turn group, with the caller's transcript kept whole. Token-aware windows, summarization, persistent backends, and retrieval with embeddings and a vector store are not built.
+**Phase 3, memory and context.** Started. `Storage` is the backend a conversation reads and writes, and it decides what reaches the model by trimming inside its own `load`, with the caller's transcript kept whole. `InMemoryStorage::window` bounds one by turn group. Token-aware windows, summarization, persistent backends, and retrieval with embeddings and a vector store are not built.
 
 **Phase 4, orchestration.** The namesake. Multi-agent handoff, workflow primitives for chains and fan-out, shared state, propagated cancellation and budgets, and human-in-the-loop pause and resume.
 

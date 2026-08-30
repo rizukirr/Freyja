@@ -1,6 +1,6 @@
 //! Errors returned while preparing, sending, or decoding a generation request.
 
-use crate::endpoint::is_secret_name;
+use crate::endpoint::{EndpointConfig, is_secret_name};
 use std::borrow::Cow;
 use std::fmt;
 use std::sync::Arc;
@@ -59,19 +59,31 @@ impl TransportError {
 /// absent in development and present in production is one nobody ever sees
 /// working.
 ///
-/// The same name heuristic as [`crate::EndpointConfig`]'s `Debug`, and the same
-/// caveat: it cannot know that `?passport=` is a credential.
+/// What counts as secret is [`crate::EndpointConfig::is_secret`], the same
+/// predicate that type's `Debug` uses, so a value cannot be hidden in one
+/// rendering and printed in the other. Where no config is in reach, and
+/// `read_body` and the streaming pump are both such places, the name heuristic
+/// still applies on its own.
 ///
 /// The placeholder is bare rather than the `<redacted>` used elsewhere: a query
 /// value is percent-encoded on the way back in, and `%3Credacted%3E` in an
 /// error message is harder to read than the thing it stands for.
-fn redact_url_in(message: String, url: Option<&reqwest::Url>) -> String {
+fn redact_url_in(
+    message: String,
+    url: Option<&reqwest::Url>,
+    config: Option<&EndpointConfig>,
+) -> String {
     const REDACTED: &str = "REDACTED";
 
     let Some(url) = url else {
         return message;
     };
-    if !url.query_pairs().any(|(name, _)| is_secret_name(&name)) {
+    // The heuristic is the floor, so a path with no config in reach keeps the
+    // cover it had before classification existed. `is_secret` layers what the
+    // caller classified and what this endpoint's auth uses on top of it.
+    let secret =
+        |name: &str| is_secret_name(name) || config.is_some_and(|config| config.is_secret(name));
+    if !url.query_pairs().any(|(name, _)| secret(&name)) {
         return message;
     }
 
@@ -79,7 +91,7 @@ fn redact_url_in(message: String, url: Option<&reqwest::Url>) -> String {
     let pairs: Vec<(String, String)> = url
         .query_pairs()
         .map(|(name, value)| {
-            let value = if is_secret_name(&name) {
+            let value = if secret(&name) {
                 REDACTED.to_string()
             } else {
                 value.into_owned()
@@ -235,11 +247,15 @@ impl Error {
             },
         }
     }
-    pub(crate) fn transport(endpoint: Arc<str>, error: &reqwest::Error) -> Self {
+    pub(crate) fn transport(
+        endpoint: Arc<str>,
+        error: &reqwest::Error,
+        config: Option<&EndpointConfig>,
+    ) -> Self {
         Self::Http {
             endpoint,
             kind: TransportError::classify(error),
-            message: redact_url_in(error.to_string(), error.url()),
+            message: redact_url_in(error.to_string(), error.url(), config),
         }
     }
     /// Whether repeating the identical request could plausibly succeed.
@@ -538,8 +554,10 @@ mod tests {
             reqwest::Url::parse("https://x.test/v1/messages?api-version=2024-02-01&key=SECRET")
                 .expect("a valid url");
         let message = format!("error sending request for url ({url})");
+        let config =
+            crate::EndpointConfig::new(crate::Dialect::Anthropic, "x", "https://x.test/v1");
 
-        let redacted = super::redact_url_in(message, Some(&url));
+        let redacted = super::redact_url_in(message, Some(&url), Some(&config));
 
         assert!(!redacted.contains("SECRET"), "{redacted}");
         assert!(redacted.contains("key=REDACTED"), "{redacted}");
@@ -552,9 +570,37 @@ mod tests {
         let url = reqwest::Url::parse("https://x.test/v1/messages?api-version=2024-02-01")
             .expect("a valid url");
         let message = format!("error sending request for url ({url})");
+        let config =
+            crate::EndpointConfig::new(crate::Dialect::Anthropic, "x", "https://x.test/v1");
 
-        assert_eq!(super::redact_url_in(message.clone(), Some(&url)), message);
-        assert_eq!(super::redact_url_in(message.clone(), None), message);
+        assert_eq!(
+            super::redact_url_in(message.clone(), Some(&url), Some(&config)),
+            message
+        );
+        assert_eq!(super::redact_url_in(message.clone(), None, None), message);
+        // No config still means no classification, so a parameter that is not
+        // credential shaped survives whole.
+        assert_eq!(
+            super::redact_url_in(message.clone(), Some(&url), None),
+            message
+        );
+    }
+
+    #[test]
+    fn the_heuristic_still_covers_a_path_with_no_config() {
+        // `read_body` and the streaming pump build errors from an endpoint
+        // name alone. They had this cover before classification existed and
+        // must not lose it to a narrower predicate.
+        let url =
+            reqwest::Url::parse("https://x.test/v1/messages?api-version=2024-02-01&key=SECRET")
+                .expect("a valid url");
+        let message = format!("error sending request for url ({url})");
+
+        let redacted = super::redact_url_in(message, Some(&url), None);
+
+        assert!(!redacted.contains("SECRET"), "{redacted}");
+        assert!(redacted.contains("key=REDACTED"), "{redacted}");
+        assert!(redacted.contains("api-version=2024-02-01"), "{redacted}");
     }
 
     #[test]
