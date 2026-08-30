@@ -194,7 +194,7 @@ impl EventStream {
                 let chunk = response
                     .chunk()
                     .await
-                    .map_err(|error| Error::transport(self.endpoint.clone(), &error))?;
+                    .map_err(|error| Error::transport(self.endpoint.clone(), &error, None))?;
                 match chunk {
                     Some(bytes) => {
                         self.take(&bytes)?;

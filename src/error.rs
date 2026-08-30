@@ -62,16 +62,23 @@ impl TransportError {
 /// The same name heuristic as [`crate::EndpointConfig`]'s `Debug`, and the same
 /// caveat: it cannot know that `?passport=` is a credential.
 ///
+/// A name given by [`crate::Auth::Query`] is withheld whatever it is called,
+/// because that one is not a guess.
+///
 /// The placeholder is bare rather than the `<redacted>` used elsewhere: a query
 /// value is percent-encoded on the way back in, and `%3Credacted%3E` in an
 /// error message is harder to read than the thing it stands for.
-fn redact_url_in(message: String, url: Option<&reqwest::Url>) -> String {
+fn redact_url_in(message: String, url: Option<&reqwest::Url>, credential: Option<&str>) -> String {
     const REDACTED: &str = "REDACTED";
 
     let Some(url) = url else {
         return message;
     };
-    if !url.query_pairs().any(|(name, _)| is_secret_name(&name)) {
+    // The heuristic covers what a caller put in `EndpointConfig::query`. The
+    // exact name covers what `Auth::Query` put there, where guessing would be
+    // a choice to ignore what we were told.
+    let secret = |name: &str| is_secret_name(name) || credential == Some(name);
+    if !url.query_pairs().any(|(name, _)| secret(&name)) {
         return message;
     }
 
@@ -79,7 +86,7 @@ fn redact_url_in(message: String, url: Option<&reqwest::Url>) -> String {
     let pairs: Vec<(String, String)> = url
         .query_pairs()
         .map(|(name, value)| {
-            let value = if is_secret_name(&name) {
+            let value = if secret(&name) {
                 REDACTED.to_string()
             } else {
                 value.into_owned()
@@ -235,11 +242,15 @@ impl Error {
             },
         }
     }
-    pub(crate) fn transport(endpoint: Arc<str>, error: &reqwest::Error) -> Self {
+    pub(crate) fn transport(
+        endpoint: Arc<str>,
+        error: &reqwest::Error,
+        credential: Option<&str>,
+    ) -> Self {
         Self::Http {
             endpoint,
             kind: TransportError::classify(error),
-            message: redact_url_in(error.to_string(), error.url()),
+            message: redact_url_in(error.to_string(), error.url(), credential),
         }
     }
     /// Whether repeating the identical request could plausibly succeed.
@@ -539,7 +550,7 @@ mod tests {
                 .expect("a valid url");
         let message = format!("error sending request for url ({url})");
 
-        let redacted = super::redact_url_in(message, Some(&url));
+        let redacted = super::redact_url_in(message, Some(&url), None);
 
         assert!(!redacted.contains("SECRET"), "{redacted}");
         assert!(redacted.contains("key=REDACTED"), "{redacted}");
@@ -553,8 +564,11 @@ mod tests {
             .expect("a valid url");
         let message = format!("error sending request for url ({url})");
 
-        assert_eq!(super::redact_url_in(message.clone(), Some(&url)), message);
-        assert_eq!(super::redact_url_in(message.clone(), None), message);
+        assert_eq!(
+            super::redact_url_in(message.clone(), Some(&url), None),
+            message
+        );
+        assert_eq!(super::redact_url_in(message.clone(), None, None), message);
     }
 
     #[test]

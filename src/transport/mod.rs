@@ -25,6 +25,14 @@ fn auth_header_name(auth: &Auth) -> Option<&'static str> {
     }
 }
 
+/// The query parameter the endpoint's auth would set, if it sets one.
+fn auth_query_name(auth: &Auth) -> Option<&'static str> {
+    match auth {
+        Auth::Query(name) => Some(*name),
+        Auth::Bearer | Auth::Header(_) | Auth::None => None,
+    }
+}
+
 /// The dialect's required headers and the endpoint's extra ones, resolved.
 ///
 /// `reqwest`'s `header` appends rather than replaces, so a name written by two
@@ -134,10 +142,9 @@ pub(crate) async fn post<T: Serialize>(
     let url = apply_query_auth(url, config, api_key);
     let post = apply_headers(http.post(url), config, api_key);
 
-    post.json(wire)
-        .send()
-        .await
-        .map_err(|error| Error::transport(config.name.clone(), &error))
+    post.json(wire).send().await.map_err(|error| {
+        Error::transport(config.name.clone(), &error, auth_query_name(&config.auth))
+    })
 }
 
 /// The most one response body may occupy before the read is abandoned.
@@ -162,7 +169,7 @@ pub(crate) async fn read_body(
     while let Some(chunk) = response
         .chunk()
         .await
-        .map_err(|error| Error::transport(endpoint.clone(), &error))?
+        .map_err(|error| Error::transport(endpoint.clone(), &error, None))?
     {
         if body.len() + chunk.len() > MAX_BODY_BYTES {
             return Err(Error::InvalidResponse {

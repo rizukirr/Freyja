@@ -90,3 +90,24 @@ async fn an_endpoint_needing_no_key_sends_no_parameter() {
     let line = request_line(&requests.recv().expect("captured request"));
     assert!(!line.contains('?'), "{line}");
 }
+
+#[tokio::test]
+async fn a_query_credential_is_withheld_from_a_transport_error() {
+    // Named so the heuristic added in #40 would miss it: the point is that the
+    // exact name is known, not guessed. Port 1 refuses, so the failure carries
+    // the URL it tried.
+    let config = EndpointConfig::new(Dialect::OpenAiChat, "local", "http://127.0.0.1:1")
+        .default_model("test-model")
+        .auth(Auth::Query("passport"))
+        .query("api-version", "2024-02-01");
+
+    let error = Client::new(config, "sk-test")
+        .generate(&ask())
+        .await
+        .expect_err("nothing listens on port 1");
+
+    for rendered in [error.to_string(), format!("{error:?}")] {
+        assert!(!rendered.contains("sk-test"), "{rendered}");
+        assert!(rendered.contains("api-version=2024-02-01"), "{rendered}");
+    }
+}
