@@ -52,6 +52,22 @@ pub enum StreamEvent {
     },
 }
 
+/// The most a whole streaming body may carry before the stream is abandoned.
+///
+/// The same ceiling `crate::transport::MAX_BODY_BYTES` puts on a non-streaming
+/// body, and deliberately the same number: one request sent two ways is bounded
+/// two ways otherwise, which is an omission rather than a design.
+///
+/// `MAX_FRAME_BYTES` bounds one frame, which catches an endpoint that never
+/// emits a separator. It does not catch an endpoint that emits well-formed
+/// frames forever, and a gateway stuck in a retry loop does exactly that
+/// without anyone intending harm. The read timeout bounds silence, not volume.
+///
+/// Counted on the bytes arriving rather than on what the assembler retains,
+/// because nothing downstream can hold what never arrived, and one rule in one
+/// place is easier to keep true than three.
+pub(super) const MAX_STREAM_BYTES: usize = crate::transport::MAX_BODY_BYTES;
+
 /// Where an [`EventStream`] gets its bytes.
 ///
 /// The test variant exists because `reqwest::Response` cannot be constructed
@@ -91,6 +107,8 @@ pub struct EventStream {
     assembler: Assembler,
     queued: std::collections::VecDeque<StreamEvent>,
     closed: bool,
+    /// Body bytes taken from the socket so far, across every frame.
+    read: usize,
 }
 
 impl EventStream {
@@ -108,6 +126,7 @@ impl EventStream {
             assembler: Assembler::new(endpoint, normalize_arguments),
             queued: std::collections::VecDeque::new(),
             closed: false,
+            read: 0,
         }
     }
 
@@ -178,8 +197,7 @@ impl EventStream {
                     .map_err(|error| Error::transport(self.endpoint.clone(), &error))?;
                 match chunk {
                     Some(bytes) => {
-                        self.buffer.push(&bytes);
-                        self.check_buffer()?;
+                        self.take(&bytes)?;
                         Ok(true)
                     }
                     None => Ok(false),
@@ -188,13 +206,25 @@ impl EventStream {
             #[cfg(test)]
             Body::Recorded(chunks) => match chunks.pop_front() {
                 Some(bytes) => {
-                    self.buffer.push(&bytes);
-                    self.check_buffer()?;
+                    self.take(&bytes)?;
                     Ok(true)
                 }
                 None => Ok(false),
             },
         }
+    }
+
+    /// Buffers a chunk and refuses a body that has outgrown either ceiling.
+    fn take(&mut self, bytes: &[u8]) -> Result<(), Error> {
+        self.read += bytes.len();
+        if self.read > MAX_STREAM_BYTES {
+            return Err(Error::Stream {
+                endpoint: self.endpoint.clone(),
+                message: format!("the stream grew past {MAX_STREAM_BYTES} bytes"),
+            });
+        }
+        self.buffer.push(bytes);
+        self.check_buffer()
     }
 
     /// Fails the stream when one frame has grown past any plausible size.
@@ -230,6 +260,7 @@ impl EventStream {
             assembler: Assembler::new(endpoint, normalize_arguments),
             queued: std::collections::VecDeque::new(),
             closed: false,
+            read: 0,
         }
     }
 

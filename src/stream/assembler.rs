@@ -557,6 +557,54 @@ mod tests {
         );
     }
 
+    /// A decoder that keeps nothing, so this test measures the byte ceiling
+    /// rather than the memory the assembler would have held.
+    struct SilentDecoder;
+
+    impl StreamDecoder for SilentDecoder {
+        fn decode(
+            &mut self,
+            _frame: &SseFrame,
+            _endpoint: &Arc<str>,
+            _out: &mut Vec<RawDelta>,
+        ) -> Result<(), Error> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn a_stream_of_well_formed_frames_still_hits_a_ceiling() {
+        // Every frame here is complete and comfortably under MAX_FRAME_BYTES,
+        // so the per-frame ceiling never fires. Without a cumulative one this
+        // runs until the process dies.
+        let frame = 13 * 1024 * 1024;
+        let chunks: Vec<Vec<u8>> = (0..5)
+            .map(|_| {
+                let mut chunk = b"data: ".to_vec();
+                chunk.resize(frame, b'x');
+                chunk.extend_from_slice(b"\n\n");
+                chunk
+            })
+            .collect();
+        let sent: usize = chunks.iter().map(Vec::len).sum();
+        assert!(sent > super::super::event::MAX_STREAM_BYTES, "{sent}");
+
+        let mut stream = EventStream::for_test("acme".into(), Box::new(SilentDecoder), chunks);
+
+        let error = loop {
+            match stream.next_blocking() {
+                Ok(Some(_)) => continue,
+                Ok(None) => panic!("the body drained instead of being refused"),
+                Err(error) => break error,
+            }
+        };
+
+        assert!(
+            matches!(&error, Error::Stream { message, .. } if message.contains("grew past")),
+            "{error:?}"
+        );
+    }
+
     /// A decoder over a trivial `data: <text>` protocol, standing in for a real
     /// dialect so the stream machinery can be tested without a network.
     #[derive(Default)]
