@@ -115,6 +115,10 @@ pub struct EndpointConfig {
     ///
     /// The classification is what Freyja prints by, not what it sends by: a
     /// classified value goes on the wire exactly as an unclassified one does.
+    ///
+    /// This is one of three things that withhold a value, so membership here
+    /// is narrower than being withheld. [`EndpointConfig::is_secret`] is the
+    /// whole question, and is what Freyja itself asks.
     pub secrets: HashSet<String>,
     /// Extra body fields, for what this endpoint wants on every request.
     ///
@@ -314,12 +318,30 @@ impl EndpointConfig {
 
     /// Whether this name's value must be withheld from anything Freyja prints.
     ///
-    /// Three sources, in order of certainty: what the caller classified, the
-    /// parameter this endpoint's own auth uses, and the name heuristic behind
-    /// both. The heuristic stays because a caller who classifies nothing is
-    /// still covered, and because it errs toward hiding, which is the right
-    /// direction when the alternative is a key in a log.
-    pub(crate) fn is_secret(&self, name: &str) -> bool {
+    /// Three sources, in order of certainty: what the caller classified with
+    /// [`EndpointConfig::secret_header`] or [`EndpointConfig::secret_query`],
+    /// the parameter this endpoint's [`EndpointConfig::auth`] uses, and the
+    /// name heuristic behind both. The heuristic stays because a caller who
+    /// classifies nothing is still covered, and because it errs toward hiding,
+    /// which is the right direction when the alternative is a key in a log.
+    ///
+    /// Public because [`EndpointConfig::secrets`] is. That field holds one of
+    /// the three sources, so reading it answers a narrower question than it
+    /// appears to, and a caller who reimplemented the other two would be
+    /// keeping a copy of a rule that lives here.
+    ///
+    /// ```
+    /// use freyja::{Dialect, EndpointConfig};
+    ///
+    /// let config = EndpointConfig::new(Dialect::OpenAiChat, "gw", "https://gw.test/v1")
+    ///     .header("x-api-key", "live-key");
+    ///
+    /// // Nobody classified this name by hand.
+    /// assert!(!config.secrets.contains("x-api-key"));
+    /// // It is withheld all the same, and this is how to ask.
+    /// assert!(config.is_secret("x-api-key"));
+    /// ```
+    pub fn is_secret(&self, name: &str) -> bool {
         self.secrets.contains(name)
             || matches!(self.auth, Auth::Query(parameter) if parameter == name)
             || is_secret_name(name)
