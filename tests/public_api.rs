@@ -25,16 +25,22 @@ fn public_types_are_available_from_flat_and_categorized_paths() {
 
     let _: Option<(&'static str, &'static str)> = Dialect::Gemini.stream_query();
 
-    // `Auth` is non_exhaustive, so a downstream match needs a wildcard arm.
+    // This file is a separate crate, so it sees `Auth` the way a downstream
+    // user does. Every variant is listed *and* a wildcard follows, which
+    // compiles only while `Auth` is non_exhaustive: drop the attribute and the
+    // wildcard becomes unreachable, which the deny below turns into a build
+    // failure. So this asserts the attribute rather than restating it.
     let auth = freyja::Auth::Query("key");
     let _: freyja::endpoint::Auth = auth.clone();
-    // A match, not an equality check, so the demonstration is that a
-    // non_exhaustive enum forces a wildcard arm here.
-    #[allow(clippy::single_match)]
-    match auth {
-        freyja::Auth::None => unreachable!("constructed as Query"),
-        _ => {}
-    }
+    #[deny(unreachable_patterns)]
+    let named = match auth {
+        freyja::Auth::Bearer => "bearer",
+        freyja::Auth::Header(name) => name,
+        freyja::Auth::Query(name) => name,
+        freyja::Auth::None => "none",
+        _ => "a variant added since this was written",
+    };
+    assert_eq!(named, "key");
 
     let preset = EndpointPreset::OpenAi;
     let _: CategorizedEndpointPreset = preset;
