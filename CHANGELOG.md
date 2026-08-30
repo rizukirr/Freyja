@@ -2,29 +2,148 @@
 
 Notable changes per release. Freyja is pre-1.0, so a minor version may break.
 
-## Unreleased
+## 0.3.0 - 2026-08-31
 
-### Security
+Two themes. A conversation now lives behind a `Storage` backend rather than in
+a vector the caller threads through every call, and the transcript that reaches
+a provider is repaired rather than assumed well formed. Separately, an endpoint
+can describe a URL and a credential its dialect did not anticipate.
 
-- **`Client`'s `Debug` no longer prints the HTTP client**, which leaked
-  credentials past every other redaction in the struct.
-  `reqwest::Client` prints its `default_headers` in full, so a client
-  built with an auth header and handed to `Client::with_http_client`, the
-  documented way to share a pool or carry a second credential, put that
-  header in the logs on one `tracing::debug!(?client)`. It now renders as
-  `"<reqwest::Client>"`. This covers what Freyja prints. Logging your own
-  `reqwest::Client` still prints its headers, so mark a credential header
-  with `HeaderValue::set_sensitive` if you do that.
+Pre-1.0, so this breaks. The rename table in the README is the upgrade path.
 
-- **One streaming event may buffer 16 MiB, and one response body 64 MiB**,
-  after which the read is abandoned with `Error::Stream` or
-  `Error::InvalidResponse`. Neither had a ceiling before. The read timeout
-  bounds silence rather than volume, so an endpoint that never ends a
-  frame, or never stops sending, was buffered whole until the process ran
-  out of memory. Both limits sit orders of magnitude above anything a
-  provider sends.
+### Added
+
+- **`Storage`** is where a conversation lives: `load`, `append` and `clear`,
+  each returning a boxed future so the trait stays `dyn`-compatible. One value
+  is one conversation. `InMemoryStorage` implements it for this process, and
+  `InMemoryStorage::window(n)` keeps pinned turns and the most recent `n` turn
+  groups, applied inside `load` so the stored transcript is never shortened. A
+  backend of your own may cut anywhere, because the repair pass drops both
+  halves of a pair a cut separated.
+
+- **`Conversation`**, from `agent.conversation(storage)`. `send` takes anything
+  that becomes a `Message`, including a bare `&str`, so `send("hi")` and
+  `send(Message::new(..))` are one method. `Conversation::clear` empties the
+  backend and leaves the conversation usable: the next `send` loads an empty
+  transcript and continues with the same agent, backend and window.
+  `Storage::clear` now documents that an implementation must succeed on an
+  already-empty conversation, because `Conversation::clear` tells callers a
+  retry is safe, and that sentence is only true of backends honouring it.
+
+- **`Agent::system`**, plus `model`, `max_tokens`, `temperature`, `top_p`,
+  `reasoning_effort`, `tool_choice` and `extra_for` directly on the agent.
+
+- **`EndpointConfig::path` and `EndpointConfig::query`.** `path` replaces the
+  path the dialect would append, for a deployment-scoped URL that resembles
+  neither the dialect nor the vendor. `query` pins a parameter on every
+  request, percent-encoded, with the joining done here so a URL never grows a
+  second `?`.
+
+- **`Auth::Query(name)`**, for an endpoint that takes its key in the URL. The
+  key still comes from `api_key_env` or `Client::new`, and only the
+  presentation changes. It is applied when the request is sent rather than when
+  the URL is built, so `EndpointConfig::url` stays free of credentials and safe
+  to print. A `query` entry of the same name is replaced.
+
+- **`secret_header` and `secret_query`**, for a credential a gateway wants
+  beside the key. Identical to `header` and `query` on the wire; the difference
+  is that the value is withheld from `Debug` and from error messages whatever
+  its name looks like. The classified names are readable as `secret_headers`
+  and `secret_query`, and `is_secret_header` and `is_secret_query` answer the
+  whole question, which is wider than either set because the name heuristic
+  still applies underneath.
+
+### Changed
+
+- **`Storage`'s methods take `&mut self`.** A conversation owns its backend, so
+  no interior mutability is required and the bound is `Send` rather than
+  `Send + Sync`.
+
+- **A header named by two layers goes on the wire once.** `reqwest`'s `header`
+  appends rather than replaces, so a name written by both the dialect and the
+  endpoint went out twice, and a server rejecting the request said nothing
+  about which copy it read. Later wins among required and extra headers, and
+  `auth` outranks both.
+
+- **URLs are assembled through `reqwest::Url`** rather than concatenated, so a
+  `base_url` carrying a query keeps it and the path lands before it rather than
+  inside it. `Dialect::stream_query` returns a `(name, value)` pair instead of
+  a preformatted `alt=sse`, which is why nothing in the crate formats a `?` any
+  more.
+
+- **`Auth` is `#[non_exhaustive]`.** A downstream `match` on it needs a
+  wildcard arm.
+
+- **`EndpointConfig`'s `Debug` withholds more.** Query parameter values are
+  covered as well as headers, since `?key=<secret>` is how some endpoints take
+  credentials, and headers and query parameters are asked separately, so
+  classifying one name says nothing about the other.
+
+- **`Error`'s `Display` and `Debug` trim the endpoint's response body** to
+  `BODY_IN_MESSAGE` bytes, 2048, and say how much they dropped. Providers
+  routinely quote the entire offending request back in a 400: one real
+  OpenAI rejection turned `error.to_string()` into a single 7173 character
+  log line, now 2098. `Debug` is capped too, since `tracing::error!(?error)`
+  is at least as common as `"{error}"`, and it also trims
+  `OutputMismatch`'s `text`, which is the model's whole answer.
+
+  This bounds the size of what reaches your logs, not the content. A
+  provider quoting your user's text back puts it well inside the cap.
+
+  `Error` no longer derives `Debug`. The hand-written impl reproduces the
+  derived shape, so this is only visible if you were matching on that
+  output.
+
+- **`Error::body`** returns the untrimmed response body on the seven
+  status-bearing variants, and `None` on the rest, so nothing the
+  renderings drop is out of reach.
+
+### Removed
+
+- **`Memory`, `MemoryError`, `MemoryFuture`, `Filter`, `FilterError`,
+  `FilterFuture` and `Window`.** A filter named `Memory` stored nothing and
+  remembered nothing between calls, while every neighbour in this ecosystem
+  puts retention behind that word. Trimming is now something a `Storage`
+  backend does inside its own `load`.
+
+- **`Agent::run`, `Agent::run_with`, `Agent::chat`, `Agent::messages`,
+  `Agent::memory`, `Agent::filter`, `Agent::conversation_in` and
+  `Conversation::window`.** All reachable through `agent.conversation(..)`,
+  with the backend always named so nothing chooses one for you.
+
+- **`Arc<dyn Storage>` and `impl Storage for Arc<T>`**, unnecessary once
+  `Storage` takes `&mut self`.
+
+- **`split` and `window_by_groups` from the public API.** A backend may cut
+  anywhere, so it does not need them.
 
 ### Fixed
+
+- **A system instruction set on an `Agent` request template now reaches the
+  model.** The template's `messages` and `tools` were overwritten on every
+  turn, so a prompt written there was discarded with no error. All three agent
+  examples did exactly that, so all three shipped a prompt the model never saw.
+  `Agent::system` is the working path.
+
+- **A pinned turn written inside a tool exchange stays in that exchange.** A
+  `System` or `Developer` message between a call and its result used to close
+  the open group, leaving the result in a group with no call in it, which a
+  window could then keep on its own. Every provider rejects that transcript.
+
+- **The repair pass checks ordering, not just presence.** It used to confirm a
+  call and its result both existed somewhere. A backend returning a result
+  ahead of its call still produced a transcript providers reject. A result is
+  now kept only when its call appears strictly earlier, and a call with no
+  later result is dropped, since it would be left unanswered.
+
+- **Repair judges the transcript that will be sent.** It ran on what `load`
+  returned, before the caller's turn was pushed, so a trailing unanswered tool
+  call was deleted one step before the caller supplied the answering result,
+  which is exactly the human-in-the-loop approval shape.
+
+- **A `base_url` carrying a query no longer produces a malformed URL.** The
+  dialect path was concatenated after the query, landing inside the parameter
+  value, and Gemini streaming then appended a second `?`.
 
 - **A tool taking no arguments is now sendable.** `ToolDefinition::new`
   left `parameters` at `Value::Null`, and all four dialects sent that to
@@ -57,26 +176,39 @@ Notable changes per release. Freyja is pre-1.0, so a minor version may break.
   agent loop rebuilds the whole transcript every turn, so the saving
   scales with both.
 
-### Changed
+### Security
 
-- **`Error`'s `Display` and `Debug` trim the endpoint's response body** to
-  `BODY_IN_MESSAGE` bytes, 2048, and say how much they dropped. Providers
-  routinely quote the entire offending request back in a 400: one real
-  OpenAI rejection turned `error.to_string()` into a single 7173 character
-  log line, now 2098. `Debug` is capped too, since `tracing::error!(?error)`
-  is at least as common as `"{error}"`, and it also trims
-  `OutputMismatch`'s `text`, which is the model's whole answer.
+- **A whole streaming body is bounded, not only one frame.** `Client::generate`
+  refused a body past 64 MiB while `Client::stream` refused only a frame past
+  16 MiB, so an endpoint emitting well-formed frames forever, which is what a
+  gateway stuck in a retry loop does, was accumulated without limit. Counted on
+  arriving bytes, so nothing downstream can hold what never arrived.
 
-  This bounds the size of what reaches your logs, not the content. A
-  provider quoting your user's text back puts it well inside the cap.
+- **A credential in the URL is withheld from transport errors.** `reqwest` puts
+  the whole URL in its `Display` and Freyja put that in `Error::Http`'s
+  message, so a key passed as a query parameter was printed in full by every
+  transport failure. `reqwest` already strips userinfo, so the query was what
+  remained. Redaction is unconditional rather than gated on the build profile,
+  and covers what you classified, the parameter `Auth::Query` uses, and the
+  name heuristic.
 
-  `Error` no longer derives `Debug`. The hand-written impl reproduces the
-  derived shape, so this is only visible if you were matching on that
-  output.
+- **`Client`'s `Debug` no longer prints the HTTP client**, which leaked
+  credentials past every other redaction in the struct.
+  `reqwest::Client` prints its `default_headers` in full, so a client
+  built with an auth header and handed to `Client::with_http_client`, the
+  documented way to share a pool or carry a second credential, put that
+  header in the logs on one `tracing::debug!(?client)`. It now renders as
+  `"<reqwest::Client>"`. This covers what Freyja prints. Logging your own
+  `reqwest::Client` still prints its headers, so mark a credential header
+  with `HeaderValue::set_sensitive` if you do that.
 
-- **`Error::body`** returns the untrimmed response body on the seven
-  status-bearing variants, and `None` on the rest, so nothing the
-  renderings drop is out of reach.
+- **One streaming event may buffer 16 MiB, and one response body 64 MiB**,
+  after which the read is abandoned with `Error::Stream` or
+  `Error::InvalidResponse`. Neither had a ceiling before. The read timeout
+  bounds silence rather than volume, so an endpoint that never ends a
+  frame, or never stops sending, was buffered whole until the process ran
+  out of memory. Both limits sit orders of magnitude above anything a
+  provider sends.
 
 ## 0.2.1
 

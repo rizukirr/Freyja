@@ -47,20 +47,39 @@ jobs:
         with:
           ref: ${{ inputs.tag || github.ref }}
 
-      # Refuse to release a tag that disagrees with Cargo.toml.
-      - name: Check tag matches the crate version
+      # Refuse to release a tag that disagrees with any of the three places a
+      # version is written. `cargo package` strips the path from the
+      # freyja-macros dependency and leaves the version, so a release where the
+      # pin lags publishes a crate that resolves against something nobody
+      # uploaded. Checking only the root manifest would let that through.
+      - name: Check every version agrees with the tag
         run: |
           tag="${{ inputs.tag || github.ref_name }}"
-          crate="v$(grep '^version' Cargo.toml | head -1 | cut -d'"' -f2)"
-          if [ "$tag" != "$crate" ]; then
-            echo "tag $tag does not match Cargo.toml $crate"
-            exit 1
-          fi
+          root="v$(grep '^version' Cargo.toml | head -1 | cut -d'"' -f2)"
+          macros="v$(grep '^version' macros/Cargo.toml | head -1 | cut -d'"' -f2)"
+          pin="v$(grep '^freyja-macros = ' Cargo.toml | sed 's/.*version = "\([^"]*\)".*/\1/')"
+          mismatched=0
+          for pair in "Cargo.toml=$root" "macros/Cargo.toml=$macros" "the freyja-macros pin=$pin"; do
+            name="${pair%%=*}"
+            value="${pair##*=}"
+            if [ "$tag" != "$value" ]; then
+              echo "tag $tag does not match $name ($value)"
+              mismatched=1
+            fi
+          done
+          exit $mismatched
 
       # A library's distributable is the .crate file, the same archive
       # cargo publish uploads. There is no executable to ship.
-      - run: cargo package
-      - name: Attach the crate archive to the release
+      #
+      # The macro crate packages on its own. The root crate does not until
+      # freyja-macros is on crates.io at this version, because packaging
+      # resolves that dependency from the registry rather than the path. So
+      # publish the macro crate before tagging, or expect this step to fail
+      # with a version that "didn't match".
+      - run: cargo package -p freyja-macros
+      - run: cargo package -p freyja
+      - name: Attach the crate archives to the release
         run: gh release upload "${{ inputs.tag || github.ref_name }}" target/package/*.crate --clobber
         env:
           GH_TOKEN: ${{ github.token }}

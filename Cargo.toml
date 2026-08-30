@@ -1,6 +1,6 @@
 [package]
 name = "freyja"
-version = "0.2.1"
+version = "0.3.0"
 edition = "2024"
 # Verified by the MSRV job in CI, not inferred from the edition. The dependency
 # tree (reqwest -> url -> idna -> icu) forces at least 1.86; 1.88 is a
@@ -13,6 +13,9 @@ documentation = "https://docs.rs/freyja"
 readme = "README.md"
 keywords = ["llm", "ai", "openai", "anthropic", "gemini"]
 categories = ["api-bindings", "asynchronous"]
+# Repository furniture is not part of the crate. Everything else ships,
+# including `docs/`, so a vendored copy carries its own documentation.
+exclude = [".github/", ".gitignore"]
 
 [workspace]
 members = ["macros"]
@@ -21,7 +24,7 @@ members = ["macros"]
 # The library itself needs only serialization and HTTP. It exposes `async fn`
 # and never spawns, so it pulls in no runtime of its own; the caller chooses.
 [dependencies]
-freyja-macros = { version = "0.2.1", path = "macros" }
+freyja-macros = { version = "0.3.0", path = "macros" }
 futures-util = { version = "0.3", default-features = false, features = ["alloc"] }
 reqwest = { version = "0.13", features = ["json"] }
 schemars = "1.2.2"
@@ -36,4 +39,3 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
 
 [package.metadata.docs.rs]
 all-features = true
-rustdoc-args = ["--cfg", "docsrs"]
