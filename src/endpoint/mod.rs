@@ -105,21 +105,27 @@ pub struct EndpointConfig {
     /// Redacted in `Debug` on the same name heuristic as `extra_headers`, and
     /// with the same advice: a credential belongs in [`EndpointConfig::auth`].
     pub query: Vec<(String, String)>,
-    /// Names whose values the caller has classified as credentials.
+    /// Header names the caller has classified as credentials.
     ///
-    /// Populated by [`EndpointConfig::secret_header`] and
-    /// [`EndpointConfig::secret_query`]. One set covers both, so a name marked
-    /// once is withheld wherever it appears. That over-redacts a header and a
-    /// query parameter sharing a name, which is unlikely and costs a reader
-    /// one line.
+    /// Populated by [`EndpointConfig::secret_header`]. Kept apart from
+    /// [`EndpointConfig::secret_query`] so classifying a name in one place
+    /// says nothing about the other: a header and a query parameter that
+    /// happen to share a name are different values.
     ///
     /// The classification is what Freyja prints by, not what it sends by: a
     /// classified value goes on the wire exactly as an unclassified one does.
     ///
-    /// This is one of three things that withhold a value, so membership here
-    /// is narrower than being withheld. [`EndpointConfig::is_secret`] is the
-    /// whole question, and is what Freyja itself asks.
-    pub secrets: HashSet<String>,
+    /// Membership here is narrower than being withheld, because the name
+    /// heuristic withholds some values nobody classified.
+    /// [`EndpointConfig::is_secret_header`] is the whole question.
+    pub secret_headers: HashSet<String>,
+    /// Query parameter names the caller has classified as credentials.
+    ///
+    /// The companion to [`EndpointConfig::secret_headers`], populated by
+    /// [`EndpointConfig::secret_query`]. [`EndpointConfig::is_secret_query`]
+    /// is the whole question, and it counts one source this one does not: the
+    /// parameter [`EndpointConfig::auth`] uses under [`Auth::Query`].
+    pub secret_query: HashSet<String>,
     /// Extra body fields, for what this endpoint wants on every request.
     ///
     /// The companion to `extra_headers`, one layer down. Deep-merged into the
@@ -162,27 +168,32 @@ pub(crate) fn is_secret_name(name: &str) -> bool {
 ///
 /// Names are always shown. A value is withheld when the caller classified it
 /// with [`EndpointConfig::secret_header`] or [`EndpointConfig::secret_query`],
-/// when it is the parameter this endpoint's [`EndpointConfig::auth`] uses, or
-/// when its name contains `auth`, `key`, `token`, `secret`, `cookie` or
-/// `password`. The last of those is a heuristic and stated as one: it cannot
-/// know that `x-acme-passport` is a credential, which is why the first two
-/// exist. None of them look inside [`EndpointConfig::base_url`], which prints
-/// whatever was put there.
+/// when it is the query parameter this endpoint's [`EndpointConfig::auth`]
+/// uses, or when its name contains `auth`, `key`, `token`, `secret`, `cookie`
+/// or `password`. The last of those is a heuristic and stated as one: it
+/// cannot know that `x-acme-passport` is a credential, which is why the first
+/// two exist. Headers and query parameters are asked separately, so
+/// classifying one name says nothing about the other. None of them look inside
+/// [`EndpointConfig::base_url`], which prints whatever was put there.
 impl fmt::Debug for EndpointConfig {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let redact = |pairs: &[(String, String)]| -> Vec<(String, String)> {
-            pairs
-                .iter()
-                .map(|(name, value)| {
-                    let value = if self.is_secret(name) {
-                        "<redacted>".to_string()
-                    } else {
-                        value.clone()
-                    };
-                    (name.clone(), value)
-                })
-                .collect()
-        };
+        // The predicate is passed in rather than chosen inside, because a
+        // header and a query parameter sharing a name are different values
+        // and only one of them may be a credential.
+        let redact =
+            |pairs: &[(String, String)], secret: &dyn Fn(&str) -> bool| -> Vec<(String, String)> {
+                pairs
+                    .iter()
+                    .map(|(name, value)| {
+                        let value = if secret(name) {
+                            "<redacted>".to_string()
+                        } else {
+                            value.clone()
+                        };
+                        (name.clone(), value)
+                    })
+                    .collect()
+            };
 
         f.debug_struct("EndpointConfig")
             .field("dialect", &self.dialect)
@@ -192,8 +203,14 @@ impl fmt::Debug for EndpointConfig {
             .field("api_key_env", &self.api_key_env)
             .field("default_model", &self.default_model)
             .field("path", &self.path)
-            .field("query", &redact(&self.query))
-            .field("extra_headers", &redact(&self.extra_headers))
+            .field(
+                "query",
+                &redact(&self.query, &|name| self.is_secret_query(name)),
+            )
+            .field(
+                "extra_headers",
+                &redact(&self.extra_headers, &|name| self.is_secret_header(name)),
+            )
             .field("extra_body", &self.extra_body)
             .field("token_limit_field", &self.token_limit_field)
             .finish()
@@ -213,7 +230,8 @@ impl EndpointConfig {
             extra_headers: Vec::new(),
             path: None,
             query: Vec::new(),
-            secrets: HashSet::new(),
+            secret_headers: HashSet::new(),
+            secret_query: HashSet::new(),
             extra_body: serde_json::Map::new(),
             token_limit_field: TokenLimitField::MaxTokens,
         }
@@ -267,7 +285,7 @@ impl EndpointConfig {
     /// ```
     pub fn secret_header(mut self, name: impl Into<String>, value: impl Into<String>) -> Self {
         let name = name.into();
-        self.secrets.insert(name.clone());
+        self.secret_headers.insert(name.clone());
         self.header(name, value)
     }
 
@@ -312,22 +330,21 @@ impl EndpointConfig {
     /// for a second credential beside it.
     pub fn secret_query(mut self, name: impl Into<String>, value: impl Into<String>) -> Self {
         let name = name.into();
-        self.secrets.insert(name.clone());
+        self.secret_query.insert(name.clone());
         self.query(name, value)
     }
 
-    /// Whether this name's value must be withheld from anything Freyja prints.
+    /// Whether this header's value must be withheld from anything Freyja prints.
     ///
-    /// Three sources, in order of certainty: what the caller classified with
-    /// [`EndpointConfig::secret_header`] or [`EndpointConfig::secret_query`],
-    /// the parameter this endpoint's [`EndpointConfig::auth`] uses, and the
-    /// name heuristic behind both. The heuristic stays because a caller who
-    /// classifies nothing is still covered, and because it errs toward hiding,
-    /// which is the right direction when the alternative is a key in a log.
+    /// Two sources: what the caller classified with
+    /// [`EndpointConfig::secret_header`], and the name heuristic behind it.
+    /// The heuristic stays because a caller who classifies nothing is still
+    /// covered, and because it errs toward hiding, which is the right
+    /// direction when the alternative is a key in a log.
     ///
-    /// Public because [`EndpointConfig::secrets`] is. That field holds one of
-    /// the three sources, so reading it answers a narrower question than it
-    /// appears to, and a caller who reimplemented the other two would be
+    /// Public because [`EndpointConfig::secret_headers`] is. That field holds
+    /// one of the two sources, so reading it answers a narrower question than
+    /// it appears to, and a caller who reimplemented the heuristic would be
     /// keeping a copy of a rule that lives here.
     ///
     /// ```
@@ -337,12 +354,36 @@ impl EndpointConfig {
     ///     .header("x-api-key", "live-key");
     ///
     /// // Nobody classified this name by hand.
-    /// assert!(!config.secrets.contains("x-api-key"));
+    /// assert!(!config.secret_headers.contains("x-api-key"));
     /// // It is withheld all the same, and this is how to ask.
-    /// assert!(config.is_secret("x-api-key"));
+    /// assert!(config.is_secret_header("x-api-key"));
     /// ```
-    pub fn is_secret(&self, name: &str) -> bool {
-        self.secrets.contains(name)
+    pub fn is_secret_header(&self, name: &str) -> bool {
+        self.secret_headers.contains(name) || is_secret_name(name)
+    }
+
+    /// Whether this query parameter's value must be withheld from anything
+    /// Freyja prints.
+    ///
+    /// Three sources, in order of certainty: what the caller classified with
+    /// [`EndpointConfig::secret_query`], the parameter this endpoint's
+    /// [`EndpointConfig::auth`] uses under [`Auth::Query`], and the name
+    /// heuristic behind both.
+    ///
+    /// The auth source counts here and not in
+    /// [`EndpointConfig::is_secret_header`], because a credential in the URL
+    /// says nothing about a header that happens to share its name.
+    ///
+    /// ```
+    /// use freyja::{Auth, Dialect, EndpointConfig};
+    ///
+    /// let config = EndpointConfig::new(Dialect::Gemini, "g", "https://x.test/v1")
+    ///     .auth(Auth::Query("key"));
+    ///
+    /// assert!(config.is_secret_query("key"));
+    /// ```
+    pub fn is_secret_query(&self, name: &str) -> bool {
+        self.secret_query.contains(name)
             || matches!(self.auth, Auth::Query(parameter) if parameter == name)
             || is_secret_name(name)
     }

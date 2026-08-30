@@ -81,8 +81,9 @@ fn redact_url_in(
     // The heuristic is the floor, so a path with no config in reach keeps the
     // cover it had before classification existed. `is_secret` layers what the
     // caller classified and what this endpoint's auth uses on top of it.
-    let secret =
-        |name: &str| is_secret_name(name) || config.is_some_and(|config| config.is_secret(name));
+    let secret = |name: &str| {
+        is_secret_name(name) || config.is_some_and(|config| config.is_secret_query(name))
+    };
     if !url.query_pairs().any(|(name, _)| secret(&name)) {
         return message;
     }

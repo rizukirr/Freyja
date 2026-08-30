@@ -23,9 +23,11 @@ fn public_types_are_available_from_flat_and_categorized_paths() {
         .query("api-version", "2024-02-01")
         .secret_query("sig", "signature")
         .secret_header("x-acme-passport", "passport");
-    let _: usize = config.secrets.len();
-    // The set is one of three sources, so the predicate is public too.
-    let _: bool = config.is_secret("sig");
+    let _: usize = config.secret_headers.len();
+    let _: usize = config.secret_query.len();
+    // Each set is one source among several, so both predicates are public too.
+    let _: bool = config.is_secret_header("x-acme-passport");
+    let _: bool = config.is_secret_query("sig");
     let _: CategorizedEndpointConfig = config;
 
     let _: Option<(&'static str, &'static str)> = Dialect::Gemini.stream_query();
