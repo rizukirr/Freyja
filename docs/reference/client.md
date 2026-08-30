@@ -18,7 +18,7 @@ A derived `Debug` would print the key verbatim, so one `tracing::debug!(?client)
 
 The HTTP client is named rather than printed, for the same reason one field over. `reqwest::Client` prints its `default_headers` in full, so a client you built with an auth header and passed to [`Client::with_http_client`](#clientwith_http_client) used to leak that header here, past every other redaction in the struct. Note that this covers what Freyja prints. A `tracing::debug!(?http)` on your own `reqwest::Client` still prints its headers, so mark a credential header sensitive with `HeaderValue::set_sensitive` if you log the client yourself.
 
-Credentials belong in `api_key` or in [`EndpointConfig::auth`](../providers/custom.md#auth), which are redacted unconditionally. A credential left in `EndpointConfig::extra_headers` is redacted only when its name gives it away.
+Credentials belong in `api_key` or in [`EndpointConfig::auth`](../providers/custom.md#auth), which are redacted unconditionally. For a second credential a gateway wants beside the key, say so with [`secret_header` or `secret_query`](../providers/custom.md#credentials-beside-the-key): a value left in plain `extra_headers` or `query` is redacted only when its name gives it away.
 
 ## Constructors
 
@@ -266,7 +266,7 @@ Freyja splits *how* a request is serialized from *where* it is sent, because mos
 | Type | Answers |
 |---|---|
 | `Dialect` | Which wire format. `OpenAiResponses`, `OpenAiChat`, `Gemini`, `Anthropic` |
-| `EndpointConfig` | Which endpoint. Base URL, auth style, key variable, default model, extra headers |
+| `EndpointConfig` | Which endpoint. Base URL, path, query, auth style, key variable, default model, extra headers |
 | `EndpointPreset` | A preset that builds a `EndpointConfig` for an endpoint Freyja ships |
 
 Anywhere a config is accepted a `EndpointPreset` is too, so the short form keeps working and nothing below changes for callers who only use the shipped endpoints.

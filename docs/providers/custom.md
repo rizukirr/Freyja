@@ -46,6 +46,8 @@ let client = Client::from_env(config).expect("GATEWAY_API_KEY");
 
 `base_url` is the **root**. The dialect appends its own path, `/messages` here, so do not include it yourself. Check with `config.url()` if you are unsure.
 
+A `base_url` may carry a query string. The path is placed before it, not inside it, so `https://gw.test/v1?tenant=acme` produces `https://gw.test/v1/messages?tenant=acme`. Prefer `query` below for anything you are adding deliberately.
+
 ## Known compatible endpoints
 
 Starting points, not guarantees. These were correct when written and are **not** verified by any test in this crate, which is exactly why they are documentation rather than presets. Check the vendor's current docs before relying on one.
@@ -87,9 +89,55 @@ let client = Client::without_key(config);
 | `auth` | defaulted | Taken from the dialect, override when the endpoint differs |
 | `api_key_env` | no | Only needed for `Client::from_env` |
 | `default_model` | no | Used when a request does not name a model |
+| `path` | no | Replaces the path the dialect would append, see below |
+| `query` | no | Query parameters sent on every request, see below |
 | `extra_headers` | no | Attribution or routing hints some gateways want |
+| `secrets` | no | Names classified as credentials by `secret_header` and `secret_query` |
 | `extra_body` | no | Body fields this endpoint wants on every request, see below |
 | `token_limit_field` | defaulted | `OpenAiChat` only: which field carries the output cap |
+
+## Paths and query parameters
+
+Two escape hatches for endpoints that do not follow their dialect's URL conventions.
+
+`path` replaces the path the dialect would append. Reach for it when the endpoint's URL looks like neither the dialect nor the vendor, which is common for deployment-scoped gateways:
+
+```rust
+let config = EndpointConfig::new(Dialect::OpenAiChat, "Azure", "https://acme.openai.azure.com")
+    .path("/openai/deployments/gpt4/chat/completions")
+    .query("api-version", "2024-02-01");
+```
+
+Setting `path` means you own the whole path. Freyja does not check that it agrees with the dialect you chose, because the URLs that need this option agree with nothing.
+
+`query` adds a parameter to every request. Use it for what a deployment pins on every call: an API version, a tenant, a region. Values are percent-encoded on the way out, and the joining is Freyja's problem rather than yours, so a URL never ends up with two `?` no matter how many parameters reach it, including the `alt=sse` that Gemini streaming adds.
+
+An API key does not belong here. See `Auth::Query` below.
+
+## Extra headers, and which one wins
+
+`header` adds a header to every request. Three layers can name the same header: what the dialect requires, what you add here, and what `auth` sets. Only one goes on the wire.
+
+Later wins, so a second `header` call with the same name supersedes the first, and your header supersedes a dialect-required one such as `anthropic-version` when a gateway pins a different version. `auth` outranks both: set an `Authorization` header by hand alongside an API key and the key wins, because that is the channel credentials are meant to travel in.
+
+## Credentials beside the key
+
+A gateway may want a second credential: its own passport header, a signature parameter. `secret_header` and `secret_query` are `header` and `query` with one difference, and it is not on the wire:
+
+```rust
+let config = EndpointConfig::new(Dialect::OpenAiChat, "acme-gw", base_url)
+    .api_key_env("OPENAI_API_KEY")
+    .header("x-acme-tenant", "engineering")
+    .secret_header("x-acme-passport", &passport)
+    .query("api-version", "2024-02-01")
+    .secret_query("sig", &signature);
+```
+
+A classified value is withheld from `EndpointConfig`'s `Debug` and from transport error messages. An unclassified one is withheld only if its name looks like a credential, which is a heuristic matching `auth`, `key`, `token`, `secret`, `cookie` and `password` as substrings. That guess cannot know `x-acme-passport` is sensitive, which is the whole reason these two builders exist.
+
+Configuration stays readable either way: `x-acme-tenant` and `api-version` above still print, which is what you want when a gateway is rejecting you.
+
+Classification is by name, and one set covers both headers and query parameters. Marking `sig` secret as a parameter also hides a header called `sig`.
 
 ## Extra body fields
 
@@ -112,6 +160,16 @@ Use `body` for a property of the deployment and `extra_for` for anything that va
 let config = EndpointConfig::new(Dialect::Anthropic, "gw", "https://gw.test/v1")
     .auth(Auth::Bearer);
 ```
+
+Some endpoints want the key in the URL rather than in a header. Google's older generative endpoints took `?key=<key>`, and gateways copy the shape:
+
+```rust
+let config = EndpointConfig::new(Dialect::Gemini, "legacy", base_url)
+    .api_key_env("GEMINI_API_KEY")
+    .auth(Auth::Query("key"));
+```
+
+The key still comes from wherever you told Freyja to look, and only the presentation changes. It is added when the request is sent rather than when the URL is built, so `config.url()` stays free of credentials and safe to print. That means the URL `url()` reports and the URL a request reaches differ by this one parameter. A `query` entry of the same name is replaced by the credential.
 
 For a local runtime with no credentials at all, use `Auth::None` and `Client::without_key`:
 
