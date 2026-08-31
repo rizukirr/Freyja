@@ -357,7 +357,7 @@ impl Client {
             &self.http,
             &self.config,
             self.api_key.as_deref(),
-            self.config.stream_url(),
+            self.config.send_stream_url(),
             &wire,
         )
         .await?;
@@ -396,7 +396,7 @@ impl Client {
             &self.http,
             &self.config,
             self.api_key.as_deref(),
-            self.config.url(),
+            self.config.send_url(),
             &body,
         )
         .await?;

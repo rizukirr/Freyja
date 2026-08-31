@@ -2,6 +2,30 @@
 
 Notable changes per release. Freyja is pre-1.0, so a minor version may break.
 
+## Unreleased
+
+### Security
+
+- **The API key is marked sensitive under every auth style.** `bearer_auth`
+  set the flag and `header` did not, so the guarantee held for `Auth::Bearer`
+  and for neither of the two other ways a credential reaches a header. Two of
+  the three shipped presets take their key through `Auth::Header`, so Anthropic
+  and Gemini sent it unmarked while OpenAI did not. It now prints as
+  `Sensitive` in any middleware that renders a `HeaderMap`, and HPACK sends it
+  literal rather than indexing it into the dynamic table for the life of the
+  connection. A value classified with `secret_header` is marked the same way.
+  The code was unchanged since 0.1.0, so nothing regressed here, it was never
+  right.
+
+- **`EndpointConfig::url` withholds a credential-shaped query value.** A
+  `secret_query` value was redacted in `Debug` and in transport errors and
+  printed in full by `url()`, which is the one method documented as safe to
+  print and the one people reach for to say where requests go. It now reads
+  `REDACTED`, matching the predicate the other two renderings use, so a
+  credential is hidden in all three or none. The URL a request reaches is
+  unchanged. 0.3.0 shipped the claim that a classified value is withheld from
+  everything Freyja prints, and this is that claim becoming true.
+
 ## 0.3.0 - 2026-08-31
 
 Two themes. A conversation now lives behind a `Storage` backend rather than in

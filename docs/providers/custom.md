@@ -44,7 +44,7 @@ let config = EndpointConfig::new(
 let client = Client::from_env(config).expect("GATEWAY_API_KEY");
 ```
 
-`base_url` is the **root**. The dialect appends its own path, `/messages` here, so do not include it yourself. Check with `config.url()` if you are unsure.
+`base_url` is the **root**. The dialect appends its own path, `/messages` here, so do not include it yourself. Check with `config.url()` if you are unsure. That method is built to be printed, so it withholds credential-shaped query values and never carries the `Auth::Query` key, which makes it differ from the URL a request reaches by exactly those.
 
 A `base_url` may carry a query string. The path is placed before it, not inside it, so `https://gw.test/v1?tenant=acme` produces `https://gw.test/v1/messages?tenant=acme`. Prefer `query` below for anything you are adding deliberately.
 
@@ -134,7 +134,7 @@ let config = EndpointConfig::new(Dialect::OpenAiChat, "acme-gw", base_url)
     .secret_query("sig", &signature);
 ```
 
-A classified value is withheld from `EndpointConfig`'s `Debug` and from transport error messages. An unclassified one is withheld only if its name looks like a credential, which is a heuristic matching `auth`, `key`, `token`, `secret`, `cookie` and `password` as substrings. That guess cannot know `x-acme-passport` is sensitive, which is the whole reason these two builders exist.
+A classified value is withheld from everywhere Freyja prints it: `EndpointConfig`'s `Debug`, transport error messages, and `config.url()`. An unclassified one is withheld only if its name looks like a credential, which is a heuristic matching `auth`, `key`, `token`, `secret`, `cookie` and `password` as substrings. That guess cannot know `x-acme-passport` is sensitive, which is the whole reason these two builders exist.
 
 Configuration stays readable either way: `x-acme-tenant` and `api-version` above still print, which is what you want when a gateway is rejecting you.
 
