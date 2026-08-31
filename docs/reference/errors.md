@@ -30,7 +30,7 @@ pub enum Error {
 }
 ```
 
-`Http` carries the message `reqwest` produced, and that message contains the URL the request was sent to. Query parameter values are withheld from it when the name is one you classified with [`secret_query`](../providers/custom.md#credentials-beside-the-key), when it is the parameter [`Auth::Query`](../providers/custom.md#auth) uses, or when the name looks like a credential. Everything else stays readable, so an `api-version` that is being rejected is still visible. Headers never appear in a transport error at all.
+`Http` carries the message `reqwest` produced, and that message contains the URL the request was sent to. Query parameter values are withheld from it when the name is one you classified with [`secret_query`](../providers/custom.md#credentials-beside-the-key), when it is the parameter [`Auth::Query`](../providers/custom.md#auth) uses, or when the name looks like a credential. Everything else stays readable, so an `api-version` that is being rejected is still visible. Headers never appear in a transport error at all, and every credential header is marked sensitive, so it prints as `Sensitive` rather than as a value anywhere a `HeaderMap` is rendered.
 
 Implements `Debug`, `Display`, and `std::error::Error`, so it works with `?`, `anyhow`, `thiserror`, and anything else expecting a standard error.
 

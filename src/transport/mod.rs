@@ -66,24 +66,60 @@ fn resolved_headers<'a>(
     kept
 }
 
+/// A header value marked sensitive, so it stays out of anything that prints a
+/// `HeaderMap` and out of HTTP/2's compression table.
+///
+/// `bearer_auth` does this and nothing else did, so the flag covered
+/// [`Auth::Bearer`] and neither of the two other ways a credential reaches a
+/// header. Two of the three shipped presets take their key through
+/// [`Auth::Header`], so the guarantee held for OpenAI and not for Anthropic or
+/// Gemini.
+///
+/// What it buys is two things. Middleware over a caller-supplied
+/// `reqwest::Client` prints `Sensitive` rather than the key, and that is the
+/// documented way to add tracing or a proxy recorder. And an HPACK encoder
+/// sends the value literal rather than indexing it into the dynamic table,
+/// where it would sit for the life of the connection.
+///
+/// A value `HeaderValue` refuses is handed back untouched, so it keeps failing
+/// at `send` the way it always has rather than being swallowed here.
+fn sensitive(value: &str) -> Option<reqwest::header::HeaderValue> {
+    let mut header = reqwest::header::HeaderValue::from_str(value).ok()?;
+    header.set_sensitive(true);
+    Some(header)
+}
+
 /// Applies the endpoint's headers and its credential to a request builder.
 ///
 /// Separate from `post` so a test can read the request that comes out. The
-/// only property worth reading is one `post` cannot expose: `bearer_auth`
-/// marks the credential sensitive, and a hand-built `Authorization` header
-/// would silently not.
+/// only property worth reading is one `post` cannot expose: whether the
+/// credential went out marked sensitive.
+///
+/// Classification is [`EndpointConfig::is_secret_header`], the same predicate
+/// that type's `Debug` and the error redaction use, so a value cannot be
+/// withheld in what Freyja prints and exposed in what it sends.
 fn apply_headers(
     mut post: reqwest::RequestBuilder,
     config: &EndpointConfig,
     api_key: Option<&str>,
 ) -> reqwest::RequestBuilder {
     for (name, value) in resolved_headers(config, api_key) {
-        post = post.header(name, value);
+        post = match config
+            .is_secret_header(name)
+            .then(|| sensitive(value))
+            .flatten()
+        {
+            Some(header) => post.header(name, header),
+            None => post.header(name, value),
+        };
     }
     if let Some(key) = api_key {
         post = match config.auth {
             Auth::Bearer => post.bearer_auth(key),
-            Auth::Header(name) => post.header(name, key),
+            Auth::Header(name) => match sensitive(key) {
+                Some(header) => post.header(name, header),
+                None => post.header(name, key),
+            },
             Auth::Query(_) | Auth::None => post,
         };
     }
@@ -223,23 +259,59 @@ mod tests {
     use crate::dialect::Dialect;
 
     #[test]
-    fn the_key_sets_a_sensitive_authorization_header() {
-        let config = EndpointConfig::new(Dialect::OpenAiChat, "test", "https://x.test");
-        let request = apply_headers(
-            default_http().post("https://x.test"),
-            &config,
-            Some("sk-test"),
-        )
-        .build()
-        .expect("the request builds");
+    fn the_key_is_sensitive_under_every_auth_style_that_uses_a_header() {
+        // Looped rather than written once for `Bearer`, which is how the gap
+        // survived: `bearer_auth` set the flag, `header` did not, and two of
+        // the three shipped presets take their key the second way.
+        for (auth, header) in [
+            (Auth::Bearer, "authorization"),
+            (Auth::Header("x-api-key"), "x-api-key"),
+            (Auth::Header("x-goog-api-key"), "x-goog-api-key"),
+        ] {
+            let config =
+                EndpointConfig::new(Dialect::OpenAiChat, "test", "https://x.test").auth(auth);
+            let request = apply_headers(
+                default_http().post("https://x.test"),
+                &config,
+                Some("sk-test"),
+            )
+            .build()
+            .expect("the request builds");
+
+            let value = request
+                .headers()
+                .get(header)
+                .unwrap_or_else(|| panic!("a key was supplied, so auth set {header}"));
+            assert!(
+                value.is_sensitive(),
+                "the credential must stay out of anything that prints headers: {header}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_classified_extra_header_is_sensitive_too() {
+        // A second credential goes out through `header`, which never marked
+        // anything, so classifying it changed what Freyja printed and not what
+        // it sent.
+        let config = EndpointConfig::new(Dialect::OpenAiChat, "test", "https://x.test")
+            .secret_header("x-acme-passport", "pp-live");
+        let request = apply_headers(default_http().post("https://x.test"), &config, None)
+            .build()
+            .expect("the request builds");
 
         let value = request
             .headers()
-            .get(reqwest::header::AUTHORIZATION)
-            .expect("a key was supplied, so auth set a header");
-        assert!(
-            value.is_sensitive(),
-            "the credential must stay out of anything that prints headers"
+            .get("x-acme-passport")
+            .expect("the extra header was applied");
+        assert!(value.is_sensitive(), "{value:?}");
+        // And it is still the value the endpoint needs, not a redacted one.
+        assert_eq!(
+            request
+                .headers()
+                .get("x-acme-passport")
+                .map(|value| value.as_bytes()),
+            Some(&b"pp-live"[..])
         );
     }
 
