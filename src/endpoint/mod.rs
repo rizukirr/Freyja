@@ -145,6 +145,24 @@ pub struct EndpointConfig {
     pub token_limit_field: TokenLimitField,
 }
 
+/// Whether [`EndpointConfig::build_url`] prints a credential-shaped query
+/// value or withholds it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Reveal {
+    /// Build the URL a request goes to.
+    Yes,
+    /// Build a URL that is safe to print.
+    No,
+}
+
+/// What a withheld query value reads as in [`EndpointConfig::url`].
+///
+/// Bare rather than the `<redacted>` used in `Debug`, and for the reason
+/// [`crate::error`] gives for the same choice: a query value is percent-encoded
+/// on the way in, so `%3Credacted%3E` is harder to read than the thing it
+/// stands for, and the result still has to parse as a URL.
+const REDACTED_QUERY_VALUE: &str = "REDACTED";
+
 /// Substrings that mark a header or query parameter as carrying a secret.
 ///
 /// Matched case-insensitively against the *name*. A heuristic, and named as
@@ -438,17 +456,57 @@ impl EndpointConfig {
         self
     }
 
-    /// The full URL requests are sent to.
+    /// The full URL requests are sent to, with credential-shaped query values
+    /// withheld.
+    ///
+    /// Safe to print, which is what this is for. A value
+    /// [`EndpointConfig::is_secret_query`] answers for reads `REDACTED`, so
+    /// this agrees with `Debug` and with the URL in a transport error rather
+    /// than being the one rendering that shows the value in full.
+    ///
+    /// It therefore differs from the URL a request goes to, by those values
+    /// and by the [`Auth::Query`] credential, which is added at send time and
+    /// never appears here at all. That is the same trade, made once.
+    ///
+    /// ```
+    /// use freyja::{Dialect, EndpointConfig};
+    ///
+    /// let config = EndpointConfig::new(Dialect::OpenAiChat, "gw", "https://gw.test/v1")
+    ///     .query("tenant", "engineering")
+    ///     .secret_query("passport", "pp-live");
+    ///
+    /// assert_eq!(
+    ///     config.url(),
+    ///     "https://gw.test/v1/chat/completions?tenant=engineering&passport=REDACTED"
+    /// );
+    /// ```
     pub fn url(&self) -> String {
-        self.build_url(&[])
+        self.build_url(&[], Reveal::No)
     }
 
-    /// The full URL streaming requests are sent to.
+    /// The full URL streaming requests are sent to, withheld the same way
+    /// [`EndpointConfig::url`] is.
     pub fn stream_url(&self) -> String {
-        match self.dialect.stream_query() {
-            Some(pair) => self.build_url(&[pair]),
-            None => self.build_url(&[]),
-        }
+        self.build_url(&self.stream_extra(), Reveal::No)
+    }
+
+    /// The URL a request actually goes to, credentials included.
+    ///
+    /// Crate-private, and the only caller is [`crate::Client`] on its way to
+    /// the socket. The public pair withholds, because printing where requests
+    /// go is what a caller reaches for those for.
+    pub(crate) fn send_url(&self) -> String {
+        self.build_url(&[], Reveal::Yes)
+    }
+
+    /// The streaming companion to [`EndpointConfig::send_url`].
+    pub(crate) fn send_stream_url(&self) -> String {
+        self.build_url(&self.stream_extra(), Reveal::Yes)
+    }
+
+    /// The dialect's streaming parameter, as the slice `build_url` takes.
+    fn stream_extra(&self) -> Vec<(&'static str, &'static str)> {
+        self.dialect.stream_query().into_iter().collect()
     }
 
     /// Assembles the request URL, appending `extra` after the endpoint's own
@@ -459,7 +517,11 @@ impl EndpointConfig {
     /// `base_url` that will not parse falls back to plain concatenation, which
     /// keeps a malformed base failing where it always has: at send time, as a
     /// transport error naming the endpoint.
-    fn build_url(&self, extra: &[(&str, &str)]) -> String {
+    ///
+    /// `reveal` is a parameter rather than a second function, so there is one
+    /// place a URL is assembled and no chance of a printed URL and a sent one
+    /// drifting into disagreeing about anything but the credential.
+    fn build_url(&self, extra: &[(&str, &str)], reveal: Reveal) -> String {
         let path = self.path.as_deref().unwrap_or_else(|| self.dialect.path());
 
         let Ok(mut url) = reqwest::Url::parse(&self.base_url) else {
@@ -478,8 +540,15 @@ impl EndpointConfig {
         if !self.query.is_empty() || !extra.is_empty() {
             let mut pairs = url.query_pairs_mut();
             for (name, value) in &self.query {
-                pairs.append_pair(name, value);
+                match reveal {
+                    Reveal::No if self.is_secret_query(name) => {
+                        pairs.append_pair(name, REDACTED_QUERY_VALUE)
+                    }
+                    _ => pairs.append_pair(name, value),
+                };
             }
+            // `extra` is the dialect's own streaming flag, which is neither
+            // caller-supplied nor a credential.
             for (name, value) in extra {
                 pairs.append_pair(name, value);
             }
@@ -498,5 +567,66 @@ impl EndpointConfig {
                 endpoint: self.name.clone(),
                 message: "no model set on the request and no default_model on the endpoint".into(),
             })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn gateway() -> EndpointConfig {
+        EndpointConfig::new(Dialect::OpenAiChat, "gw", "https://gw.test/v1")
+            .query("tenant", "engineering")
+            .secret_query("passport", "pp-live")
+    }
+
+    #[test]
+    fn url_withholds_a_classified_query_value() {
+        let printed = gateway().url();
+
+        assert!(!printed.contains("pp-live"), "{printed}");
+        assert!(printed.contains("passport=REDACTED"), "{printed}");
+        // A routing parameter is what a reader needs, and redacting everything
+        // would make the method useless for the job it exists for.
+        assert!(printed.contains("tenant=engineering"), "{printed}");
+    }
+
+    /// The half that stops the fix from breaking every request. Redacting both
+    /// renderings would pass the test above and send `REDACTED` to the
+    /// endpoint, and no other test in the suite would notice.
+    #[test]
+    fn the_url_a_request_goes_to_still_carries_the_value() {
+        let sent = gateway().send_url();
+
+        assert!(sent.contains("passport=pp-live"), "{sent}");
+        assert!(sent.contains("tenant=engineering"), "{sent}");
+    }
+
+    #[test]
+    fn the_streaming_pair_agrees_with_the_plain_one() {
+        // Gemini is the only dialect with a streaming parameter, so it is the
+        // only one where the two paths could disagree.
+        let config = EndpointConfig::new(Dialect::Gemini, "g", "https://g.test/v1")
+            .secret_query("passport", "pp-live");
+
+        let printed = config.stream_url();
+        assert!(!printed.contains("pp-live"), "{printed}");
+        assert!(printed.contains("passport=REDACTED"), "{printed}");
+        assert!(printed.contains("alt=sse"), "{printed}");
+
+        let sent = config.send_stream_url();
+        assert!(sent.contains("passport=pp-live"), "{sent}");
+        assert!(sent.contains("alt=sse"), "{sent}");
+    }
+
+    #[test]
+    fn an_auth_query_credential_is_in_neither() {
+        // It comes from the Client, not the config, so `build_url` never sees
+        // it under either mode.
+        let config =
+            EndpointConfig::new(Dialect::Gemini, "g", "https://g.test/v1").auth(Auth::Query("key"));
+
+        assert!(!config.url().contains("key="), "{}", config.url());
+        assert!(!config.send_url().contains("key="), "{}", config.send_url());
     }
 }

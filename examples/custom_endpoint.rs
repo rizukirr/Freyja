@@ -69,7 +69,7 @@ async fn main() {
     // A gateway wanting a second credential beside the key. `secret_header` and
     // `secret_query` send exactly what `header` and `query` send. The
     // difference is what Freyja prints: a classified value is withheld from
-    // `Debug` and from error messages, while `x-acme-tenant` and `api-version`
+    // `Debug`, from error messages and from `url()`, while `x-acme-tenant` and `api-version`
     // stay readable, which is what you want when a gateway is rejecting you.
     let guarded = EndpointConfig::new(Dialect::OpenAiChat, "acme-gw", "https://gw.acme.test/v1")
         .api_key_env("ACME_API_KEY")
@@ -81,6 +81,11 @@ async fn main() {
     // Neither name contains a word the redaction heuristic knows, so without
     // the two `secret_` builders both would have printed in full.
     println!("{guarded:?}");
+
+    // And the same for the method built to be printed. `sig` reads as
+    // REDACTED here, while `api-version` stays visible, which is the parameter
+    // you need when the gateway is the thing rejecting you.
+    println!("{}", guarded.url());
 
     // An endpoint that takes the key in the URL rather than in a header. The
     // key still comes from wherever you told Freyja to look, and it is added
