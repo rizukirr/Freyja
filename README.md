@@ -59,7 +59,7 @@ let config = EndpointConfig::new(Dialect::OpenAiChat, "acme-gw", "https://gw.acm
     .secret_header("x-acme-passport", &passport);      // withheld, it is a credential
 ```
 
-Freyja does the URL joining and escaping, so a request never grows a second `?`. A classified value is withheld from `Debug` and from error messages; an unclassified one only if its name happens to look like a credential. For an endpoint that wants the key in the URL rather than a header, `Auth::Query("key")` keeps it out of `config.url()`. See [Custom endpoints](docs/providers/custom.md).
+Freyja does the URL joining and escaping, so a request never grows a second `?`. A classified value is withheld from `Debug`, from error messages and from `config.url()`. An unclassified one is withheld only if its name happens to look like a credential. For an endpoint that wants the key in the URL rather than a header, `Auth::Query("key")` keeps it out of `config.url()`. See [Custom endpoints](docs/providers/custom.md).
 
 That matters because every vendor invented a different shape for the same ideas. A tool call is a flat item on OpenAI, a typed step on Gemini, a nested block on Anthropic, and a fourth arrangement on the Chat Completions format most other vendors copy. Your code sees none of it.
 
@@ -145,7 +145,7 @@ Phases 0 through 2 are complete, and Phase 3 has started: the neutral core is st
 | Built-in providers | OpenAI, Gemini, Anthropic, all verified against live APIs |
 | Other endpoints | DeepSeek, Groq, OpenRouter, Ollama and friends via `Client::custom` |
 | Non-conventional URLs | `path` and `query` reach a gateway whose URL follows neither the dialect nor the vendor |
-| Credential safety | The key is redacted wherever Freyja prints itself; `secret_header` and `secret_query` extend that to a second credential |
+| Credential safety | The key is redacted wherever Freyja prints itself and marked sensitive on the wire, and `secret_header` and `secret_query` extend both to a second credential |
 | Tool calling | Typed `#[tool]` declarations and the full round trip |
 | Streaming | All four dialects, text verified live; tool calls offline only |
 | Dependencies | `reqwest`, `serde`, `serde_json`, `schemars`, and the companion macro crate |

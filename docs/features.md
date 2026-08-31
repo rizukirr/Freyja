@@ -53,7 +53,7 @@ The round trip is the load-bearing feature. A model asks for a function, you run
 | Wire dialects | Four, including the format most third-party vendors copy |
 | Any other endpoint | One `Client::custom` call, no code change |
 | Non-conventional URLs | `path` replaces the dialect's path, `query` pins parameters on every request |
-| Credentials in the URL | `Auth::Query` for an endpoint that takes its key as `?key=`, kept out of `url()` |
+| Credentials in the URL | `Auth::Query` for an endpoint that takes its key as `?key=`, kept out of `url()`, as is any `secret_query` value |
 | Local runtimes | Yes, no credentials required |
 
 Built-in means Freyja ships and tests the URL and default model. It does not mean the others are second class: DeepSeek, Groq, OpenRouter, Ollama, and a long tail of others work through [Custom providers](providers/custom.md) with the same code paths.
@@ -66,7 +66,7 @@ Built-in means Freyja ships and tests the URL and default model. It does not mea
 | Timeouts | 120 seconds of inactivity by default, or supply your own HTTP client |
 | Errors | Classified by cause, each attributed to the endpoint that failed |
 | Retry decisions | `is_retryable()` and the endpoint's own `Retry-After` |
-| Credential safety | `Debug` redacts the API key, and `secret_header` and `secret_query` extend that to a second credential in both `Debug` and error messages |
+| Credential safety | `Debug` redacts the API key, `secret_header` and `secret_query` extend that to a second credential in `Debug`, error messages and `url()`, and every credential header goes out marked sensitive |
 | Dependencies | `reqwest`, `serde`, `serde_json`, `schemars`, and `freyja-macros` |
 
 ## What does not exist yet
