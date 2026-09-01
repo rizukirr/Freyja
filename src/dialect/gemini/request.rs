@@ -36,13 +36,13 @@ struct GenerationConfig {
 ///
 /// The field takes two shapes. A bare mode string covers the first three
 /// levels; `allowed_tools` narrows a mode to a named set, which is how a
-/// specific tool is demanded — "call something, and the something is this one".
+/// specific tool is demanded, "call something, and the something is this one".
 ///
 /// The accepted values are `auto`, `any`, `none`, and `validated`, lowercase.
 /// Anything else, `required` included, comes back as `Invalid enum value`.
 ///
 /// All four shapes were sent live and cleared the endpoint's validation. None
-/// of them returned a completion — the free tier ran out during the probing —
+/// of them returned a completion, the free tier ran out during the probing,
 /// so `Named` compelling the tool rather than merely permitting it is read off
 /// the shape, not observed.
 fn tool_choice(choice: &ToolChoice) -> Value {
@@ -70,7 +70,7 @@ pub struct Request {
     tools: Vec<Value>,
     /// Request metadata. This endpoint answers "The parameter 'labels' is not
     /// available on the Gemini API but it is available on the Gemini Enterprise
-    /// Agent Platform" — a deployment gating a field it has, not a format
+    /// Agent Platform", a deployment gating a field it has, not a format
     /// missing one, so it is sent and the endpoint answers.
     #[serde(skip_serializing_if = "Option::is_none")]
     labels: Option<Value>,

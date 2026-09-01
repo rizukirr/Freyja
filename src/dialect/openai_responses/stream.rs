@@ -149,9 +149,9 @@ mod tests {
     /// `requires_action` and `failed` onto their neutral counterparts and
     /// anything else onto [`ResponseStatus::Other`]. Usage is a straight copy of
     /// `input_tokens` / `output_tokens` / `total_tokens`. `convert_item` models
-    /// exactly `message` — whose `output_text` parts become
+    /// exactly `message`, whose `output_text` parts become
     /// [`OutputContent::Text`] and whose `refusal` parts become
-    /// [`OutputContent::Refusal`] — and `function_call`, preserving every other
+    /// [`OutputContent::Refusal`], and `function_call`, preserving every other
     /// item verbatim as [`OutputContent::Reasoning`].
     #[test]
     fn streamed_response_matches_generate() {

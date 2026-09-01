@@ -81,7 +81,7 @@ Be sure none of these is on your critical path before adopting.
 | **Per-tool timeouts** | Out of scope, deliberately | Racing a call against a clock needs a timer, and Freyja depends on no runtime. A wrapper tool that holds the inner one and applies your runtime's timeout gets there in a dozen lines, for a tool you did not write as much as one you did. The [`Tool`](https://docs.rs/freyja/latest/freyja/trait.Tool.html) documentation has the whole implementation. |
 | **Structured-output schema derivation** | Not implemented | `#[tool]` derives argument schemas, but `ResponseFormat::JsonSchema` still takes an explicit schema. Generate one with `schemars` and pass it through `strict_schema()`. |
 | **Capability tables** | Not planned | `Client::check` answers the same question by running the conversion, so there is nothing to keep in sync. It needs a request in hand, which a table would not. |
-| **Token-aware windows, summarization, and persistent storage** | Not implemented | `InMemoryStorage::window` bounds a transcript by turn group, which needs no tokenizer. Counting tokens needs an estimate calibrated from `Usage`, and summarizing needs a model call. Both are things a `Storage` backend can do inside its own `load`, without any change to the trait. `InMemoryStorage` is the only `Storage` Freyja ships, and a backend that survives a restart needs nothing from this crate beyond the trait, since `Message` already derives `Serialize` and `Deserialize`. |
+| **Token-aware windows, summarization, and persistent storage** | Not implemented | `InMemoryStorage::window` bounds a transcript by turn group, which needs no tokenizer. Counting tokens needs an estimate calibrated from `Usage`, and summarizing needs a model call. Both are things a `Storage` backend can do inside its own `load`, without any change to the trait, and `window_by_groups` is public so a backend can reuse the group-aware rule while adding one of its own. `InMemoryStorage` is the only `Storage` Freyja ships, and a backend that survives a restart needs nothing from this crate beyond the trait, since `Message` already derives `Serialize` and `Deserialize`. |
 | **Embeddings and RAG** | Not implemented | An embeddings endpoint is a request shape no dialect covers, so it is a wire format of its own rather than a feature on top of one. |
 
 ## Per-provider gaps
@@ -98,9 +98,9 @@ Capability coverage is not uniform, and Freyja refuses rather than pretending.
 
 A **No** means `UnsupportedCapability` before any network call, so you find out immediately rather than getting an answer that ignored you. Each provider page has the full table.
 
-A **Yes** means Freyja can express it, not that every model will accept every value. Only the dialect is known here; the endpoint and the model are not. `reasoning_effort` is the clearest case — OpenAI's Responses API takes `Max` and its Chat Completions API does not, on the same model, and both arrive as the vendor's own `BadRequest` rather than as a refusal from Freyja.
+A **Yes** means Freyja can express it, not that every model will accept every value. Only the dialect is known here; the endpoint and the model are not. `reasoning_effort` is the clearest case, OpenAI's Responses API takes `Max` and its Chat Completions API does not, on the same model, and both arrive as the vendor's own `BadRequest` rather than as a refusal from Freyja.
 
-The table has no middle column for "carries it but the endpoint says no", deliberately. Gemini rejects three `thinking_level` values and rejects `labels` outright; both fields exist, so both requests are sent and the endpoint answers. Freyja refuses a field only when the format has nowhere to put it — anything narrower is a claim about a deployment on a given day. See [Gemini](providers/gemini.md#reasoning-effort-is-nested-and-half-of-it-is-rejected).
+The table has no middle column for "carries it but the endpoint says no", deliberately. Gemini rejects three `thinking_level` values and rejects `labels` outright; both fields exist, so both requests are sent and the endpoint answers. Freyja refuses a field only when the format has nowhere to put it, anything narrower is a claim about a deployment on a given day. See [Gemini](providers/gemini.md#reasoning-effort-is-nested-and-half-of-it-is-rejected).
 
 ## Verification status
 
@@ -120,12 +120,12 @@ Beyond text and tool calling, coverage is uneven and worth reading closely.
 | Reasoning effort | OpenAI, both dialects, every level; Gemini, all six levels |
 | Chat Completions token cap | Both spellings |
 | Structured output | OpenAI and Gemini: nested struct, enum, `Option`, `Vec`, through `generate_as` |
-| Streaming, text | All four dialects — deltas, usage on `Done`, and `into_response` parity |
+| Streaming, text | All four dialects, deltas, usage on `Done`, and `into_response` parity |
 | Streaming, tool calls | **None.** The assembler joining argument fragments is fixture-only |
 | Images | An `image_url` part accepted live on OpenAI Chat Completions, on every role. Not exercised on the other three |
 | Reasoning effort on Anthropic | **None** |
 | Structured output on Anthropic | **None** |
 
-Two entries deserve their asterisks. The Anthropic dialect's live runs go through a compatible endpoint rather than Anthropic's own service, which covers the wire format and not the vendor. And streamed *tool calls* are the part of streaming most likely to differ between vendors, since that is where fragments are joined — so the one path with no live coverage is also the one that would benefit most.
+Two entries deserve their asterisks. The Anthropic dialect's live runs go through a compatible endpoint rather than Anthropic's own service, which covers the wire format and not the vendor. And streamed *tool calls* are the part of streaming most likely to differ between vendors, since that is where fragments are joined, so the one path with no live coverage is also the one that would benefit most.
 
 That unevenness is not incidental. Sending Gemini a `temperature` was rejected outright until it was tried, and the offline tests had asserted the wrong shape for as long as they existed. Each dialect's streaming frames are taken from the vendor's own documentation and tested against recorded fixtures, including a test per dialect asserting that a drained stream matches what `generate` builds from the same turn.

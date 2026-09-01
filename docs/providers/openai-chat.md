@@ -119,11 +119,11 @@ let config = EndpointConfig::new(
     .token_limit_field(TokenLimitField::MaxCompletionTokens);
 ```
 
-The default is `max_tokens`, because this dialect is reached only through an explicit `EndpointConfig` — `EndpointPreset::OpenAi` is the Responses dialect — so by default it is serving one of the compatible vendors it exists for. Set the field when you point it at OpenAI itself.
+The default is `max_tokens`, because this dialect is reached only through an explicit `EndpointConfig`, `EndpointPreset::OpenAi` is the Responses dialect, so by default it is serving one of the compatible vendors it exists for. Set the field when you point it at OpenAI itself.
 
 Both spellings were verified against `api.openai.com`: the default is rejected there, and `MaxCompletionTokens` is accepted.
 
-If OpenAI's own endpoint is the target, [the Responses API](../providers/openai.md) remains the better fit — it names its cap `max_output_tokens` and has no such history.
+If OpenAI's own endpoint is the target, [the Responses API](../providers/openai.md) remains the better fit: it names its cap `max_output_tokens` and has no such history.
 
 ## Field mapping
 
@@ -219,4 +219,4 @@ What one endpoint cannot tell you is how the others behave. "Compatible" is a sp
 
 A text turn has been streamed live through this dialect against DeepSeek: 191 deltas, usage on `Done` via `stream_options.include_usage`, and `into_response` rebuilding the same text. That is one compatible endpoint out of many, and the risk stays highest here, because "compatible" endpoints diverge most in their streaming frames.
 
-Streamed tool calls have not been run anywhere. The frame shapes and the `[DONE]` sentinel come from vendor documentation and are tested against recorded fixtures, with `streamed_response_matches_generate` asserting that a drained stream matches what `generate` builds from the same turn — an offline parity test.
+Streamed tool calls have not been run anywhere. The frame shapes and the `[DONE]` sentinel come from vendor documentation and are tested against recorded fixtures, with `streamed_response_matches_generate` asserting that a drained stream matches what `generate` builds from the same turn, an offline parity test.

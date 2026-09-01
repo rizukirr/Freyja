@@ -75,7 +75,7 @@ async fn main() {
 /// reasons. On most dialects a system turn is a text-only field, so it reports
 /// `non-text content in system/developer messages`. On OpenAI Chat Completions
 /// a system turn is an ordinary message with nothing to refuse on those
-/// grounds, so the same call reports `images outside user messages` instead —
+/// grounds, so the same call reports `images outside user messages` instead,
 /// which is also what an image on an assistant turn reports everywhere, an
 /// assistant turn recording what the model said rather than what it was shown.
 ///

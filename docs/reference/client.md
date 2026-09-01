@@ -161,7 +161,7 @@ The schema is still yours to write and to keep in step with `T`. Deriving one fr
 
 #### The failure it adds
 
-`OutputMismatch`, and only that one. Everything `generate` can raise passes through untouched — an unreachable endpoint is still a transport error, not a deserialization one.
+`OutputMismatch`, and only that one. Everything `generate` can raise passes through untouched, an unreachable endpoint is still a transport error, not a deserialization one.
 
 It exists because "the model's answer was not your shape" is a different problem from every other failure in the enum. The call succeeded. The vendor behaved. What came back is well-formed and not what you asked for, and the fix is the schema, the prompt, or the token cap.
 
@@ -177,7 +177,7 @@ Err(Error::OutputMismatch { text, truncated: true, .. }) => {
 }
 ```
 
-`is_retryable()` is `false`. The output is nondeterministic, so another attempt might happen to parse — but the request that produced this one will keep producing it, and treating that as transient hides a real problem. Match the variant directly if you want to retry anyway.
+`is_retryable()` is `false`. The output is nondeterministic, so another attempt might happen to parse, but the request that produced this one will keep producing it, and treating that as transient hides a real problem. Match the variant directly if you want to retry anyway.
 
 ### `stream`
 
@@ -225,7 +225,7 @@ This is Freyja's answer to capability introspection, and it is a different shape
 
 **It cannot drift.** A hand-maintained capability table is a second description of the dialects, kept in sync by hand. `check` is not a description; it is the code itself.
 
-**It answers questions a table cannot express.** Support is not always a property of the field. Anthropic accepts `response_format`, but not the value `JsonObject`. A `response_format: bool` would answer `true` and the request would still fail. And placement rules — an image belongs on a user turn — depend on the transcript you built, not on the vendor at all.
+**It answers questions a table cannot express.** Support is not always a property of the field. Anthropic accepts `response_format`, but not the value `JsonObject`. A `response_format: bool` would answer `true` and the request would still fail. And placement rules, an image belongs on a user turn, depend on the transcript you built, not on the vendor at all.
 
 **It reports the reason.** You get the capability string and the endpoint name, not a bare `false`.
 
@@ -235,7 +235,7 @@ That the *dialect* can express this request: every field has somewhere to go in 
 
 Not that the endpoint will accept it. Freyja knows the wire format; it has never met your gateway, and will not claim to know what that gateway implements. A request that passes `check` can still come back `BadRequest`. See [Custom providers](../providers/custom.md).
 
-Not that the *model* supports it either. `check` never reads the model name — `EndpointConfig::model_for` picks which string to send and nothing inspects it — so a model that does no reasoning still passes a request carrying `reasoning_effort`, and the vendor settles it.
+Not that the *model* supports it either. `check` never reads the model name, `EndpointConfig::model_for` picks which string to send and nothing inspects it, so a model that does no reasoning still passes a request carrying `reasoning_effort`, and the vendor settles it.
 
 That boundary is deliberate. Wire formats change on the order of years and are documented. What a given model accepts changes weekly, silently, and differs on every compatible gateway; a table of it would be confidently wrong within a month, which is worse than saying nothing. It is the same reasoning `presets.rs` gives for shipping only three presets: a stale promise fails at the vendor with a confusing error instead of locally with a clear one.
 

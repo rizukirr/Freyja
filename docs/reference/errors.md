@@ -132,7 +132,7 @@ Note that `Timeout` and `Body` are retryable but not idempotent. The endpoint ma
 
 ### BadRequest
 
-`400` — the endpoint rejected the request body.
+`400`: the endpoint rejected the request body.
 
 ```
 OpenAI rejected the request: {"error":{"message":"Invalid schema for function 'get_weather'",...}}
@@ -142,7 +142,7 @@ Not retryable: the same bytes will be rejected again. The raw body is preserved 
 
 ### Unauthorized
 
-`401` or `403` — the credential is missing, wrong, or not permitted to use this model. Both statuses land here, and `status` says which.
+`401` or `403`: the credential is missing, wrong, or not permitted to use this model. Both statuses land here, and `status` says which.
 
 ```
 OpenAI refused the credential (HTTP 401): {"error":{"message":"Incorrect API key provided",...}}
@@ -152,7 +152,7 @@ Not retryable: the key has to change.
 
 ### NotFound
 
-`404` — no such model, or the base URL is wrong.
+`404`: no such model, or the base URL is wrong.
 
 ```
 Groq has no such model or endpoint: {"error":{"message":"The model `gpt-4o` does not exist"}}
@@ -162,7 +162,7 @@ Not retryable. On a custom endpoint this most often means the base URL already c
 
 ### RateLimit
 
-`429` — requests are arriving faster than the endpoint will serve them.
+`429`: requests are arriving faster than the endpoint will serve them.
 
 ```
 OpenAI rate limited the request, retry after 30s: {"error":{"message":"Rate limit reached",...}}
@@ -188,7 +188,7 @@ Coverage is uneven, and deliberately so. The split keys on the `insufficient_quo
 
 ### ServerError
 
-`5xx` — the endpoint failed on its own side.
+`5xx`: the endpoint failed on its own side.
 
 ```
 Anthropic failed with HTTP 529: {"type":"error","error":{"type":"overloaded_error",...}}
@@ -232,7 +232,7 @@ It carries two things a bare `serde_json::Error` does not:
 
 `text` is the model's answer, kept because the parse failure destroys the only record of what actually came back. Log it, show it, or salvage what you can from it.
 
-`truncated` says whether the answer was cut short, checked against `ResponseStatus::Incomplete` rather than guessed from the parse error. This is the most common cause and the one most easily misread — half a JSON object produces `EOF while parsing an object`, which reads like a schema problem and is not:
+`truncated` says whether the answer was cut short, checked against `ResponseStatus::Incomplete` rather than guessed from the parse error. This is the most common cause and the one most easily misread, half a JSON object produces `EOF while parsing an object`, which reads like a schema problem and is not:
 
 ```rust
 Err(Error::OutputMismatch { truncated: true, .. }) => {
@@ -305,7 +305,7 @@ match client.generate(&request).await {
         back_off(retry_after.unwrap_or(Duration::from_secs(1)));
     }
     Err(Error::QuotaExceeded { .. }) => {
-        eprintln!("out of credit — retrying will not help");
+        eprintln!("out of credit, retrying will not help");
     }
     Err(Error::Unauthorized { .. }) => eprintln!("check the API key"),
     Err(error @ Error::UnsupportedCapability { .. }) => {

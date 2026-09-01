@@ -100,7 +100,7 @@ async fn main() {
             Err(error) => {
                 eprintln!("\n{} failed: {error}", error.endpoint());
                 if error.is_retryable() {
-                    eprintln!("(transient — try again)");
+                    eprintln!("(transient, try again)");
                 }
             }
         }

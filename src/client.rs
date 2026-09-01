@@ -192,15 +192,15 @@ impl Client {
     ///
     /// # What `Ok` does and does not promise
     ///
-    /// `Ok` means the *dialect* can express this request — every field has
+    /// `Ok` means the *dialect* can express this request, every field has
     /// somewhere to go in the wire format, and the transcript is shaped the way
     /// the format requires. It is not a promise that the endpoint will accept
     /// it. Freyja knows the wire format; it has never met your gateway, and
     /// will not claim to know what that gateway implements. A request that
     /// passes here can still come back [`Error::BadRequest`].
     ///
-    /// The model is invisible to it. `check` never reads the model name — it
-    /// is copied into the body and not inspected — so asking a model that does
+    /// The model is invisible to it. `check` never reads the model name, it
+    /// is copied into the body and not inspected, so asking a model that does
     /// no reasoning for a `reasoning_effort` passes here and is settled by the
     /// vendor. Wire formats change on the order of years and are documented;
     /// what a given model accepts changes constantly and differs on every
@@ -294,7 +294,7 @@ impl Client {
     /// Everything [`generate`](Self::generate) can raise, plus
     /// [`Error::OutputMismatch`] when the call succeeded and the answer
     /// was not the shape you asked for. That error keeps the model's text so it
-    /// can be logged or shown, and flags the truncation case separately —
+    /// can be logged or shown, and flags the truncation case separately,
     /// a cut-off JSON object is the most common reason this fails, and the fix
     /// is a larger [`GenerateRequest::max_tokens`] rather than a different
     /// schema.
@@ -323,7 +323,7 @@ impl Client {
     ///
     /// The default HTTP client bounds *inactivity*, not total duration, so a
     /// long generation is not cut short. A client supplied through
-    /// [`Client::with_http_client`] keeps whatever it was built with — set
+    /// [`Client::with_http_client`] keeps whatever it was built with, set
     /// `read_timeout` rather than `timeout` on it, or a long stream will be
     /// killed part-way.
     ///

@@ -254,7 +254,7 @@ What it does not cover, and what is therefore still only as good as the offline 
 | `response_format`, `reasoning_effort`, `tool_choice` | not exercised |
 | Refusal and `pause_turn` handling | not exercised, and hard to trigger deliberately |
 
-A text turn has been streamed live through this dialect, but against a Claude-compatible endpoint rather than Anthropic's own service — so the wire format is covered and the vendor is not. Deltas arrived, usage landed on `Done`, and `into_response` rebuilt the same text.
+A text turn has been streamed live through this dialect, but against a Claude-compatible endpoint rather than Anthropic's own service, so the wire format is covered and the vendor is not. Deltas arrived, usage landed on `Done`, and `into_response` rebuilt the same text.
 
 Streamed tool calls have not been run anywhere. The `message_start` / `content_block_*` / `message_delta` event shapes come from Anthropic's documentation and are tested against recorded fixtures, with `streamed_response_matches_generate` asserting that a drained stream matches what `generate` builds from the same turn. That is an offline parity test, not evidence the endpoint sends what Freyja expects. See [Streaming](../reference/streaming.md).
 

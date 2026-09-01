@@ -103,11 +103,11 @@ Serialized lowercase. Not every provider accepts every level:
 | `Xhigh` | yes | yes | vendor 400 | yes |
 | `Max` | yes | vendor 400 | vendor 400 | yes |
 
-Every cell is a request that gets sent. Freyja refuses none of them: all four dialects have somewhere to put this field — Gemini `generation_config.thinking_level`, Anthropic `output_config.effort` — so which values a given endpoint likes is the endpoint's answer to give, and it changes faster than a table in a library could. See [Gemini](../providers/gemini.md#reasoning-effort-is-nested-and-half-of-it-is-rejected) and [Anthropic](../providers/anthropic.md).
+Every cell is a request that gets sent. Freyja refuses none of them: all four dialects have somewhere to put this field, Gemini `generation_config.thinking_level`, Anthropic `output_config.effort`, so which values a given endpoint likes is the endpoint's answer to give, and it changes faster than a table in a library could. See [Gemini](../providers/gemini.md#reasoning-effort-is-nested-and-half-of-it-is-rejected) and [Anthropic](../providers/anthropic.md).
 
-There was a `Minimal` here until it was removed, on the grounds that nothing accepted it. That reason was wrong — Gemini's `thinking_level` takes `minimal`, and the probe missed it because the dialect refused the whole field before sending anything. The conclusion survives for a better reason: one vendor of the three accepts it, and a rung only one vendor has is not a rung on a portable ladder. Gemini's `minimal` is unreachable until there is an escape hatch to reach it through.
+There was a `Minimal` here until it was removed, on the grounds that nothing accepted it. That reason was wrong, Gemini's `thinking_level` takes `minimal`, and the probe missed it because the dialect refused the whole field before sending anything. The conclusion survives for a better reason: one vendor of the three accepts it, and a rung only one vendor has is not a rung on a portable ladder. Gemini's `minimal` is unreachable until there is an escape hatch to reach it through.
 
-The levels are not uniform even within one vendor. OpenAI's Responses API accepts `Max` and its Chat Completions API does not, on the same model — which is why Freyja passes the value through and lets the endpoint answer rather than keeping a table of who takes what.
+The levels are not uniform even within one vendor. OpenAI's Responses API accepts `Max` and its Chat Completions API does not, on the same model, which is why Freyja passes the value through and lets the endpoint answer rather than keeping a table of who takes what.
 
 ### `response_format`
 
@@ -139,7 +139,7 @@ let request = GenerateRequest::new()
     });
 ```
 
-[`Client::generate_as`](client.md#generate_as) deserializes the answer into your type. The manual route is still there — `output_text()` and `serde_json::from_str` — and is what you want when the raw text matters as much as the value.
+[`Client::generate_as`](client.md#generate_as) deserializes the answer into your type. The manual route is still there, `output_text()` and `serde_json::from_str`, and is what you want when the raw text matters as much as the value.
 
 The half that does not exist is *writing* the schema. It is written by hand above and must be kept in step with the struct it describes; deriving one from a Rust type is not implemented.
 
@@ -159,7 +159,7 @@ Anthropic and OpenAI Chat Completions both reject this field with `UnsupportedCa
 
 Arbitrary JSON forwarded to the provider, for labels and trace identifiers. Sent as `metadata` to OpenAI and Anthropic. Freyja does not read it.
 
-Gemini sends it as `labels`, and the public Interactions API declines the field — see [Gemini](../providers/gemini.md#metadata-is-sent-and-this-endpoint-declines-it). The rejection is the endpoint's, not Freyja's.
+Gemini sends it as `labels`, and the public Interactions API declines the field, see [Gemini](../providers/gemini.md#metadata-is-sent-and-this-endpoint-declines-it). The rejection is the endpoint's, not Freyja's.
 
 ### `extra_for`
 
@@ -173,7 +173,7 @@ let request = GenerateRequest::new()
     .extra_for(Dialect::Gemini, json!({"generation_config": {"seed": 42}}));
 ```
 
-A field earns a place in `GenerateRequest` by meaning the same thing on more than one dialect. Gemini's `seed` and `safety_settings`, Anthropic's memory tool, and OpenAI's `context_management` do not, so they are not modelled — and this is how to reach them without forking.
+A field earns a place in `GenerateRequest` by meaning the same thing on more than one dialect. Gemini's `seed` and `safety_settings`, Anthropic's memory tool, and OpenAI's `context_management` do not, so they are not modelled, and this is how to reach them without forking.
 
 **The merge is deep.** Nested objects merge key by key, so the example above adds `seed` to the `generation_config` Freyja already built rather than replacing it. Anything that is not an object replaces what was there, including arrays: an override of `tools` is a replacement, never an append.
 
@@ -200,7 +200,7 @@ Invalid schema for response_format: 'additionalProperties' is required
 to be supplied and to be false.
 ```
 
-Freyja does not generate schemas. This takes one you already have — hand-written, `schemars`, anything — and rewrites it into the subset. It is idempotent, so a schema already in the subset passes through unchanged.
+Freyja does not generate schemas. This takes one you already have, hand-written, `schemars`, anything, and rewrites it into the subset. It is idempotent, so a schema already in the subset passes through unchanged.
 
 ### What it changes
 
@@ -214,7 +214,7 @@ Freyja does not generate schemas. This takes one you already have — hand-writt
 
 Each removal is a keyword strict mode rejects *and* which only narrows a value, so the type survives the round trip.
 
-All of it applies at schema positions only. A property *named* `oneOf` or `uniqueItems` is a name you chose, not a keyword, and is left exactly as written — as is anything under `enum`, `const`, or `default`, which are values rather than schemas.
+All of it applies at schema positions only. A property *named* `oneOf` or `uniqueItems` is a name you chose, not a keyword, and is left exactly as written, as is anything under `enum`, `const`, or `default`, which are values rather than schemas.
 
 ### What it leaves alone
 

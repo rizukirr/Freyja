@@ -120,7 +120,7 @@ for (id, name, arguments) in response.tool_calls() {
 }
 ```
 
-The model does not run anything. It asks; you find the requested `Tool`, call `call(arguments, &cx)`, and decide how to report failures. Turning that into a loop is [Building an agent](building-an-agent.md) — or hand it to [`Agent`](building-an-agent.md#agent-runs-this-loop-for-you), which does it for you.
+The model does not run anything. It asks; you find the requested `Tool`, call `call(arguments, &cx)`, and decide how to report failures. Turning that into a loop is [Building an agent](building-an-agent.md), or hand it to [`Agent`](building-an-agent.md#agent-runs-this-loop-for-you), which does it for you.
 
 ## Run the examples
 

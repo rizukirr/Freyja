@@ -8,7 +8,7 @@ This is the reasoning behind [`src/dialect/refusal.rs`](../../src/dialect/refusa
 
 Freyja's promise is that one request runs anywhere. Keeping that promise means sometimes saying **no**: a silently dropped `tool_choice` returns a plausible answer that is wrong in a way the caller cannot see. Refusal is load-bearing, not a fallback.
 
-But a refusal is a **claim**, and for a long time Freyja made claims it had no way to check. Fifteen refusals shipped. Seven should not have — four were false, three were true but not Freyja's to make. That is the entire motivation for everything below.
+But a refusal is a **claim**, and for a long time Freyja made claims it had no way to check. Fifteen refusals shipped. Seven should not have, four were false, three were true but not Freyja's to make. That is the entire motivation for everything below.
 
 ## Three layers of knowledge
 
@@ -46,7 +46,7 @@ The first three were false. The last two were accurate and still wrong to make, 
 
 > **Freyja refuses only what it can prove structurally impossible. Everything else goes to the wire, and the vendor answers.**
 
-Not a matter of taste — it is the table above. Freyja may only speak about the layer it can see.
+Not a matter of taste: it is the table above. Freyja may only speak about the layer it can see.
 
 ```
    a field set on GenerateRequest
@@ -117,7 +117,7 @@ They conflict only if every vendor feature has to become a neutral field. Split 
    one name per capability            unportable on purpose
 ```
 
-Test it against reality: `previous_response_id` has a location on two dialects, so it is admitted. `metadata` on three, admitted. `safety_settings` on one — escape hatch. `ReasoningEffort::Minimal` is accepted by exactly one vendor, so it is not a rung on a portable ladder; it is a Gemini string wearing a portable name, and it lives in the hatch.
+Test it against reality: `previous_response_id` has a location on two dialects, so it is admitted. `metadata` on three, admitted. `safety_settings` on one, escape hatch. a `minimal` reasoning level is accepted by exactly one vendor, so it is not a rung on a portable ladder. There is deliberately no `ReasoningEffort::Minimal`: it would be a Gemini string wearing a portable name, and it lives in the hatch instead. See [Requests](../reference/requests.md) for how that variant came and went.
 
 This is why the neutral model stays small **without** the library becoming a subset of what vendors offer.
 
@@ -133,7 +133,7 @@ Each exists to answer a question that would otherwise be answered by taste.
 | **Endpoint** | a deployment of a dialect | where does non-capability variance go? |
 | **Escape hatch** | `extra_for`, `EndpointConfig::body` | how do I send what is not a capability? |
 
-A wire format earns a dialect slot when **at least two independent vendors speak it**. Under that test only `OpenAiChat` really earns one — Groq, DeepSeek, Together, OpenRouter, Ollama, vLLM. The other three exist because their vendors matter, not because their formats spread. Worth knowing before proposing a fifth.
+A wire format earns a dialect slot when **at least two independent vendors speak it**. Under that test only `OpenAiChat` really earns one, Groq, DeepSeek, Together, OpenRouter, Ollama, vLLM. The other three exist because their vendors matter, not because their formats spread. Worth knowing before proposing a fifth.
 
 `Endpoint` is the part most often collapsed into `Dialect`, and the collapse is where bugs come from. `max_tokens` versus `max_completion_tokens` is not a capability difference; neither is `labels` working on Gemini Enterprise and not on the public API. Both are endpoint facts, and both were briefly modelled as dialect facts.
 
@@ -171,7 +171,7 @@ The current rack has **welded slots**: `Dialect` is a closed enum dispatched by 
    Client::post ───────────────▶ the network
 ```
 
-`Client::check` is `build` with the result dropped. That is why it cannot be wrong independently of `generate`, and why "fix `check`" turned out to mean "fix `build`" — `check` documented its contract correctly from the beginning.
+`Client::check` is `build` with the result dropped. That is why it cannot be wrong independently of `generate`, and why "fix `check`" turned out to mean "fix `build`", `check` documented its contract correctly from the beginning.
 
 Refusals are not a validation prologue. Some are whole-request gates at the top of `build`; the rest sit **inline, in the same match arm as the mapping they are refusing**:
 
@@ -193,7 +193,7 @@ What made it real is [`refusal.rs`](../../src/dialect/refusal.rs): every refusal
 | Evidence | Meaning |
 |---|---|
 | `Probed` | the endpoint was asked and said no |
-| `Structural` | no field could exist — the API is stateless, or the concept is absent |
+| `Structural` | no field could exist: the API is stateless, or the concept is absent |
 | `Unverified` | nobody has checked; this is how the false ones were written |
 | `Refuted` | the endpoint was asked and said yes, and the code still refuses |
 

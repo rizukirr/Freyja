@@ -57,7 +57,7 @@ async fn dispatch(tools: &[Arc<dyn Tool>], name: &str, arguments: &str, cx: &Con
 }
 ```
 
-`Arc<dyn Tool>` rather than an array of concrete tools: `#[tool]` gives every function its own type, so two tools only share a collection once they are erased. The `Context` carries per-run state your tools may read — a user id, a request id — and an empty `Context::new()` is fine until you have any. See [Tools](reference/tools.md#where-state-goes).
+`Arc<dyn Tool>` rather than an array of concrete tools: `#[tool]` gives every function its own type, so two tools only share a collection once they are erased. The `Context` carries per-run state your tools may read, a user id, a request id, and an empty `Context::new()` is fine until you have any. See [Tools](reference/tools.md#where-state-goes).
 
 Two rules here, and both matter more than they look.
 
@@ -177,7 +177,7 @@ The loop above is the skeleton. Three things separate it from something you woul
 
 ## Agent runs this loop for you
 
-Everything above — the bound, the tool dispatch, sending results back, watching the status — is what `Agent` does on your behalf, and it dispatches parallel tool calls concurrently rather than one at a time, up to eight at once. How many a turn requests is the model's choice, and a tool holding a socket or a file handle turns that choice into pressure on your process, so the loop staggers them. Nothing is refused: calls past the limit wait for a slot and answer in the order they were requested. The hand-written loop stays useful: it is what to reach for when you need to see or change what happens between turns, and it is what `Agent` is built from. For the common case, though:
+Everything above, the bound, the tool dispatch, sending results back, watching the status, is what `Agent` does on your behalf, and it dispatches parallel tool calls concurrently rather than one at a time, up to eight at once. How many a turn requests is the model's choice, and a tool holding a socket or a file handle turns that choice into pressure on your process, so the loop staggers them. Nothing is refused: calls past the limit wait for a slot and answer in the order they were requested. The hand-written loop stays useful: it is what to reach for when you need to see or change what happens between turns, and it is what `Agent` is built from. For the common case, though:
 
 ```rust
 let agent = Agent::new(client)
@@ -194,7 +194,7 @@ println!("{}", run.answer);
 
 Model and sampling settings live on the builder alongside the tools. The transcript does not: it is held by whatever `Storage` you pass to `conversation`, which is why there is no way to put messages into an agent's configuration.
 
-A guard goes on the same builder. `.guard(|name, _arguments, _cx| ...)` is consulted before every call, and returning `Decision::Deny(reason)` sends the model `denied: {reason}` instead of running the tool — which is how you keep a tool registered for the cases it is meant for while refusing the rest. See [Refusing a call](reference/tools.md#refusing-a-call).
+A guard goes on the same builder. `.guard(|name, _arguments, _cx| ...)` is consulted before every call, and returning `Decision::Deny(reason)` sends the model `denied: {reason}` instead of running the tool, which is how you keep a tool registered for the cases it is meant for while refusing the rest. See [Refusing a call](reference/tools.md#refusing-a-call).
 
 ```rust
 let agent = Agent::new(client)

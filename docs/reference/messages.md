@@ -129,10 +129,10 @@ Which roles may carry an image depends on the dialect, and the answer came from 
 
 | Dialect | Roles that take an image |
 |---|---|
-| OpenAI Chat Completions | any — user, system, assistant, and tool all verified live |
+| OpenAI Chat Completions | any, user, system, assistant, and tool all verified live |
 | Gemini | user and assistant; a tool turn is `InvalidRequest`, as its text already was |
-| OpenAI Responses | user only — an assistant turn takes `output_text` and `refusal` and nothing else |
-| Anthropic | user only, **unverified** — the refusal predates any probe and no key has been available to settle it |
+| OpenAI Responses | user only, an assistant turn takes `output_text` and `refusal` and nothing else |
+| Anthropic | user only, **unverified**, the refusal predates any probe and no key has been available to settle it |
 
 Where a dialect will not carry one, Freyja returns `UnsupportedCapability` with the capability `"images outside user messages"`.
 

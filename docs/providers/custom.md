@@ -146,7 +146,7 @@ They also differ on case, because HTTP does. A header name is case-insensitive, 
 
 ## Extra body fields
 
-Some endpoints want a field on every request that the neutral model has no name for — a safety configuration, a routing hint, a tier. `body` is the companion to `header`, one layer down:
+Some endpoints want a field on every request that the neutral model has no name for, a safety configuration, a routing hint, a tier. `body` is the companion to `header`, one layer down:
 
 ```rust
 let config = EndpointConfig::new(Dialect::Gemini, "Gemini", base_url)

@@ -112,7 +112,34 @@ a vector the caller threads through every call, and the transcript that reaches
 a provider is repaired rather than assumed well formed. Separately, an endpoint
 can describe a URL and a credential its dialect did not anticipate.
 
-Pre-1.0, so this breaks. The rename table in the README is the upgrade path.
+Pre-1.0, so this breaks. Update imports and error matching with this rename table:
+
+| Before | After |
+|---|---|
+| `ProviderDialect` | `Dialect` |
+| `ProviderConfig` | `EndpointConfig` |
+| `ProviderType` | `EndpointPreset` |
+| `ProviderError` | `Error` |
+| error field `provider` | error field `endpoint` |
+| `error.provider()` | `error.endpoint()` |
+| `Agent::request(GenerateRequest::new().model(..))` | `Agent::model(..)`, and the same for `max_tokens`, `temperature`, `top_p`, `reasoning_effort`, `tool_choice`, `extra_for` |
+| a system prompt on an `Agent` template | `Agent::system(..)` |
+| `Agent::run`, `Agent::run_with` | `agent.conversation(&mut history).send(..)`, which extends the vector in place |
+| `Agent::chat()` and `Chat::ask` | `agent.conversation(InMemoryStorage::new())` and `chat.send(..)` |
+| `Memory`, `MemoryError`, `MemoryFuture` | `Filter`, `FilterError`, `FilterFuture` |
+| `Agent::memory(impl Memory)` | a `Storage` implementation trims inside `Storage::load`, supplied to `agent.conversation(..)` |
+| `Agent::filter(Window::groups(n))` | `agent.conversation(InMemoryStorage::new().window(n))` |
+| `Filter`, `FilterError`, `FilterFuture`, `Window` | removed. A backend trims inside `Storage::load`, and may cut anywhere, because the repair pass drops both halves of a pair the cut separated |
+| `Agent::memory(store)` then `agent.message(..)` | `agent.conversation(store)` then `chat.send(..)`, or `agent.conversation(InMemoryStorage::new())` for one held in this process |
+| `Agent::messages(&mut history)` | `agent.conversation(&mut history).send(..)`. The vector is still extended in place |
+| `InMemoryStorage::new().window(n)` | `agent.conversation(InMemoryStorage::new().window(n))` |
+| `InMemoryStorage::all()` | `chat.storage()`, which is the `Vec<Message>` itself |
+| `Arc<dyn Storage>` and `impl Storage for Arc<T>` | removed. A conversation owns its backend, so `Storage` takes `&mut self` and needs no interior mutability |
+| `Agent::conversation()` | `agent.conversation(InMemoryStorage::new())`. The backend is always named, so nothing chooses one for you |
+| `Agent::conversation_in(store)` | `agent.conversation(store)` |
+| `Conversation::window(n)` | `InMemoryStorage::new().window(n)`. Windowing is a feature of the backend, and a backend of your own trims inside its own `load` |
+| `split`, `window_by_groups` | removed from the public API. A backend may cut anywhere, because the repair pass drops both halves of a pair the cut separated |
+| a `match` on `Auth` with no wildcard arm | add one. `Auth` is `#[non_exhaustive]` and has gained `Auth::Query(name)` for endpoints that take the key in the URL |
 
 ### Added
 
@@ -321,7 +348,7 @@ Pre-1.0, so this breaks. The rename table in the README is the upgrade path.
   receiving the requested name, the model's raw JSON arguments and the
   run's `Context`, and returning the new `Decision` enum. `Allow` runs
   the tool; `Deny(reason)` does not, and sends the model
-  `denied: {reason}` as the tool result instead — the same channel it
+  `denied: {reason}` as the tool result instead, the same channel it
   reads `error: {error}` from, so a refusal is something it can recover
   from rather than a failure. The guard runs before the tool lookup, so
   it sees every name requested, including tools registered at runtime
@@ -340,7 +367,7 @@ Pre-1.0, so this breaks. The rename table in the README is the upgrade path.
   listed as planned. Racing a call against a clock needs a timer, and
   Freyja depends on no async runtime so it has none to reach for. Every
   caller already does, and a short wrapper tool holding the inner one in
-  an `Arc` applies your runtime's timeout — wrapping an erased
+  an `Arc` applies your runtime's timeout, wrapping an erased
   `Arc<dyn Tool>` as readily as a tool you wrote. The `Tool`
   documentation carries the implementation as a compiled doctest, so it
   cannot drift from the trait it wraps. A call that runs out of budget
@@ -379,7 +406,7 @@ keeps working for the types that kept their names.
 and it did not mean the same thing there.
 
 **`Tool` is a trait rather than a struct.** This one only affects code
-written against a git checkout — `Tool` was never in a published release.
+written against a git checkout, `Tool` was never in a published release.
 
 ```rust
 pub trait Tool: Send + Sync {
@@ -404,14 +431,14 @@ because a trait method borrows `&self`.
 executor from a sync or `async fn`. `Tool` carries it, `ToolChoice`
 constrains it, and the full round trip is verified against live APIs.
 
-**`Agent` and `Chat`.** `Agent` drives the tool-calling loop — bounded
+**`Agent` and `Chat`.** `Agent` drives the tool-calling loop, bounded
 turns, parallel tool calls dispatched concurrently, `StopReason` saying
 why it stopped, `Usage` summed across turns. The transcript stays yours:
 `run` extends a `Vec<Message>` in place. `Chat` keeps its own transcript
 if you would rather not.
 
 **Tools that hold state.** Implement `Tool` on a struct and its fields
-survive across calls — a database handle, an HTTP client, a rate limiter.
+survive across calls, a database handle, an HTTP client, a rate limiter.
 
 **`Context`, per-run data.** A type-keyed map handed to every tool call
 and never sent to the model. `Agent::run_with` and `Chat::ask_with` take
@@ -421,8 +448,8 @@ schema. State known when the tool is built goes in fields; state that
 arrives with the request goes in `Context`.
 
 **Tools defined at runtime.** `name` returns `&str` and `definition`
-returns a value, so a tool whose name and schema arrive at runtime — the
-MCP shape — needs no compile-time type.
+returns a value, so a tool whose name and schema arrive at runtime, the
+MCP shape, needs no compile-time type.
 
 **Tools that report failure.** A `#[tool]` returning `Result` maps
 `Err(e)` to `ToolError::Execution(e.to_string())`, reaching the model as
