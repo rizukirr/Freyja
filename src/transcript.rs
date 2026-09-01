@@ -178,11 +178,21 @@ pub fn window_by_groups(history: &[Message], keep: usize) -> Vec<Message> {
 /// A call and the results answering it must not be separated either. Anything
 /// that is not a tool result, arriving between a call and its last open
 /// result, drops both halves of the pair, though the intervening turn itself
-/// is never dropped. This is the stricter of two measured rules: the OpenAI
-/// Chat dialect rejects any turn between them, including a pinned one, while
-/// the Anthropic dialect rejects everything except a pinned turn, which it
-/// hoists into a field of its own. The stricter rule is taken here because
-/// this runs before a dialect is known.
+/// is never dropped. This is the strictest of three measured rules, taken
+/// because this runs before a dialect is known:
+///
+/// - **OpenAI Chat** rejects any turn between them, including a pinned one.
+/// - **Anthropic** rejects everything except a pinned turn, which never
+///   arrives between them anyway because the dialect hoists it into a field of
+///   its own.
+/// - **Gemini** accepts a turn between them. Measured against the live
+///   endpoint with a `user_input` sitting between `function_call` and
+///   `function_result` in the request body, and answered normally.
+///
+/// So this rule is stricter than Gemini needs and exactly as strict as OpenAI
+/// Chat needs. Being stricter costs a dropped pair that one endpoint would
+/// have accepted; being looser costs a request every other endpoint rejects
+/// with an error mentioning nothing about trimming.
 ///
 /// A message left with no content after this is removed, so an assistant turn
 /// carrying text beside a dropped call keeps its text.
