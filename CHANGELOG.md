@@ -2,7 +2,26 @@
 
 Notable changes per release. Freyja is pre-1.0, so a minor version may break.
 
-## Unreleased
+## 0.4.0 - 2026-09-01
+
+One theme, found by auditing what an endpoint controls. Freyja bounded what a
+gateway it has never met can make it *hold*, in `MAX_BODY_BYTES`,
+`MAX_FRAME_BYTES` and `MAX_STREAM_BYTES`, and bounded nothing that gateway can
+make it *do*. It also withheld a credential in one rendering and printed it in
+another.
+
+Nothing breaks at compile time: nothing was removed and no signature changed.
+Four behaviours change, and this is a minor bump rather than a patch so that
+none of them arrives unannounced on a `cargo update`:
+
+- A redirect that crosses an origin now fails instead of succeeding.
+- `EndpointConfig::url` prints `REDACTED` for a credential-shaped query value.
+- `EndpointConfig::secret_headers` holds lowercased names.
+- `Retry-After` is clamped to one day.
+
+The first is the one to check before upgrading. If an endpoint of yours
+redirects to another host, that request now returns `Error::Api` carrying the
+3xx status, and it was previously handing your API key to whatever answered.
 
 ### Added
 
