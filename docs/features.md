@@ -34,6 +34,7 @@ Streaming delivers the same answer incrementally, and a drained stream converts 
 | The full tool round trip | **Yes, verified against live APIs**, not just tested offline |
 | Multi-turn conversations | Yes, transcripts are plain data you own |
 | Reasoning state replay | Handled for you, see [Concepts](concepts.md#opaque-state) |
+| Group-aware trimming | `window_by_groups` is public, so a backend of your own applies the same rule `InMemoryStorage::window` does |
 | Automatic loop orchestration | `Agent` runs the tool-calling loop for you and dispatches parallel tool calls concurrently, eight at a time |
 | Refusing a tool call | `Agent::guard` vets every requested call, and a refusal reaches the model as text it can act on |
 | Tools that hold state | Implement `Tool` on a struct; its fields are per-agent state |

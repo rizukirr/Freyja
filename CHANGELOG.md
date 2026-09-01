@@ -4,6 +4,22 @@ Notable changes per release. Freyja is pre-1.0, so a minor version may break.
 
 ## Unreleased
 
+### Added
+
+- **`window_by_groups` is public.** The trimming rule `InMemoryStorage::window`
+  uses, so a backend of your own can apply the same one inside its `load`. It
+  cuts only on group boundaries, where a group is a message except that an
+  assistant turn requesting tools and the results answering it are one, so a
+  cut never separates a call from its answer.
+
+  This unlocks nothing that was impossible: `Message`, `Role` and
+  `InputContent` are all public with public fields, so a backend author could
+  always write it. It is exported to save them forty lines and to keep one rule
+  in one place. `split`, the decomposition underneath it, stays private,
+  because its `Vec<&[Message]>` return type commits to a group being one
+  contiguous run and that is an implementation choice rather than a promise
+  worth freezing.
+
 ### Fixed
 
 - **`is_secret_header` matches a classified name whatever its case.** A header

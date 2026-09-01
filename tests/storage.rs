@@ -6,7 +6,7 @@ mod common;
 use common::{ok_response, serve};
 use freyja::{
     Agent, Client, Dialect, EndpointConfig, InMemoryStorage, InputContent, Message, Role, Storage,
-    StorageFuture, tool,
+    StorageFuture, tool, window_by_groups,
 };
 
 #[tool(description = "adds two numbers together")]
@@ -537,4 +537,77 @@ async fn a_shared_backend_lets_a_clear_reach_across_conversations() {
             .any(|c| matches!(c, InputContent::Text(text) if text.contains("first question")))),
         "the first conversation's history should have been destroyed"
     );
+}
+
+/// A backend that trims with the crate's own rule inside its `load`, which is
+/// the reason `window_by_groups` is public.
+struct Windowed {
+    messages: Vec<Message>,
+    keep: usize,
+}
+
+impl Storage for Windowed {
+    fn load(&mut self) -> StorageFuture<'_, Vec<Message>> {
+        Box::pin(async move { Ok(window_by_groups(&self.messages, self.keep)) })
+    }
+    fn append(&mut self, messages: Vec<Message>) -> StorageFuture<'_, ()> {
+        Box::pin(async move {
+            self.messages.extend(messages);
+            Ok(())
+        })
+    }
+    fn clear(&mut self) -> StorageFuture<'_, ()> {
+        Box::pin(async move {
+            self.messages.clear();
+            Ok(())
+        })
+    }
+}
+
+#[tokio::test]
+async fn a_backend_can_trim_with_the_published_rule() {
+    // The whole point of publishing it: a backend outside the crate applies
+    // the same rule InMemoryStorage does, without reimplementing it.
+    let (base, requests) = serve(&[ok_response()]);
+    let agent = Agent::new(Client::new(
+        EndpointConfig::new(Dialect::OpenAiChat, "local", base).default_model("m"),
+        "sk-test",
+    ));
+
+    let storage = Windowed {
+        keep: 1,
+        messages: vec![
+            Message::text(Role::System, "SENTINEL-PINNED"),
+            Message::text(Role::User, "SENTINEL-OLD"),
+            Message::new(
+                Role::Assistant,
+                vec![InputContent::ToolCall {
+                    id: "c1".into(),
+                    name: "add".into(),
+                    arguments: "{}".into(),
+                }],
+            ),
+            Message::tool_result("c1", "SENTINEL-PAIRED"),
+        ],
+    };
+
+    agent
+        .conversation(storage)
+        .send("SENTINEL-NEW")
+        .await
+        .expect("the run completes");
+
+    let body = requests.recv().expect("a request");
+    // The pinned turn is never dropped, and the newest turn is always there.
+    assert!(body.contains("SENTINEL-PINNED"), "{body}");
+    assert!(body.contains("SENTINEL-NEW"), "{body}");
+    // One group kept, so the older exchange aged out.
+    assert!(!body.contains("SENTINEL-OLD"), "{body}");
+
+    // The kept group is the tool exchange, and it went whole. This is the
+    // property that makes the rule worth publishing: a backend trimming to the
+    // last message would have kept the result and dropped the call it answers,
+    // which every provider rejects. Cutting on a group boundary cannot.
+    assert!(body.contains("SENTINEL-PAIRED"), "{body}");
+    assert!(body.contains("tool_calls"), "{body}");
 }
