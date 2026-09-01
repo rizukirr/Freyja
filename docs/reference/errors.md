@@ -170,6 +170,8 @@ OpenAI rate limited the request, retry after 30s: {"error":{"message":"Rate limi
 
 Retryable. `retry_after` carries the endpoint's own `Retry-After` header when it sent one, and is `None` otherwise, in which case your own backoff applies.
 
+Only the `delay-seconds` form is read, so an endpoint sending the `HTTP-date` form RFC 9110 also allows reads as `None`. The value is clamped to `MAX_RETRY_AFTER`, one day. It is a number an endpoint hands you expecting you to sleep for it, and the pattern below does exactly that, so an unclamped `Retry-After: 99999999999` would park a task for three thousand years. A gateway that meant milliseconds and wrote seconds does the same thing without meaning to.
+
 Only the delay-seconds form of the header is parsed. The HTTP-date form would need a clock and a date parser, neither of which Freyja has a dependency for, and no major vendor sends it. An unreadable header is `None` rather than a guess.
 
 ### QuotaExceeded

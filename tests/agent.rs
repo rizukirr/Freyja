@@ -823,3 +823,85 @@ async fn clearing_storage_forgets_the_conversation() {
     let second = requests.recv().expect("second request");
     assert!(!second.contains("first question"), "{second}");
 }
+
+/// Records the highest number of calls in flight at once.
+///
+/// The tool sleeps, so overlap is real rather than an artefact of polling
+/// order: without a ceiling every requested call is in flight together.
+struct Concurrent {
+    live: Arc<AtomicUsize>,
+    peak: Arc<AtomicUsize>,
+}
+
+impl Tool for Concurrent {
+    fn name(&self) -> &str {
+        "add"
+    }
+
+    fn definition(&self) -> ToolDefinition {
+        ToolDefinition::new("add", "adds two numbers")
+    }
+
+    fn call<'a>(&'a self, _arguments: &'a str, _cx: &'a Context) -> ToolFuture<'a> {
+        let (live, peak) = (self.live.clone(), self.peak.clone());
+        Box::pin(async move {
+            let now = live.fetch_add(1, Ordering::SeqCst) + 1;
+            peak.fetch_max(now, Ordering::SeqCst);
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            live.fetch_sub(1, Ordering::SeqCst);
+            Ok("42".to_string())
+        })
+    }
+}
+
+/// A turn requesting `count` calls of the same tool.
+fn calls_add_many(count: usize) -> String {
+    let calls: Vec<String> = (0..count)
+        .map(|index| {
+            format!(
+                r#"{{"id":"call_{index}","type":"function","function":{{"name":"add","arguments":"{{\"a\":1,\"b\":1}}"}}}}"#
+            )
+        })
+        .collect();
+    format!(
+        r#"{{"id":"chatcmpl-1","model":"test-model","choices":[{{"message":{{"role":"assistant","content":null,"tool_calls":[{}]}},"finish_reason":"tool_calls"}}],"usage":{{"prompt_tokens":5,"completion_tokens":5,"total_tokens":10}}}}"#,
+        calls.join(",")
+    )
+}
+
+#[tokio::test]
+async fn tool_calls_run_with_bounded_concurrency() {
+    // How many calls a turn requests is the model's choice. A tool that opens
+    // a socket or a file handle turns that choice into pressure on the
+    // caller's process, so the loop staggers them.
+    const REQUESTED: usize = 40;
+    const CEILING: usize = 8;
+
+    let (base, _requests) = serve(&[canned(&calls_add_many(REQUESTED)), canned(ANSWER)]);
+    let peak = Arc::new(AtomicUsize::new(0));
+    let agent = Agent::new(client(base)).tool(Concurrent {
+        live: Arc::new(AtomicUsize::new(0)),
+        peak: peak.clone(),
+    });
+
+    let mut chat = agent.conversation(InMemoryStorage::new());
+    let run = chat.send("go").await.expect("the run completes");
+
+    assert_eq!(run.answer, "the answer is 42");
+    assert!(
+        peak.load(Ordering::SeqCst) <= CEILING,
+        "{} calls ran at once, ceiling is {CEILING}",
+        peak.load(Ordering::SeqCst)
+    );
+
+    // Nothing was refused or dropped: every requested call answered, and the
+    // results are what the next turn carries.
+    let results = chat
+        .storage()
+        .messages()
+        .iter()
+        .flat_map(|message| message.content.iter())
+        .filter(|content| matches!(content, freyja::InputContent::ToolResult { .. }))
+        .count();
+    assert_eq!(results, REQUESTED);
+}

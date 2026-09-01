@@ -34,7 +34,7 @@ Streaming delivers the same answer incrementally, and a drained stream converts 
 | The full tool round trip | **Yes, verified against live APIs**, not just tested offline |
 | Multi-turn conversations | Yes, transcripts are plain data you own |
 | Reasoning state replay | Handled for you, see [Concepts](concepts.md#opaque-state) |
-| Automatic loop orchestration | `Agent` runs the tool-calling loop for you and dispatches parallel tool calls concurrently |
+| Automatic loop orchestration | `Agent` runs the tool-calling loop for you and dispatches parallel tool calls concurrently, eight at a time |
 | Refusing a tool call | `Agent::guard` vets every requested call, and a refusal reaches the model as text it can act on |
 | Tools that hold state | Implement `Tool` on a struct; its fields are per-agent state |
 | Per-run data in a tool | `Context` is handed to every call and never sent to the model |
@@ -65,7 +65,7 @@ Built-in means Freyja ships and tests the URL and default model. It does not mea
 | Connection pooling | One HTTP client per `Client`, reused |
 | Timeouts | 120 seconds of inactivity by default, or supply your own HTTP client |
 | Errors | Classified by cause, each attributed to the endpoint that failed |
-| Retry decisions | `is_retryable()` and the endpoint's own `Retry-After` |
+| Retry decisions | `is_retryable()` and the endpoint's own `Retry-After`, clamped to `MAX_RETRY_AFTER` |
 | Credential safety | `Debug` redacts the API key, `secret_header` and `secret_query` extend that to a second credential in `Debug`, error messages and `url()`, and every credential header goes out marked sensitive |
 | Dependencies | `reqwest`, `serde`, `serde_json`, `schemars`, and `freyja-macros` |
 

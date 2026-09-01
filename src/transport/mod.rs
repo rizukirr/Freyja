@@ -9,9 +9,61 @@ use std::time::Duration;
 
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(120);
 
+/// How many same-origin redirects one request may follow.
+///
+/// Redirects between two paths on one endpoint are ordinary. A chain of them
+/// is a loop, and `reqwest`'s own default stops at ten for the same reason.
+const MAX_REDIRECTS: usize = 10;
+
+/// Whether two URLs are the same origin, by `reqwest`'s own definition.
+///
+/// Deliberately the same rule `reqwest::redirect::remove_sensitive_headers`
+/// uses to decide whether to strip `Authorization`, so the hop Freyja refuses
+/// and the hop `reqwest` strips for are the same hop. Two rules here would
+/// mean a gap between them, and the gap is where a credential goes.
+fn same_origin(a: &reqwest::Url, b: &reqwest::Url) -> bool {
+    a.scheme() == b.scheme()
+        && a.host_str() == b.host_str()
+        && a.port_or_known_default() == b.port_or_known_default()
+}
+
+/// A redirect policy that will not carry the credential to another origin.
+///
+/// `reqwest` strips `Authorization`, `Cookie`, `Proxy-Authorization` and
+/// `WWW-Authenticate` when a redirect crosses an origin, and it cannot strip
+/// what it cannot recognize. [`Auth::Header`] puts the key in `x-api-key` or
+/// `x-goog-api-key`, which are ordinary headers as far as `reqwest` can tell,
+/// so they were forwarded. Measured against a local server answering `307`
+/// with a `Location` on another port, the Anthropic key arrived at the second
+/// host and the OpenAI key did not, and both calls returned `Ok` to the
+/// caller.
+///
+/// Refusing the hop rather than stripping the header is the choice here. A
+/// stripped credential produces a 401 from a host the caller never named,
+/// which is a worse thing to debug than a redirect that says it was refused.
+///
+/// A caller who supplies their own client through
+/// [`crate::Client::with_http_client`] gets `reqwest`'s default policy back,
+/// which is documented beside that constructor.
+fn same_origin_redirects() -> reqwest::redirect::Policy {
+    reqwest::redirect::Policy::custom(|attempt| {
+        let Some(previous) = attempt.previous().last() else {
+            return attempt.follow();
+        };
+        if !same_origin(previous, attempt.url()) {
+            return attempt.stop();
+        }
+        if attempt.previous().len() >= MAX_REDIRECTS {
+            return attempt.error("too many redirects");
+        }
+        attempt.follow()
+    })
+}
+
 pub(crate) fn default_http() -> reqwest::Client {
     reqwest::Client::builder()
         .read_timeout(DEFAULT_TIMEOUT)
+        .redirect(same_origin_redirects())
         .build()
         .expect("the TLS backend could not be initialized")
 }
@@ -212,15 +264,29 @@ pub(crate) async fn read_body(
     Ok(String::from_utf8_lossy(&body).into_owned())
 }
 
+/// Reads `Retry-After`, clamped to [`crate::error::MAX_RETRY_AFTER`].
+///
+/// Only the `delay-seconds` form of RFC 9110 §10.2.3 is read. The `HTTP-date`
+/// form yields `None`, which callers already handle as "use your own backoff",
+/// so an endpoint sending a date costs a hint rather than causing a failure.
+///
+/// The clamp is the part that matters. This is a number an endpoint hands the
+/// caller expecting them to sleep for it, and the pattern in
+/// `docs/reference/errors.md` does exactly that, so an unclamped
+/// `Retry-After: 99999999999` parks a task for three thousand years. Freyja
+/// already refuses a body and a stream that grow without bound, on the stated
+/// grounds that it is pointed at gateways it has never met. This is the same
+/// argument applied to the one untrusted quantity that is not bytes.
 pub(crate) fn parse_retry_after(headers: &reqwest::header::HeaderMap) -> Option<Duration> {
-    headers
+    let seconds = headers
         .get(reqwest::header::RETRY_AFTER)?
         .to_str()
         .ok()?
         .trim()
         .parse::<u64>()
-        .ok()
-        .map(Duration::from_secs)
+        .ok()?;
+
+    Some(Duration::from_secs(seconds).min(crate::error::MAX_RETRY_AFTER))
 }
 
 pub(crate) fn to_value<T: Serialize>(
@@ -330,5 +396,68 @@ mod tests {
             .get("x-route")
             .expect("the extra header was applied");
         assert!(!value.is_sensitive(), "{value:?}");
+    }
+
+    /// The policy is a predicate over two URLs, so it is tested as one. The
+    /// hop that mattered is a port change, which is what the measured leak
+    /// used and what `reqwest` treats as cross-origin.
+    #[test]
+    fn a_redirect_may_not_change_origin() {
+        let parse = |url: &str| reqwest::Url::parse(url).expect("a valid url");
+        let base = parse("https://api.acme.test/v1/messages");
+
+        for allowed in [
+            "https://api.acme.test/v2/messages",
+            "https://api.acme.test/v1/messages/",
+        ] {
+            assert!(same_origin(&base, &parse(allowed)), "{allowed}");
+        }
+
+        for refused in [
+            "https://attacker.test/v1/messages",
+            "https://api.acme.test:8443/v1/messages",
+            "http://api.acme.test/v1/messages",
+        ] {
+            assert!(!same_origin(&base, &parse(refused)), "{refused}");
+        }
+    }
+
+    #[test]
+    fn the_default_client_carries_the_policy() {
+        // Cheap, and it is the wiring that actually protects anything: the
+        // predicate above is correct whether or not `default_http` uses it.
+        let rendered = format!("{:?}", default_http());
+        assert!(rendered.contains("redirect"), "{rendered}");
+    }
+
+    #[test]
+    fn a_retry_after_is_clamped() {
+        let header = |value: &str| {
+            let mut headers = reqwest::header::HeaderMap::new();
+            headers.insert(
+                reqwest::header::RETRY_AFTER,
+                reqwest::header::HeaderValue::from_str(value).expect("a valid value"),
+            );
+            parse_retry_after(&headers)
+        };
+
+        // The ordinary case is untouched.
+        assert_eq!(header("30"), Some(Duration::from_secs(30)));
+        assert_eq!(header(" 30 "), Some(Duration::from_secs(30)));
+        assert_eq!(header("0"), Some(Duration::ZERO));
+
+        // An endpoint cannot choose how long the caller sleeps.
+        assert_eq!(header("99999999999"), Some(crate::error::MAX_RETRY_AFTER));
+        assert_eq!(
+            header("18446744073709551615"),
+            Some(crate::error::MAX_RETRY_AFTER)
+        );
+
+        // The forms RFC 9110 allows that this does not read, and the ones it
+        // does not allow at all, are all `None` rather than a wrong duration.
+        for unread in ["Wed, 21 Oct 2015 07:28:00 GMT", "1.5", "-1", "soon", ""] {
+            assert_eq!(header(unread), None, "{unread}");
+        }
+        assert_eq!(parse_retry_after(&reqwest::header::HeaderMap::new()), None);
     }
 }

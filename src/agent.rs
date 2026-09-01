@@ -4,8 +4,22 @@ use crate::{
     Client, Context, Conversation, Dialect, Error, GenerateRequest, Message, OutputContent,
     ReasoningEffort, ResponseStatus, Storage, Tool, ToolChoice, ToolDefinition, Usage,
 };
+use futures_util::StreamExt;
 use serde_json::Value;
 use std::sync::Arc;
+
+/// How many tool calls one turn may run at once.
+///
+/// A turn's requested calls all ran concurrently, and how many a turn requests
+/// is the model's choice, not the caller's. A tool that opens a socket, a file
+/// handle or a database connection turns that choice into pressure on the
+/// caller's process, and a model looping on a bad plan can request a great
+/// many.
+///
+/// Eight is above what any real turn asks for and low enough to be a ceiling.
+/// Nothing is refused: calls past the limit wait for a slot and answer in the
+/// order they were requested.
+const MAX_CONCURRENT_TOOL_CALLS: usize = 8;
 
 /// The closure an [`Agent`] consults before running a tool.
 type GuardFn = dyn Fn(&str, &str, &Context) -> Decision + Send + Sync;
@@ -331,11 +345,19 @@ impl Agent {
                 })
                 .collect();
 
-            let outputs = futures_util::future::join_all(
+            // Bounded rather than `join_all`, which starts every requested
+            // call at once. How many a turn requests is the model's choice,
+            // and a tool that opens a socket or a file handle turns that
+            // choice into pressure on the caller's process. `buffered` yields
+            // in input order, so nothing is refused or reordered, only
+            // staggered.
+            let outputs: Vec<String> = futures_util::stream::iter(
                 calls
                     .iter()
                     .map(|(_, name, arguments)| self.dispatch(name, arguments, cx)),
             )
+            .buffered(MAX_CONCURRENT_TOOL_CALLS)
+            .collect()
             .await;
 
             request.messages.reserve(outputs.len());

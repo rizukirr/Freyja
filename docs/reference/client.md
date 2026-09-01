@@ -116,6 +116,14 @@ let http = reqwest::Client::builder()
 let client = Client::with_http_client(EndpointPreset::OpenAi, api_key, http);
 ```
 
+The client you supply is used as it is, which means it also carries `reqwest`'s default redirect policy rather than Freyja's. Freyja's own client follows a redirect only when it stays on the same origin, because `reqwest` strips `Authorization` across an origin boundary and cannot strip an `x-api-key` it has no way to recognize, so an endpoint answering `307` with a `Location` elsewhere was handed the credential. If your endpoint takes its key through `Auth::Header`, set a policy of your own:
+
+```rust
+let http = reqwest::Client::builder()
+    .redirect(reqwest::redirect::Policy::none())
+    .build()?;
+```
+
 The client you supply is used as it is, so its timeouts are yours to get right. Set `read_timeout` rather than `timeout` if you stream: `timeout` caps the whole response body, which on a stream is a cap on how long the model is allowed to talk, and a healthy long generation is killed part-way. See [Streaming](streaming.md#timeouts).
 
 ## Methods
