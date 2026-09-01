@@ -33,10 +33,8 @@ fn same_origin(a: &reqwest::Url, b: &reqwest::Url) -> bool {
 /// `WWW-Authenticate` when a redirect crosses an origin, and it cannot strip
 /// what it cannot recognize. [`Auth::Header`] puts the key in `x-api-key` or
 /// `x-goog-api-key`, which are ordinary headers as far as `reqwest` can tell,
-/// so they were forwarded. Measured against a local server answering `307`
-/// with a `Location` on another port, the Anthropic key arrived at the second
-/// host and the OpenAI key did not, and both calls returned `Ok` to the
-/// caller.
+/// so `reqwest` forwards them across an origin and the credential travels
+/// with the redirect.
 ///
 /// Refusing the hop rather than stripping the header is the choice here. A
 /// stripped credential produces a 401 from a host the caller never named,
@@ -121,11 +119,10 @@ fn resolved_headers<'a>(
 /// A header value marked sensitive, so it stays out of anything that prints a
 /// `HeaderMap` and out of HTTP/2's compression table.
 ///
-/// `bearer_auth` does this and nothing else did, so the flag covered
-/// [`Auth::Bearer`] and neither of the two other ways a credential reaches a
-/// header. Two of the three shipped presets take their key through
-/// [`Auth::Header`], so the guarantee held for OpenAI and not for Anthropic or
-/// Gemini.
+/// `reqwest::bearer_auth` marks only its own header sensitive. The other two
+/// ways a credential reaches a header do not, and two of the three shipped
+/// presets take their key through [`Auth::Header`], so this applies the flag
+/// uniformly.
 ///
 /// What it buys is two things. Middleware over a caller-supplied
 /// `reqwest::Client` prints `Sensitive` rather than the key, and that is the

@@ -66,12 +66,11 @@ pub(crate) enum Evidence {
     /// The endpoint was asked and said no. The strongest evidence there is,
     /// and only against an endpoint that rejects what it does not recognize.
     ///
-    /// The three Anthropic rows were `Unverified` for months because they had
-    /// been probed against a compatible endpoint that accepted an invented
-    /// top-level key, so its acceptance carried no information. Anthropic
-    /// answers `freyja_invented_field: Extra inputs are not permitted`, which
-    /// is what makes its acceptances and its rejections mean anything. Probe
-    /// that first, or the probe is measuring nothing.
+    /// Send a field the API cannot know before probing anything else, and
+    /// check that the endpoint rejects it. Anthropic answers
+    /// `freyja_invented_field: Extra inputs are not permitted`, which is what
+    /// makes its later acceptances and rejections mean anything. An endpoint
+    /// that accepts the invented field measures nothing.
     Probed,
     /// No field exists to put it in, and none could: the API is stateless, or
     /// the concept is absent from its data model. Not probed, because there is
