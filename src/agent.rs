@@ -267,22 +267,24 @@ impl Agent {
         let mut turns = 0usize;
 
         for turn in 0..self.max_turns {
-            // Swaps the full transcript out for a copy with the system
-            // instruction prepended, rather than mutating `request.messages`
-            // directly. The full transcript is restored immediately after the
-            // request returns, whether it succeeded or failed, so an error
-            // path never hands the caller a vector with the instruction in it.
-            let mut saved = None;
+            // Prepended to the transcript and taken off again, rather than
+            // swapped for a copy carrying it. The copy was a deep clone of
+            // every message on every turn, and this moves the same pointers
+            // twice instead.
+            //
+            // Taken off whether the request succeeded or failed, so no path
+            // hands the caller a vector with the instruction in it. Nothing
+            // returns between the two, which is what makes that true.
             if let Some(system) = &self.system {
-                let mut chosen = request.messages.clone();
-                chosen.insert(0, Message::text(crate::Role::System, system.clone()));
-                saved = Some(core::mem::replace(&mut request.messages, chosen));
+                request
+                    .messages
+                    .insert(0, Message::text(crate::Role::System, system.clone()));
             }
 
             let response = self.client.generate(&request).await;
 
-            if let Some(saved) = saved {
-                request.messages = saved;
+            if self.system.is_some() {
+                request.messages.remove(0);
             }
 
             let response = match response {

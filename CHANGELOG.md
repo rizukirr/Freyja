@@ -4,6 +4,25 @@ Notable changes per release. Freyja is pre-1.0, so a minor version may break.
 
 ## Unreleased
 
+### Fixed
+
+- **`is_secret_header` matches a classified name whatever its case.** A header
+  name is case-insensitive, and the set held one spelling, so a caller asking
+  with another was told a credential was not one. `secret_header` now stores
+  the lowercased name and `is_secret_header` lowercases what it is asked, while
+  `extra_headers` keeps the spelling the caller wrote, since that is what goes
+  on the wire. `secret_query` is deliberately unchanged: a query parameter name
+  is case-sensitive, so `Sig` and `sig` really are two parameters. Anyone
+  reading the public `secret_headers` field directly now sees lowercased names.
+
+### Changed
+
+- **The system instruction is prepended to the transcript and taken off again**
+  rather than swapped for a copy carrying it. The copy was a deep clone of
+  every message on every turn of every run. Nothing observable changes: the
+  instruction still reaches the model on each turn and still never enters the
+  caller's transcript.
+
 ### Security
 
 - **A redirect no longer carries the credential to another origin.** `reqwest`

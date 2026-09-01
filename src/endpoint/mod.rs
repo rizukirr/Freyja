@@ -105,7 +105,17 @@ pub struct EndpointConfig {
     /// Redacted in `Debug` on the same name heuristic as `extra_headers`, and
     /// with the same advice: a credential belongs in [`EndpointConfig::auth`].
     pub query: Vec<(String, String)>,
-    /// Header names the caller has classified as credentials.
+    /// Header names the caller has classified as credentials, lowercased.
+    ///
+    /// Lowercased because a header name is case-insensitive, so `X-Acme-Key`
+    /// and `x-acme-key` are one name and a set that told them apart would
+    /// answer differently about one value depending on how it was spelled.
+    /// [`EndpointConfig::extra_headers`] keeps what the caller wrote, since
+    /// that is what goes on the wire.
+    ///
+    /// [`EndpointConfig::secret_query`] is not lowercased, because a query
+    /// parameter name is case-sensitive and `Key` and `key` really are two
+    /// parameters.
     ///
     /// Populated by [`EndpointConfig::secret_header`]. Kept apart from
     /// [`EndpointConfig::secret_query`] so classifying a name in one place
@@ -303,7 +313,10 @@ impl EndpointConfig {
     /// ```
     pub fn secret_header(mut self, name: impl Into<String>, value: impl Into<String>) -> Self {
         let name = name.into();
-        self.secret_headers.insert(name.clone());
+        // Lowercased in the set and left alone in the header, because the name
+        // is case-insensitive to match on and is the caller's to spell on the
+        // wire.
+        self.secret_headers.insert(name.to_ascii_lowercase());
         self.header(name, value)
     }
 
@@ -369,15 +382,21 @@ impl EndpointConfig {
     /// use freyja::{Dialect, EndpointConfig};
     ///
     /// let config = EndpointConfig::new(Dialect::OpenAiChat, "gw", "https://gw.test/v1")
-    ///     .header("x-api-key", "live-key");
+    ///     .header("x-api-key", "live-key")
+    ///     .secret_header("X-Acme-Passport", "live-value");
     ///
     /// // Nobody classified this name by hand.
     /// assert!(!config.secret_headers.contains("x-api-key"));
     /// // It is withheld all the same, and this is how to ask.
     /// assert!(config.is_secret_header("x-api-key"));
+    ///
+    /// // A header name is case-insensitive, so one classification answers for
+    /// // every spelling of it.
+    /// assert!(config.is_secret_header("x-acme-passport"));
+    /// assert!(config.is_secret_header("X-ACME-PASSPORT"));
     /// ```
     pub fn is_secret_header(&self, name: &str) -> bool {
-        self.secret_headers.contains(name) || is_secret_name(name)
+        self.secret_headers.contains(&name.to_ascii_lowercase()) || is_secret_name(name)
     }
 
     /// Whether this query parameter's value must be withheld from anything
@@ -617,6 +636,37 @@ mod tests {
         let sent = config.send_stream_url();
         assert!(sent.contains("passport=pp-live"), "{sent}");
         assert!(sent.contains("alt=sse"), "{sent}");
+    }
+
+    #[test]
+    fn a_classified_header_is_matched_whatever_its_case() {
+        // A header name is case-insensitive, and the set held one spelling, so
+        // a caller asking with another got told a credential was not one.
+        let config = EndpointConfig::new(Dialect::OpenAiChat, "gw", "https://gw.test/v1")
+            .secret_header("X-Acme-Passport", "live-value");
+
+        for spelling in ["X-Acme-Passport", "x-acme-passport", "X-ACME-PASSPORT"] {
+            assert!(config.is_secret_header(spelling), "{spelling}");
+        }
+        // A different name is still a different name.
+        assert!(!config.is_secret_header("x-acme-tenant"));
+        // And the header goes out spelled the way the caller wrote it.
+        assert_eq!(
+            config.extra_headers,
+            vec![("X-Acme-Passport".to_string(), "live-value".to_string())]
+        );
+    }
+
+    #[test]
+    fn a_classified_query_parameter_is_matched_exactly() {
+        // The opposite rule, and deliberately: a query parameter name is
+        // case-sensitive, so `Sig` and `sig` are two parameters and hiding one
+        // says nothing about the other.
+        let config = EndpointConfig::new(Dialect::OpenAiChat, "gw", "https://gw.test/v1")
+            .secret_query("Sig", "live-value");
+
+        assert!(config.is_secret_query("Sig"));
+        assert!(!config.is_secret_query("sig"));
     }
 
     #[test]
