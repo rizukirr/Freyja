@@ -6,6 +6,42 @@ Notable changes per release. Freyja is pre-1.0, so a minor version may break.
 
 ### Security
 
+- **A redirect no longer carries the credential to another origin.** `reqwest`
+  strips `Authorization`, `Cookie`, `Proxy-Authorization` and
+  `WWW-Authenticate` when a redirect crosses an origin, and it cannot strip a
+  header it has no way to recognize. `Auth::Header` puts the key in `x-api-key`
+  or `x-goog-api-key`, so an endpoint answering `307` with a `Location`
+  elsewhere was handed it. Measured against two local servers, the Anthropic
+  key arrived at the second host and the call returned `Ok` to the caller,
+  while the same test on `Auth::Bearer` did not. Freyja's own client now
+  follows a redirect only when scheme, host and port all match, which is
+  `reqwest`'s own definition of the boundary it strips at, so the hop refused
+  and the hop stripped for are the same hop. A refused hop surfaces as
+  `Error::Api` with the 3xx status rather than a 401 from a host nobody named.
+  A client supplied through `Client::with_http_client` keeps `reqwest`'s
+  default policy, which is now documented beside that constructor.
+
+- **`Retry-After` is clamped to `MAX_RETRY_AFTER`, one day.** It is a number
+  the endpoint hands the caller expecting them to sleep for it, and the pattern
+  in the errors reference does exactly that, so `Retry-After: 99999999999`
+  parked a task for three thousand years. A gateway that meant milliseconds and
+  wrote seconds does the same without meaning to. Only the `delay-seconds` form
+  is read, and the `HTTP-date` form RFC 9110 also allows still reads as `None`,
+  which callers already handle as "use your own backoff".
+
+- **One turn's tool calls run eight at a time.** They all ran at once, and how
+  many a turn requests is the model's choice, so a tool holding a socket or a
+  file handle turned that choice into pressure on the caller's process. Nothing
+  is refused or reordered: calls past the limit wait for a slot and answer in
+  the order they were requested.
+
+  The three above are one omission seen three times. Freyja bounds what an
+  endpoint it has never met can make it *hold*, in `MAX_BODY_BYTES`,
+  `MAX_FRAME_BYTES` and `MAX_STREAM_BYTES`, and it did not bound what that
+  endpoint can make it *do*. These bound time, concurrency and where the
+  credential travels.
+
+
 - **The API key is marked sensitive under every auth style.** `bearer_auth`
   set the flag and `header` did not, so the guarantee held for `Auth::Bearer`
   and for neither of the two other ways a credential reaches a header. Two of

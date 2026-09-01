@@ -182,6 +182,20 @@ pub enum Error {
 
 const QUOTA_MARKER: &str = "insufficient_quota";
 
+/// The longest delay [`Error::retry_after`] will report.
+///
+/// `Retry-After` is a number the endpoint hands the caller expecting them to
+/// sleep for it, and the pattern in the errors reference does exactly that. An
+/// endpoint answering `99999999999` would park a task for three thousand
+/// years, and a gateway that meant milliseconds and wrote seconds does the
+/// same thing without meaning to.
+///
+/// A day is far above any real rate limit and far below the range where a
+/// value stops resembling a delay. The companion to [`BODY_IN_MESSAGE`] and to
+/// the streaming ceilings: Freyja bounds what an endpoint it has never met can
+/// make it do, not only what it can make it hold.
+pub const MAX_RETRY_AFTER: Duration = Duration::from_secs(24 * 60 * 60);
+
 /// How much of a response body a printed [`Error`] carries.
 ///
 /// Two kilobytes holds every provider error message seen in practice with room

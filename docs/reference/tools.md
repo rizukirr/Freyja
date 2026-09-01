@@ -401,7 +401,7 @@ let agent = Agent::new(client)
 
 The guard runs before the lookup, so it sees every name the model asks for: tools registered up front, tools handed to `Agent::tools` at runtime, and names matching no tool at all. Deny a name nothing answers to and the model reads your reason; the `error: unknown tool '…'` it would otherwise have got never happens.
 
-A `Deny(reason)` reaches the model as the tool result `denied: {reason}`, on the same channel it already reads `error: {error}` and `error: unknown tool '{name}'` from. Nothing else moves: parallel calls are still dispatched concurrently, the guard simply being the first thing each dispatch does, and an agent with no guard behaves exactly as it did before.
+A `Deny(reason)` reaches the model as the tool result `denied: {reason}`, on the same channel it already reads `error: {error}` and `error: unknown tool '{name}'` from. Nothing else moves: parallel calls are still dispatched concurrently, eight at a time, the guard simply being the first thing each dispatch does, and an agent with no guard behaves exactly as it did before.
 
 It is a closure rather than a trait, so whatever state a policy needs it captures. It is also synchronous. There is no pause for a human to approve a call, and a policy that has to ask a database first is a different feature, one that does not exist.
 
