@@ -9,7 +9,7 @@ use std::pin::Pin;
 /// The future returned by a tool call.
 ///
 /// Borrows the tool, its arguments and the run context, so a spawned task must
-/// own all three — clone the `Arc<dyn Tool>` and the argument string first.
+/// own all three, clone the `Arc<dyn Tool>` and the argument string first.
 pub type ToolFuture<'a> = Pin<Box<dyn Future<Output = Result<String, ToolError>> + Send + 'a>>;
 
 /// A function the model may call.
@@ -22,7 +22,7 @@ pub type ToolFuture<'a> = Pin<Box<dyn Future<Output = Result<String, ToolError>>
 /// `Send` so several calls can be driven at once.
 ///
 /// Composition is how behaviour Freyja does not own gets added. A budget, for
-/// instance — including for a tool you did not write, since `Arc<dyn Tool>`
+/// instance, including for a tool you did not write, since `Arc<dyn Tool>`
 /// wraps as readily as a concrete type:
 ///
 /// ```
@@ -74,7 +74,7 @@ pub type ToolFuture<'a> = Pin<Box<dyn Future<Output = Result<String, ToolError>>
 ///
 /// A timed-out call reaches the model as `error: timed out after …`, the same
 /// channel every other tool failure uses, so it can react rather than the run
-/// ending. Dropping the inner future cancels it — but only work that is
+/// ending. Dropping the inner future cancels it, but only work that is
 /// actually awaiting. A tool that blocks without awaiting starves its siblings
 /// under [`crate::Agent`]'s concurrent dispatch and no timer fires.
 pub trait Tool: Send + Sync {
@@ -119,8 +119,8 @@ impl std::error::Error for ToolError {}
 /// Keyed by type, so two values of the same type collide: give distinct values
 /// distinct newtypes, as `http::Extensions` requires.
 ///
-/// State known when a tool is *built* — a database handle, an HTTP client, a
-/// rate limiter — belongs in the tool's own fields instead. `Context` is for
+/// State known when a tool is *built*, a database handle, an HTTP client, a
+/// rate limiter, belongs in the tool's own fields instead. `Context` is for
 /// state that is not known until the call arrives: a user id, a request id, a
 /// cancellation token, a tracing span.
 #[derive(Default)]

@@ -11,7 +11,7 @@ use serde_json::Value;
 /// `slot` is whatever integer the dialect uses to correlate parts: Anthropic's
 /// content-block index, OpenAiChat's tool-call index, Responses' output index,
 /// Gemini's step index. The meanings differ, which is exactly why this type is
-/// private — the assembler only needs the numbers to be consistent within one
+/// private, the assembler only needs the numbers to be consistent within one
 /// stream, not to mean the same thing across dialects.
 #[derive(Debug, PartialEq)]
 pub(crate) enum RawDelta {
@@ -50,7 +50,7 @@ pub(crate) enum RawDelta {
 
 /// One dialect's translation from SSE frame to [`RawDelta`]s.
 ///
-/// Implementations may hold state — several dialects announce a part's type in
+/// Implementations may hold state, several dialects announce a part's type in
 /// one frame and its content in later ones.
 pub(crate) trait StreamDecoder: Send {
     /// Appends everything this frame means to `out`.
@@ -134,7 +134,7 @@ impl Assembler {
         match delta {
             RawDelta::Text(text) => {
                 // Consecutive deltas coalesce into one content part, so
-                // `captured` matches the shape `generate()` produces — but only
+                // `captured` matches the shape `generate()` produces, but only
                 // within a block, since the parsers emit one part per block.
                 match self.captured.last_mut() {
                     Some(OutputContent::Text(existing)) if self.text_open => {

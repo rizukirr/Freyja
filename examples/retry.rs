@@ -1,7 +1,7 @@
 //! Retrying properly: what to retry, how long to wait, and when to stop.
 //!
 //! Freyja never retries. Sleeping needs a timer, and the library exposes
-//! `async fn` without spawning so that the caller picks the runtime — this
+//! `async fn` without spawning so that the caller picks the runtime, this
 //! example picks Tokio. What Freyja does instead is classify the failure and
 //! read the endpoint's own `Retry-After`, so the loop below is short and the
 //! decisions in it are not guesses.
@@ -115,7 +115,7 @@ async fn generate_with_retry(
 /// burst at a service that is already struggling, which is how one failed
 /// request becomes an outage.
 ///
-/// Production code adds jitter here — a small random offset, so that a thousand
+/// Production code adds jitter here, a small random offset, so that a thousand
 /// clients that failed at the same instant do not all wake at the same instant
 /// and collide again. That needs a source of randomness, which this crate has
 /// no dependency for; `backon` and `tower::retry` both do it for you.
@@ -125,15 +125,15 @@ fn backoff(attempt: u32) -> Duration {
 
 /// Why this error is or is not worth another attempt.
 ///
-/// Nothing here is required to use the library — it exists so that running the
+/// Nothing here is required to use the library, it exists so that running the
 /// example teaches the variants. Real code matches on the ones it cares about
 /// and lets `is_retryable` handle the rest.
 fn explain(error: &Error) -> &'static str {
     match error {
-        Error::RateLimit { .. } => "sending too fast — the limit resets on its own",
+        Error::RateLimit { .. } => "sending too fast, the limit resets on its own",
         Error::ServerError { .. } => "the endpoint failed on its own side",
         Error::Http { kind, .. } => match kind {
-            TransportError::Timeout => "no reply in time — but the endpoint may have been billed",
+            TransportError::Timeout => "no reply in time, but the endpoint may have been billed",
             TransportError::Body => "the connection died mid-answer",
             TransportError::Connect => "unreachable: check the URL, DNS, and TLS",
             // `TransportError` is `#[non_exhaustive]` too, so this arm is
@@ -144,14 +144,14 @@ fn explain(error: &Error) -> &'static str {
         // The two that look alike and are not. Both arrive as 429 on
         // OpenAI-shaped endpoints; only the body separates them, and a caller
         // branching on the status alone would retry the second one forever.
-        Error::QuotaExceeded { .. } => "out of credit — waiting will never fix this",
+        Error::QuotaExceeded { .. } => "out of credit, waiting will never fix this",
 
         Error::Unauthorized { .. } => "the key is wrong or lacks access to this model",
         Error::NotFound { .. } => "no such model or endpoint",
         Error::BadRequest { .. } => "the endpoint rejected the request body",
         Error::UnsupportedCapability { .. } => "this vendor cannot express that field",
         Error::InvalidRequest { .. } => "Freyja rejected the request before sending it",
-        Error::InvalidResponse { .. } => "the body did not parse — report this as a bug",
+        Error::InvalidResponse { .. } => "the body did not parse, report this as a bug",
         Error::Stream { .. } => "the stream failed after it had begun",
 
         // `#[non_exhaustive]`, so a catch-all is required and future variants

@@ -98,7 +98,7 @@ pub struct EndpointConfig {
     pub path: Option<String>,
     /// Query parameters sent with every request, percent-encoded by Freyja.
     ///
-    /// For what a deployment pins on every call — an API version, a tenant, a
+    /// For what a deployment pins on every call, an API version, a tenant, a
     /// region. Pairs rather than a query string so the joining and the
     /// escaping are not the caller's problem.
     ///
@@ -142,8 +142,8 @@ pub struct EndpointConfig {
     /// wire body the way [`GenerateRequest::extra_for`] is, and applied first,
     /// so a request can still override what the endpoint sets here.
     ///
-    /// Use this for a property of the deployment — a safety configuration, a
-    /// routing hint, a tier — and `extra_for` for anything that varies per
+    /// Use this for a property of the deployment, a safety configuration, a
+    /// routing hint, a tier, and `extra_for` for anything that varies per
     /// call.
     pub extra_body: serde_json::Map<String, Value>,
     /// Which field carries [`GenerateRequest::max_tokens`] on this endpoint.
@@ -427,7 +427,7 @@ impl EndpointConfig {
 
     /// Adds body fields sent with every request to this endpoint.
     ///
-    /// For a property of the deployment rather than of the call — a safety
+    /// For a property of the deployment rather than of the call, a safety
     /// configuration, a routing hint, a tier. Deep-merged into the wire body,
     /// and a request's own [`GenerateRequest::extra_for`] overrides it.
     ///

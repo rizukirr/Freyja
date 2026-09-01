@@ -132,8 +132,8 @@ impl EventStream {
 
     /// The next event, or `None` once the provider has closed the stream.
     ///
-    /// Frames carrying nothing a caller can act on — keepalives, comments,
-    /// sentinels — are consumed without producing an event.
+    /// Frames carrying nothing a caller can act on, keepalives, comments,
+    /// sentinels, are consumed without producing an event.
     pub async fn next(&mut self) -> Result<Option<StreamEvent>, Error> {
         loop {
             if let Some(event) = self.queued.pop_front() {
@@ -162,8 +162,8 @@ impl EventStream {
     /// `provider_metadata` carries the provider's own terminal object. It is not
     /// byte-identical to the non-streaming path's value: `generate()` collects
     /// the fields Freyja does not model, while a stream carries the object
-    /// whole. Every field a tool loop depends on — id, model, status, content,
-    /// usage — does match, and `to_message()` produces the same assistant turn.
+    /// whole. Every field a tool loop depends on, id, model, status, content,
+    /// usage, does match, and `to_message()` produces the same assistant turn.
     pub fn into_response(self) -> Result<GenerateResponse, Error> {
         self.assembler.into_response()
     }

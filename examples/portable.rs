@@ -1,4 +1,4 @@
-//! One request, every vendor — and the honest limits of that.
+//! One request, every vendor, and the honest limits of that.
 //!
 //! This is the claim the crate is built on: you describe what you want once,
 //! and changing vendor changes one line. The first section proves it. The
@@ -13,7 +13,7 @@
 //!
 //! Set as many of `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, and `GEMINI_API_KEY`
 //! as you have. Endpoints with no key are skipped, so one key is enough to run
-//! it — though the point lands better with two.
+//! it, though the point lands better with two.
 
 use freyja::{
     Client, EndpointPreset, Error, GenerateRequest, Message, ReasoningEffort, ResponseFormat, Role,
@@ -70,8 +70,8 @@ async fn main() {
 /// the verdicts below are the same ones the section above paid a network round
 /// trip to discover. No key is used and nothing is sent.
 ///
-/// Worth doing when you need the answer *before* committing to a vendor —
-/// picking one at runtime, or greying out an option in a UI — rather than as a
+/// Worth doing when you need the answer *before* committing to a vendor,
+/// picking one at runtime, or greying out an option in a UI, rather than as a
 /// guard in front of every call, where the error from `generate` says the same
 /// thing.
 fn survey(request: &GenerateRequest) {
@@ -87,7 +87,7 @@ fn survey(request: &GenerateRequest) {
             Ok(()) => println!("{name:>9}  yes"),
             // Note this is the same error, verbatim, that `run_on_all` printed
             // above. It is the same code path, so the two cannot disagree.
-            Err(error) => println!("{name:>9}  no — {error}"),
+            Err(error) => println!("{name:>9}  no, {error}"),
         }
     }
 }
@@ -99,7 +99,7 @@ async fn run_on_all(request: &GenerateRequest) {
     for provider in PROVIDERS {
         // The one line that changes. Everything below it is vendor-agnostic.
         let Some(client) = Client::from_env(provider) else {
-            println!("\n{:>9}  skipped, {} unset", "—", provider.api_key_env());
+            println!("\n{:>9}  skipped, {} unset", "-", provider.api_key_env());
             continue;
         };
         ran += 1;
@@ -128,13 +128,13 @@ async fn run_on_all(request: &GenerateRequest) {
             Err(error) => {
                 println!("\n{name:>9}  failed: {error}");
                 if error.is_retryable() {
-                    println!("{:>9}  transient — worth another attempt", "");
+                    println!("{:>9}  transient, worth another attempt", "");
                 }
             }
         }
     }
 
     if ran == 0 {
-        println!("\nno keys set — nothing to compare");
+        println!("\nno keys set, nothing to compare");
     }
 }

@@ -49,7 +49,7 @@ Note the naming: `system_instruction` rather than a system turn, `max_output_tok
 
 Two shapes here are unlike the other three dialects, and the endpoint enforces both by name rather than ignoring what it does not recognise.
 
-**Sampling, reasoning, and tool controls nest.** `max_output_tokens`, `temperature`, `top_p`, `thinking_level`, and `tool_choice` live inside `generation_config`. Sent loose they are rejected — `Unknown parameter 'temperature'` — and so is an unknown key inside the object, which is how you can tell the validation is real rather than tolerant.
+**Sampling, reasoning, and tool controls nest.** `max_output_tokens`, `temperature`, `top_p`, `thinking_level`, and `tool_choice` live inside `generation_config`. Sent loose they are rejected, `Unknown parameter 'temperature'`, and so is an unknown key inside the object, which is how you can tell the validation is real rather than tolerant.
 
 `thinking_level` is where reasoning effort goes, and it takes four values by name:
 
@@ -68,7 +68,7 @@ Supported values: 'boolean', 'video', 'audio', 'integer', 'number', 'image',
 'array', 'object', 'text', 'string'.
 ```
 
-So a JSON-schema request puts the schema straight into the field, and `name` and `strict` have nowhere to go — dropped, as they are on Anthropic. `ResponseFormat::JsonObject` becomes `{"type": "object"}`.
+So a JSON-schema request puts the schema straight into the field, and `name` and `strict` have nowhere to go, dropped, as they are on Anthropic. `ResponseFormat::JsonObject` becomes `{"type": "object"}`.
 
 **`labels` carries the neutral `metadata` field**, and the public endpoint declines it: *"The parameter 'labels' is not available on the Gemini API but it is available on the Gemini Enterprise Agent Platform."* Freyja sends it anyway. The field is part of this format; a deployment gating it is the deployment's business, and its message names where the field does work.
 
@@ -261,7 +261,7 @@ Output arrives in `steps`, not `output` or `candidates`. Text lives inside a `mo
 
 Gemini reports more detail than the neutral `Usage` models. Freyja maps `total_input_tokens`, `total_output_tokens`, and `total_tokens`.
 
-**The rest is discarded, not preserved.** `total_thought_tokens`, `total_cached_tokens`, `total_tool_use_tokens`, `raw_prompt_token`, and `input_tokens_by_modality` are all dropped. `provider_metadata` is built by flattening the response body's unknown *top-level* keys; `usage` is a named field deserialized into a struct holding exactly the three mapped counts, with no catch-all, so its other subfields do not survive deserialization. Top-level fields such as `object`, `created`, `updated`, and `service_tier` do reach `provider_metadata`. Usage detail does not — read the raw body for it.
+**The rest is discarded, not preserved.** `total_thought_tokens`, `total_cached_tokens`, `total_tool_use_tokens`, `raw_prompt_token`, and `input_tokens_by_modality` are all dropped. `provider_metadata` is built by flattening the response body's unknown *top-level* keys; `usage` is a named field deserialized into a struct holding exactly the three mapped counts, with no catch-all, so its other subfields do not survive deserialization. Top-level fields such as `object`, `created`, `updated`, and `service_tier` do reach `provider_metadata`. Usage detail does not, read the raw body for it.
 
 Note that thinking tokens are billed. The 190 total above includes 105 thought tokens for a one-line arithmetic question, and `total_tokens` is the only place that cost is visible through Freyja.
 
@@ -317,4 +317,4 @@ The exception is `Request contains an invalid argument`, a generic protobuf-leve
 
 ## What Freyja does not send
 
-Nothing, on this dialect. Every neutral field has somewhere to go here, so nothing is refused before the request is built — `metadata` and three `reasoning_effort` levels reach the endpoint and are declined there. See [Gemini](../../providers/gemini.md).
+Nothing, on this dialect. Every neutral field has somewhere to go here, so nothing is refused before the request is built, `metadata` and three `reasoning_effort` levels reach the endpoint and are declined there. See [Gemini](../../providers/gemini.md).

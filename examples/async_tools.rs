@@ -1,10 +1,10 @@
 //! Two slow tools, dispatched at the same time instead of one after another.
 //!
 //! Freyja spawns nothing and depends on no async runtime, so the caller
-//! picks one — this example picks Tokio. That means concurrency is the
+//! picks one, this example picks Tokio. That means concurrency is the
 //! caller's job too: `Tool::call` borrows the tool, its arguments and the run
-//! context, so a task that outlives the call must own all of them — a cloned
-//! `Arc<dyn Tool>` and owned strings — before it is spawned.
+//! context, so a task that outlives the call must own all of them, a cloned
+//! `Arc<dyn Tool>` and owned strings, before it is spawned.
 //!
 //! ```sh
 //! cargo run --example async_tools

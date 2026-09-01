@@ -177,7 +177,7 @@ Reading the thinking text and displaying it is fine. Only modification is a prob
 
 Two details specific to Anthropic:
 
-- **The text may be empty.** `thinking.display` defaults to `"omitted"` on current models, so blocks arrive with an empty `thinking` string. Replay them anyway; the signature is what matters. Readable text needs `"thinking": {"type": "adaptive", "display": "summarized"}` on the request, and **Freyja never sends that** — it only ever sends `thinking` to disable reasoning, see [Request body](#request-body). Through Freyja, expect the empty string.
+- **The text may be empty.** `thinking.display` defaults to `"omitted"` on current models, so blocks arrive with an empty `thinking` string. Replay them anyway; the signature is what matters. Readable text needs `"thinking": {"type": "adaptive", "display": "summarized"}` on the request, and **Freyja never sends that**: it only ever sends `thinking` to disable reasoning, see [Request body](#request-body). Through Freyja, expect the empty string.
 - **Replaying to a different model is safe.** Other models drop the block from the prompt rather than erroring, and it is not billed. Gemini, by contrast, hard fails.
 
 Freyja handles all of this with `OutputContent::Reasoning { data }`, which preserves any block it does not model, and `GenerateResponse::to_message()`, which carries it into the next request. Append `response.to_message()` before your tool results and it works. See [Tool calling](../../reference/tools.md).
@@ -258,7 +258,7 @@ Freyja sums them into `Usage::input_tokens` and computes `total_tokens` itself.
 
 That is worth knowing because the three are priced differently: a cache read costs roughly a tenth of an uncached input token, while a cache write costs roughly 1.25 times one. A Freyja `Usage` cannot tell you what a turn cost.
 
-It also blocks the standard caching check. If `cache_read_input_tokens` is zero across requests that share a prefix, caching is silently not happening, usually because something volatile such as a timestamp sits early in the prompt. **You cannot run that check through Freyja** — the field is not in `provider_metadata` and not in `Usage`. Read the raw body, from a proxy or a direct `curl`, to see it.
+It also blocks the standard caching check. If `cache_read_input_tokens` is zero across requests that share a prefix, caching is silently not happening, usually because something volatile such as a timestamp sits early in the prompt. **You cannot run that check through Freyja**: the field is not in `provider_metadata` and not in `Usage`. Read the raw body, from a proxy or a direct `curl`, to see it.
 
 ## Streaming
 
@@ -283,7 +283,7 @@ Two details that bite when debugging:
 
 **The token total is only knowable at the end.** `usage.input_tokens` arrives in `message_start`, `usage.output_tokens` in `message_delta`. Neither frame has both. Freyja holds the input count from the first and combines it at the second, which is why `StreamEvent::Done` is the only place a complete `Usage` exists.
 
-**Thinking blocks are reconstructed, not echoed.** Streaming does not send the block whole. It sends `thinking_delta` text fragments and `signature_delta` signature fragments, and Freyja rebuilds `{"type": "thinking", "thinking": ..., "signature": ...}` from them at `content_block_stop`. Given that this page's headline requirement is replaying thinking blocks verbatim, that is worth stating plainly: on the streaming path "verbatim" means the reassembled block, which is byte-identical to the non-streaming one for the same turn and is what `into_response().to_message()` replays. Do not assemble it yourself from `StreamEvent::ReasoningDelta` text — that is the human-readable half, without the signature.
+**Thinking blocks are reconstructed, not echoed.** Streaming does not send the block whole. It sends `thinking_delta` text fragments and `signature_delta` signature fragments, and Freyja rebuilds `{"type": "thinking", "thinking": ..., "signature": ...}` from them at `content_block_stop`. Given that this page's headline requirement is replaying thinking blocks verbatim, it is worth stating plainly: on the streaming path "verbatim" means the reassembled block, which is byte-identical to the non-streaming one for the same turn and is what `into_response().to_message()` replays. Do not assemble it yourself from `StreamEvent::ReasoningDelta` text, which is the human-readable half without the signature.
 
 See [Streaming](../streaming.md).
 

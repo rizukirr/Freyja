@@ -51,11 +51,11 @@ The value 'max' is not supported for 'generation_config.thinking_level'.
 Supported values: 'minimal', 'low', 'medium', 'high'.
 ```
 
-**Freyja used to refuse those three itself, and does not any more.** The field exists, so which values it likes is a fact about this deployment on this day, not about the wire format — and the endpoint says it better, naming the values that do work. Refusing was cheaper by a round trip and wrong in the direction that costs more: a refusal is silent and permanent, a rejection is loud and stops the day the vendor changes its mind.
+**Freyja used to refuse those three itself, and does not any more.** The field exists, so which values it likes is a fact about this deployment on this day, not about the wire format, and the endpoint says it better, naming the values that do work. Refusing was cheaper by a round trip and wrong in the direction that costs more: a refusal is silent and permanent, while a rejection is loud and stops the day the vendor changes its mind.
 
 Gemini's `minimal` has no portable level to map from and is unreachable. It is the only level any of the three vendors accepts, so there is nothing portable to name it with; reach it through the escape hatch if you need it.
 
-Before any of that, Freyja refused the whole field. The refusal was written from the wire format's top level, where `thinking_level` does not exist — the same mistake that sent `max_output_tokens`, `temperature`, and `top_p` loose. Nesting fixed those three and missed this one.
+Before any of that, Freyja refused the whole field. The refusal was written from the wire format's top level, where `thinking_level` does not exist, the same mistake that sent `max_output_tokens`, `temperature`, and `top_p` loose. Nesting fixed those three and missed this one.
 
 ## Tool choice nests too, and takes two shapes
 
@@ -68,11 +68,11 @@ Before any of that, Freyja refused the whole field. The refusal was written from
 | `Required` | `"any"` |
 | `Named("add")` | `{"allowed_tools": {"mode": "any", "tools": ["add"]}}` |
 
-Note `Required` is **not** `"required"` — that spelling comes back as `Invalid enum value 'required'`. The mode accepts `auto`, `any`, `none`, and `validated`, lowercase only.
+Note `Required` is **not** `"required"`, that spelling comes back as `Invalid enum value 'required'`. The mode accepts `auto`, `any`, `none`, and `validated`, lowercase only.
 
 This was the second refusal written from the top level of the request, where the field does not exist. Sent loose it answers `Unknown parameter 'tool_choice'`, which is what the old refusal was written from; nested, the same request answers `Invalid enum value`, which is a live field rejecting a value.
 
-**What was verified, precisely.** All four shapes above were sent to the live endpoint and passed its parameter and enum validation, and every wrong spelling tried — `required`, `function`, `ANY`, `mode` as a sibling key, `allowed_tools` as an array — was rejected by name. That establishes the field exists and the shapes are well formed.
+**What was verified, precisely.** All four shapes above were sent to the live endpoint and passed its parameter and enum validation, and every wrong spelling tried, `required`, `function`, `ANY`, `mode` as a sibling key, `allowed_tools` as an array, was rejected by name. That establishes the field exists and the shapes are well formed.
 
 It does not establish behavior. No completion came back for these four: the free tier's daily request budget was spent on the probing that found the field. So **`Named` forcing that specific tool is inferred from the shape's own semantics, not observed.** If it turns out `allowed_tools` merely permits rather than compels, this row is what needs revisiting.
 
@@ -85,7 +85,7 @@ The parameter 'labels' is not available on the Gemini API
 but it is available on the Gemini Enterprise Agent Platform.
 ```
 
-So a request carrying `metadata` costs a round trip to be told no. Freyja refused it locally for a while to save that round trip, and that refusal has been withdrawn on the same grounds as the effort levels above: **`labels` is a field this format has.** A deployment gating it is the deployment's business, and the message above says where it does work — which is more than a refusal from Freyja could.
+So a request carrying `metadata` costs a round trip to be told no. Freyja refused it locally for a while to save that round trip, and that refusal has been withdrawn on the same grounds as the effort levels above: **`labels` is a field this format has.** A deployment gating it is the deployment's business, and the message above says where it does work, which is more than a refusal from Freyja could.
 
 It also means `Client::custom(Dialect::Gemini, …)` pointed at the Enterprise platform gets a working `metadata` rather than a refusal from a library that decided on its behalf.
 
@@ -206,7 +206,7 @@ Gemini is the only dialect here where `stream: true` in the body is not enough. 
 
 Frames repeat their event name inside the payload as `event_type`, so the SSE event line is redundant and Freyja reads the body. Steps arrive as `step.start` / `step.delta` / `step.stop`, with the interaction's terminal frame carrying id, model, status, and usage. Thought signatures stream in as deltas and are merged back into the step before it surfaces, so what you replay is what the API sent.
 
-A text turn has been run against the live endpoint, `?alt=sse` and all: deltas arrived, usage landed on `Done`, and `into_response` rebuilt the same text. Streamed tool calls have not been. Their frame shapes come from Google's documentation and are tested against recorded fixtures, with `streamed_response_matches_generate` asserting that a drained stream matches what `generate` builds from the same turn — an offline parity test, so treat the live tool round trip above as covering `generate` only. See [Streaming](../reference/streaming.md).
+A text turn has been run against the live endpoint, `?alt=sse` and all: deltas arrived, usage landed on `Done`, and `into_response` rebuilt the same text. Streamed tool calls have not been. Their frame shapes come from Google's documentation and are tested against recorded fixtures, with `streamed_response_matches_generate` asserting that a drained stream matches what `generate` builds from the same turn, an offline parity test, so treat the live tool round trip above as covering `generate` only. See [Streaming](../reference/streaming.md).
 
 ## Rejected before the network
 

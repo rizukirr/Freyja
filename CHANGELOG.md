@@ -348,7 +348,7 @@ Pre-1.0, so this breaks. Update imports and error matching with this rename tabl
   receiving the requested name, the model's raw JSON arguments and the
   run's `Context`, and returning the new `Decision` enum. `Allow` runs
   the tool; `Deny(reason)` does not, and sends the model
-  `denied: {reason}` as the tool result instead — the same channel it
+  `denied: {reason}` as the tool result instead, the same channel it
   reads `error: {error}` from, so a refusal is something it can recover
   from rather than a failure. The guard runs before the tool lookup, so
   it sees every name requested, including tools registered at runtime
@@ -367,7 +367,7 @@ Pre-1.0, so this breaks. Update imports and error matching with this rename tabl
   listed as planned. Racing a call against a clock needs a timer, and
   Freyja depends on no async runtime so it has none to reach for. Every
   caller already does, and a short wrapper tool holding the inner one in
-  an `Arc` applies your runtime's timeout — wrapping an erased
+  an `Arc` applies your runtime's timeout, wrapping an erased
   `Arc<dyn Tool>` as readily as a tool you wrote. The `Tool`
   documentation carries the implementation as a compiled doctest, so it
   cannot drift from the trait it wraps. A call that runs out of budget
@@ -406,7 +406,7 @@ keeps working for the types that kept their names.
 and it did not mean the same thing there.
 
 **`Tool` is a trait rather than a struct.** This one only affects code
-written against a git checkout — `Tool` was never in a published release.
+written against a git checkout, `Tool` was never in a published release.
 
 ```rust
 pub trait Tool: Send + Sync {
@@ -431,14 +431,14 @@ because a trait method borrows `&self`.
 executor from a sync or `async fn`. `Tool` carries it, `ToolChoice`
 constrains it, and the full round trip is verified against live APIs.
 
-**`Agent` and `Chat`.** `Agent` drives the tool-calling loop — bounded
+**`Agent` and `Chat`.** `Agent` drives the tool-calling loop, bounded
 turns, parallel tool calls dispatched concurrently, `StopReason` saying
 why it stopped, `Usage` summed across turns. The transcript stays yours:
 `run` extends a `Vec<Message>` in place. `Chat` keeps its own transcript
 if you would rather not.
 
 **Tools that hold state.** Implement `Tool` on a struct and its fields
-survive across calls — a database handle, an HTTP client, a rate limiter.
+survive across calls, a database handle, an HTTP client, a rate limiter.
 
 **`Context`, per-run data.** A type-keyed map handed to every tool call
 and never sent to the model. `Agent::run_with` and `Chat::ask_with` take
@@ -448,8 +448,8 @@ schema. State known when the tool is built goes in fields; state that
 arrives with the request goes in `Context`.
 
 **Tools defined at runtime.** `name` returns `&str` and `definition`
-returns a value, so a tool whose name and schema arrive at runtime — the
-MCP shape — needs no compile-time type.
+returns a value, so a tool whose name and schema arrive at runtime, the
+MCP shape, needs no compile-time type.
 
 **Tools that report failure.** A `#[tool]` returning `Result` maps
 `Err(e)` to `ToolError::Execution(e.to_string())`, reaching the model as

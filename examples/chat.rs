@@ -15,7 +15,7 @@ use freyja::{Client, EndpointPreset, GenerateRequest, Message, ResponseStatus, R
 use std::io::{BufRead, Write};
 
 /// Frames the whole conversation. Freyja puts it wherever the provider expects
-/// it — a top-level field on some, an ordinary turn on others — so the same
+/// it, a top-level field on some, an ordinary turn on others, so the same
 /// line works on every vendor.
 const SYSTEM_PROMPT: &str = "You are a concise assistant. Answer in two sentences at most.";
 
@@ -80,7 +80,7 @@ async fn main() {
             Err(error) => {
                 eprintln!("\n{} failed: {error}", error.endpoint());
                 if error.is_retryable() {
-                    eprintln!("(transient — try again)");
+                    eprintln!("(transient, try again)");
                 }
 
                 // Drop the user turn that was never answered. Leaving it would
@@ -123,7 +123,7 @@ async fn say(client: &Client, request: &GenerateRequest) -> Result<Message, frey
     // A short answer is not always a finished one. Without this check a reply
     // truncated by a token cap reads as a complete thought.
     if response.status == ResponseStatus::Incomplete {
-        println!("\n[truncated — the answer was cut short]");
+        println!("\n[truncated: the answer was cut short]");
     }
 
     Ok(response.to_message())
@@ -139,7 +139,7 @@ fn new_conversation() -> GenerateRequest {
 /// Worth looking at once: the whole transcript goes over the wire every turn,
 /// so a long conversation costs more per question than a short one, and the
 /// growth is quadratic rather than linear. Trimming or summarizing old turns is
-/// the caller's job today — see the roadmap's Phase 3.
+/// the caller's job today, see the roadmap's Phase 3.
 fn print_history(request: &GenerateRequest) {
     println!("{} turns:", request.messages.len());
     for message in &request.messages {

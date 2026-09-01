@@ -5,7 +5,7 @@
 //! costs the caller a capability, so it had better be true.
 //!
 //! Twice it was not. The Gemini dialect refused `reasoning_effort` and
-//! `tool_choice` because neither appears at the top level of a request — and
+//! `tool_choice` because neither appears at the top level of a request, and
 //! both live under `generation_config`, where nobody had looked. Both refusals
 //! shipped, and neither was ever checked against the endpoint, because nothing
 //! recorded that they had not been. Both are mappings now.
@@ -22,7 +22,7 @@
 //! **refuse only when the wire format has no field for it.** If the field
 //! exists, whatever the endpoint then does with it is the endpoint's answer to
 //! give. Two refusals were dropped for failing that test rather than for being
-//! false — Gemini rejects `labels` and three `thinking_level` values, but both
+//! false, Gemini rejects `labels` and three `thinking_level` values, but both
 //! fields exist, so both now go to the wire.
 //!
 //! Refusing them was cheaper by a round trip and wrong in the direction that

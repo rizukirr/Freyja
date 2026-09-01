@@ -4,7 +4,7 @@
 //! model tools that are pure functions of their arguments. Real tools rarely
 //! are. This one keeps a ledger between calls, reads who the run belongs to
 //! out of the [`Context`], reports a lookup miss the model can recover from,
-//! and refuses to issue a refund the operator is not authorised for — the
+//! and refuses to issue a refund the operator is not authorised for, the
 //! same agent, run twice, differing only in the context it is handed.
 //!
 //! ```sh
@@ -27,7 +27,7 @@ struct Operator {
 }
 
 /// The refunds actually written, in order. A `#[tool]` function cannot hold
-/// this — it is called through a function pointer with nowhere to keep it — so
+/// this: it is called through a function pointer with nowhere to keep it, so
 /// this one is hand-written on a struct whose fields outlive the call. The
 /// `Arc<Mutex<..>>` is what lets `main` still read the ledger afterwards; the
 /// agent only ever sees the `Tool`.
@@ -75,7 +75,7 @@ const ORDERS: [(&str, u64); 2] = [("A-1002", 4_250), ("A-1177", 990)];
 
 /// Reads the run's own state rather than taking it as an argument. `cx` may
 /// only be the first parameter, and the macro leaves it out of the schema the
-/// model sees — the model cannot name an operator, it can only ask which one
+/// model sees, so the model cannot name an operator and can only ask which one
 /// is on duty.
 #[tool(description = "names the operator this session belongs to")]
 fn on_duty(cx: &Context) -> Result<String, ToolError> {
@@ -96,7 +96,7 @@ fn order_total(order: String) -> Result<u64, String> {
 
 /// One policy covering both outcomes. The guard runs before every tool call
 /// and reads the same [`Context`] the tools do, so authorisation lives on the
-/// run rather than in the tool — and `issue_refund` needs no branch of its own.
+/// run rather than in the tool, and `issue_refund` needs no branch of its own.
 fn refunds_need_authority(name: &str, _arguments: &str, cx: &Context) -> Decision {
     if name != "issue_refund" {
         return Decision::Allow;
@@ -182,7 +182,7 @@ async fn main() {
             Err(error) => {
                 eprintln!("{} failed: {error}", error.endpoint());
                 if error.is_retryable() {
-                    eprintln!("(transient — try again)");
+                    eprintln!("(transient, try again)");
                 }
             }
         }

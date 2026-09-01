@@ -2,7 +2,7 @@
 
 Tool calling lets the model ask you to run a function and then use the result. In Freyja the full round trip works on every provider, and it is what [`Agent`](../building-an-agent.md) is built on.
 
-`#[tool]` generates typed argument parsing and execution. You can drive the loop yourself — choose which tools are available, dispatch requested names, feed the results back — or hand the whole cycle to `Agent`. This page is the tool half; the loop is [Building an agent](../building-an-agent.md).
+`#[tool]` generates typed argument parsing and execution. You can drive the loop yourself, choose which tools are available, dispatch requested names, feed the results back, or hand the whole cycle to `Agent`. This page is the tool half; the loop is [Building an agent](../building-an-agent.md).
 
 ## The shape of a round trip
 
@@ -48,7 +48,7 @@ pub trait Tool: Send + Sync {
 }
 ```
 
-The future is boxed rather than written as `async fn` in the trait. `async fn` in traits is stable, but it is not `dyn`-compatible, and `Agent` keeps its tools as `Arc<dyn Tool>`. It is `Send` so a turn's calls can be driven at once, and it borrows the tool, the arguments and the context — so a call you spawn onto its own task has to own all three first: clone the `Arc<dyn Tool>` and the argument string before spawning.
+The future is boxed rather than written as `async fn` in the trait. `async fn` in traits is stable, but it is not `dyn`-compatible, and `Agent` keeps its tools as `Arc<dyn Tool>`. It is `Send` so a turn's calls can be driven at once, and it borrows the tool, the arguments and the context, so a call you spawn onto its own task has to own all three first: clone the `Arc<dyn Tool>` and the argument string before spawning.
 
 `ToolError::Arguments` means the model's JSON did not match the Rust parameters. `ToolError::Result` means the return value could not be serialized. `ToolError::Execution` carries a runtime failure. `ToolError` implements `Display` and `std::error::Error`, so format it with `{error}` rather than `{error:?}`: `Execution` then renders as its bare message, which is the text you want the model to read.
 
@@ -99,7 +99,7 @@ The description is what the model reads to decide when to call the tool. Write i
 
 ## Implementing the trait by hand
 
-`#[tool]` covers a plain function. Write the impl yourself when the tool needs something a function cannot hold — a counter, a connection pool, a client with its own rate limiter:
+`#[tool]` covers a plain function. Write the impl yourself when the tool needs something a function cannot hold, a counter, a connection pool, a client with its own rate limiter:
 
 ```rust
 use freyja::{Context, Tool, ToolDefinition, ToolFuture};
@@ -134,7 +134,7 @@ Two kinds of state, two homes, and picking the wrong one is the usual source of 
 
 State known when the tool is *built* goes in the struct's fields, as `Counter` holds its `AtomicUsize`. It belongs to the tool, and it lives as long as the agent does.
 
-State that does not exist until a request arrives — a user id, a tenant, a cancellation token, a tracing span — goes in a `Context`, which is handed to every call of one run:
+State that does not exist until a request arrives, a user id, a tenant, a cancellation token, a tracing span, goes in a `Context`, which is handed to every call of one run:
 
 ```rust
 struct UserId(String);
@@ -147,7 +147,7 @@ let run = agent.conversation(&mut messages).send_with("what's the weather?", &cx
 
 `Conversation::send_with` takes the same context. `Conversation::send` is the same call with an empty one.
 
-`Context` is keyed by type, the way `http::Extensions` is, so two values of one type collide and the second replaces the first. Give distinct values distinct newtypes — `UserId(String)` above, never a bare `String`. `get::<T>()` returns `Option<&T>`; `require::<T>()` returns a `ToolError::Execution` naming the missing type, which is usually what a tool wants, since that message is what the model ends up reading.
+`Context` is keyed by type, the way `http::Extensions` is, so two values of one type collide and the second replaces the first. Give distinct values distinct newtypes, `UserId(String)` above, never a bare `String`. `get::<T>()` returns `Option<&T>`; `require::<T>()` returns a `ToolError::Execution` naming the missing type, which is usually what a tool wants, since that message is what the model ends up reading.
 
 A `#[tool]` function reaches the context by taking `cx: &Context` as its **first** parameter:
 
@@ -184,11 +184,11 @@ fn unseal(code: String) -> Outcome {
 }
 ```
 
-It succeeds and serializes the whole `Result` as JSON — `{"Err":"the vault is sealed"}` — which is the behaviour every tool had before the mapping existed. Write `Result<T, E>` out in the signature if you want the mapping.
+It succeeds and serializes the whole `Result` as JSON, `{"Err":"the vault is sealed"}`, which is the behaviour every tool had before the mapping existed. Write `Result<T, E>` out in the signature if you want the mapping.
 
 ## Tools defined at runtime
 
-A tool whose name and schema are not known until the program runs — read from configuration, or fetched from a remote registry — is a struct with those values in fields:
+A tool whose name and schema are not known until the program runs, read from configuration, or fetched from a remote registry, is a struct with those values in fields:
 
 ```rust
 struct Runtime {
@@ -221,7 +221,7 @@ There is deliberately no `from_fn` constructor. A closure would have to be highe
 
 Registering two tools under one name replaces rather than shadows: the later registration wins, and the earlier tool and its definition are gone. Overriding a built-in by name is therefore just registering yours after it, and a duplicate name is one tool rather than an ambiguous dispatch.
 
-`definition()` is called once, when the tool is registered, never per run. The schema the model sees is fixed for the life of the agent, so a definition cannot depend on run data — that is what `Context` is for, and `Context` only reaches `call`.
+`definition()` is called once, when the tool is registered, never per run. The schema the model sees is fixed for the life of the agent, so a definition cannot depend on run data. That is what `Context` is for, and `Context` only reaches `call`.
 
 ## Constraining the choice
 

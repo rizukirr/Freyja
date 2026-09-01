@@ -79,7 +79,7 @@ pub enum StopReason {
 /// What a guard decided about one requested tool call.
 ///
 /// A `Deny` reaches the model as tool-result text, so the reason is the
-/// model's only route to recovering — apologising, asking for permission, or
+/// model's only route to recovering, apologising, asking for permission, or
 /// trying something else. A denial with no usable reason burns turns.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Decision {
