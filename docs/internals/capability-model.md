@@ -197,6 +197,8 @@ What made it real is [`refusal.rs`](../../src/dialect/refusal.rs): every refusal
 | `Unverified` | nobody has checked; this is how the false ones were written |
 | `Refuted` | the endpoint was asked and said yes, and the code still refuses |
 
+A probe is only worth its category against an endpoint that rejects what it does not recognize. Three Anthropic refusals sat at `Unverified` because they had been probed against a compatible endpoint that accepted an invented top-level key, so its acceptance said nothing about the schema. Anthropic answers `freyja_invented_field: Extra inputs are not permitted`, and that control is what makes everything measured against it mean something. Send the nonsense field first.
+
 A test asserts the count in each category. Probing a refusal fails CI until the row is updated; **adding an unverified refusal fails CI too.** Both directions are deliberate.
 
 That converts "did anyone verify this?" from archaeology into a table lookup, which is the part a principle cannot do.

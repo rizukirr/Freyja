@@ -63,7 +63,15 @@ pub(crate) const IMAGES_OUTSIDE_USER: &str = "images outside user messages";
 #[cfg(test)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Evidence {
-    /// The endpoint was asked and said no. The strongest evidence there is.
+    /// The endpoint was asked and said no. The strongest evidence there is,
+    /// and only against an endpoint that rejects what it does not recognize.
+    ///
+    /// The three Anthropic rows were `Unverified` for months because they had
+    /// been probed against a compatible endpoint that accepted an invented
+    /// top-level key, so its acceptance carried no information. Anthropic
+    /// answers `freyja_invented_field: Extra inputs are not permitted`, which
+    /// is what makes its acceptances and its rejections mean anything. Probe
+    /// that first, or the probe is measuring nothing.
     Probed,
     /// No field exists to put it in, and none could: the API is stateless, or
     /// the concept is absent from its data model. Not probed, because there is
@@ -134,31 +142,27 @@ pub(crate) const REFUSALS: &[Refusal] = &[
     Refusal {
         dialect: Dialect::Anthropic,
         capability: NON_TEXT_SYSTEM,
-        evidence: Evidence::Unverified,
-        note: "No Anthropic key is available, so this was probed only against DeepSeek's \
-               Anthropic-compatible endpoint, where it was accepted. That is not \
-               enough: a compatible endpoint reimplements the schema, and Anthropic \
-               could restrict roles above deserialization the way OpenAI Responses \
-               does. Needs a first-party key.",
+        evidence: Evidence::Probed,
+        note: "`system.0.type: Input should be 'text'`. An array of blocks is \
+               accepted, so the shape is there and only the block type is \
+               refused.",
     },
     Refusal {
         dialect: Dialect::Anthropic,
         capability: IMAGES_OUTSIDE_USER,
-        evidence: Evidence::Unverified,
-        note: "No Anthropic key is available, so this was probed only against DeepSeek's \
-               Anthropic-compatible endpoint, where it was accepted. That is not \
-               enough: a compatible endpoint reimplements the schema, and Anthropic \
-               could restrict roles above deserialization the way OpenAI Responses \
-               does. Needs a first-party key.",
+        evidence: Evidence::Probed,
+        note: "`messages.1.content: 'image' blocks are not permitted within \
+               assistant turns.` The same image on a user turn is accepted, so \
+               it is the role and not the block.",
     },
     Refusal {
         dialect: Dialect::Anthropic,
         capability: SCHEMALESS_JSON,
-        evidence: Evidence::Unverified,
-        note: "DeepSeek's Anthropic-compatible endpoint accepted `output_config`, \
-               and then accepted an invented top-level key too -- it ignores \
-               parameters it does not know, so its answer means nothing here. \
-               Needs a first-party key.",
+        evidence: Evidence::Probed,
+        note: "`output_config.format.type: Input should be 'json_schema'`, for both \
+               `json_object` and `json`. The schema-carrying form Freyja sends \
+               is accepted, so the field exists and only the schema-less \
+               spelling is refused.",
     },
 ];
 
@@ -182,9 +186,9 @@ mod tests {
                 .count()
         };
 
-        assert_eq!(count(Evidence::Probed), 2, "endpoint asked, said no");
+        assert_eq!(count(Evidence::Probed), 5, "endpoint asked, said no");
         assert_eq!(count(Evidence::Structural), 3, "no field could exist");
-        assert_eq!(count(Evidence::Unverified), 3, "nobody has checked");
+        assert_eq!(count(Evidence::Unverified), 0, "nobody has checked");
         assert_eq!(count(Evidence::Refuted), 0, "known wrong, still shipping");
         assert_eq!(REFUSALS.len(), 8);
     }
