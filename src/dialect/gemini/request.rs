@@ -24,8 +24,7 @@ struct GenerationConfig {
     /// Reasoning effort. Serializes lowercase, so all six portable levels have
     /// a spelling; the endpoint accepts `minimal`, `low`, `medium`, and `high`
     /// and answers `'none' is not supported ... Supported values: 'minimal',
-    /// 'low', 'medium', 'high'` for the rest. Freyja used to refuse those three
-    /// itself, which was a claim about a value rather than about the format.
+    /// 'low', 'medium', 'high'` for the rest.
     #[serde(skip_serializing_if = "Option::is_none")]
     thinking_level: Option<ReasoningEffort>,
     #[serde(skip_serializing_if = "Option::is_none")]

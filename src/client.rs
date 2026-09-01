@@ -195,9 +195,9 @@ impl Client {
     /// `Ok` means the *dialect* can express this request, every field has
     /// somewhere to go in the wire format, and the transcript is shaped the way
     /// the format requires. It is not a promise that the endpoint will accept
-    /// it. Freyja knows the wire format; it has never met your gateway, and
-    /// will not claim to know what that gateway implements. A request that
-    /// passes here can still come back [`Error::BadRequest`].
+    /// it. `check` validates against the wire format, not against the endpoint,
+    /// so a request that passes here can still come back
+    /// [`Error::BadRequest`].
     ///
     /// The model is invisible to it. `check` never reads the model name, it
     /// is copied into the body and not inspected, so asking a model that does
@@ -207,13 +207,11 @@ impl Client {
     /// compatible gateway, so a table of it would be confidently wrong within a
     /// month.
     ///
-    /// An `Err` here is an error `generate` would have raised too, since the
-    /// two run the same conversion. That makes the two agree; it does not make
-    /// either correct. A refusal is a claim that this wire format has nowhere
-    /// to put a field, and a claim can be wrong: Freyja refused
-    /// `reasoning_effort` on Gemini for months, having looked for it at the top
-    /// level of a request that keeps it under `generation_config`. Every
-    /// refusal and the evidence behind it is listed in `src/dialect/refusal.rs`.
+    /// An `Err` here is an error `generate` raises too, since the two run the
+    /// same conversion. That makes the two agree, not that either is correct.
+    /// A refusal is a claim that this wire format has nowhere to put a field,
+    /// and a claim can be wrong. Every refusal and the evidence behind it is
+    /// listed in `src/dialect/refusal.rs`.
     ///
     /// # Choosing a provider
     ///

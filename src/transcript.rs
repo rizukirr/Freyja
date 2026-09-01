@@ -78,8 +78,8 @@ pub(crate) fn split(history: &[Message]) -> (Vec<&Message>, Vec<&[Message]>) {
 /// The trimming rule [`crate::InMemoryStorage::window`] uses, published so a
 /// backend of your own can apply the same one inside its
 /// [`load`](crate::Storage::load) rather than reimplementing it. Everything it
-/// reads is public, so writing your own was always possible; this is here to
-/// save you the forty lines and to keep one rule in one place.
+/// reads is public, so a backend can implement the rule itself. This keeps one
+/// rule in one place.
 ///
 /// **A group is a message, except that an assistant turn requesting tools and
 /// the results answering it are one group.** So an exchange costs two groups
@@ -197,12 +197,11 @@ pub fn window_by_groups(history: &[Message], keep: usize) -> Vec<Message> {
 /// A message left with no content after this is removed, so an assistant turn
 /// carrying text beside a dropped call keeps its text.
 ///
-/// vibekit: ordering ceiling. This checks one ordering property, that a result
-/// follows its call. It does not validate the rest of the order, so a backend
-/// that returns messages in an arbitrary sequence can still build a transcript
-/// a provider rejects. No upgrade path is planned: `Storage::load` documents
-/// its contract as "oldest first", and a backend breaking that is unreliable
-/// in ways no repair pass can cover.
+/// This checks one ordering property, that a result follows its call. It does
+/// not validate the rest of the order, so a backend that returns messages in
+/// an arbitrary sequence can still build a transcript a provider rejects.
+/// [`crate::Storage::load`] documents its contract as "oldest first", and a
+/// backend breaking that is beyond what a repair pass can cover.
 pub(crate) fn repair(messages: &mut Vec<Message>) {
     // Each id mapped to the index of the first message carrying it in that
     // direction. The index is what makes the check an ordering check: a set
