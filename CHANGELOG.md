@@ -6,6 +6,11 @@ Notable changes per release. Freyja is pre-1.0, so a minor version may break.
 
 ### Added
 
+- **`MAX_RETRY_AFTER`**, the ceiling `Error::retry_after` reports, exported
+  beside `BODY_IN_MESSAGE` because the two are the same kind of thing: a limit
+  a caller may want to read rather than rediscover. What it is for is under
+  Security below.
+
 - **`window_by_groups` is public.** The trimming rule `InMemoryStorage::window`
   uses, so a backend of your own can apply the same one inside its `load`. It
   cuts only on group boundaries, where a group is a message except that an
@@ -20,6 +25,14 @@ Notable changes per release. Freyja is pre-1.0, so a minor version may break.
   contiguous run and that is an implementation choice rather than a promise
   worth freezing.
 
+### Changed
+
+- **The system instruction is prepended to the transcript and taken off again**
+  rather than swapped for a copy carrying it. The copy was a deep clone of
+  every message on every turn of every run. Nothing observable changes: the
+  instruction still reaches the model on each turn and still never enters the
+  caller's transcript.
+
 ### Fixed
 
 - **`is_secret_header` matches a classified name whatever its case.** A header
@@ -31,15 +44,17 @@ Notable changes per release. Freyja is pre-1.0, so a minor version may break.
   is case-sensitive, so `Sig` and `sig` really are two parameters. Anyone
   reading the public `secret_headers` field directly now sees lowercased names.
 
-### Changed
-
-- **The system instruction is prepended to the transcript and taken off again**
-  rather than swapped for a copy carrying it. The copy was a deep clone of
-  every message on every turn of every run. Nothing observable changes: the
-  instruction still reaches the model on each turn and still never enters the
-  caller's transcript.
-
 ### Security
+
+Two themes. The first three are one omission seen three times: Freyja bounded
+what an endpoint it has never met can make it *hold*, in `MAX_BODY_BYTES`,
+`MAX_FRAME_BYTES` and `MAX_STREAM_BYTES`, and bounded nothing that endpoint can
+make it *do*. They bound where the credential travels, how long the caller
+sleeps, and how many futures the model can start.
+
+The last two are a credential Freyja withheld in one rendering and printed in
+another. Neither was a regression: the first shipped in 0.1.0 and was never
+right, and the second is a claim 0.3.0 made that the code had not met.
 
 - **A redirect no longer carries the credential to another origin.** `reqwest`
   strips `Authorization`, `Cookie`, `Proxy-Authorization` and
@@ -69,13 +84,6 @@ Notable changes per release. Freyja is pre-1.0, so a minor version may break.
   file handle turned that choice into pressure on the caller's process. Nothing
   is refused or reordered: calls past the limit wait for a slot and answer in
   the order they were requested.
-
-  The three above are one omission seen three times. Freyja bounds what an
-  endpoint it has never met can make it *hold*, in `MAX_BODY_BYTES`,
-  `MAX_FRAME_BYTES` and `MAX_STREAM_BYTES`, and it did not bound what that
-  endpoint can make it *do*. These bound time, concurrency and where the
-  credential travels.
-
 
 - **The API key is marked sensitive under every auth style.** `bearer_auth`
   set the flag and `header` did not, so the guarantee held for `Auth::Bearer`
