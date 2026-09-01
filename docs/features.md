@@ -67,6 +67,7 @@ Built-in means Freyja ships and tests the URL and default model. It does not mea
 | Timeouts | 120 seconds of inactivity by default, or supply your own HTTP client |
 | Errors | Classified by cause, each attributed to the endpoint that failed |
 | Retry decisions | `is_retryable()` and the endpoint's own `Retry-After`, clamped to `MAX_RETRY_AFTER` |
+| Untrusted endpoints | A redirect is followed only within one origin, and body, stream, frame, `Retry-After` and tool fan-out all have ceilings |
 | Credential safety | `Debug` redacts the API key, `secret_header` and `secret_query` extend that to a second credential in `Debug`, error messages and `url()`, and every credential header goes out marked sensitive |
 | Dependencies | `reqwest`, `serde`, `serde_json`, `schemars`, and `freyja-macros` |
 

@@ -150,6 +150,8 @@ Phases 0 through 2 are complete, and Phase 3 has started: the neutral core is st
 | Streaming | All four dialects, text verified live; tool calls offline only |
 | Dependencies | `reqwest`, `serde`, `serde_json`, `schemars`, and the companion macro crate |
 | Errors | Classified by cause, with `is_retryable()` and `Retry-After` |
+| Untrusted endpoints | Same-origin redirects only, and ceilings on body, stream, frame, retry delay and tool fan-out |
+| Group-aware trimming | `window_by_groups`, the rule `InMemoryStorage::window` uses, public for a backend of your own |
 | Pre-flight checks | `client.check(&request)`, no network call |
 | Structured output | `strict_schema()` plus `generate_as::<T>()` |
 | Vendor-only fields | `extra_for()`, without forking |
@@ -164,9 +166,9 @@ The goal: everything you need to build an AI agent in Rust, with no vendor lock-
 
 **Phase 1, production-grade provider layer.** Complete. Four dialects, the dialect/endpoint split, streaming, typed errors, pre-flight checking, typed responses, and strict-mode schema rewriting.
 
-**Phase 2, the agent.** Complete. `Tool` and `#[tool]` derive schemas from sync or async function signatures and provide typed execution, and `Agent` drives the tool-calling loop automatically, dispatching parallel tool calls concurrently. `Tool` is now a trait, so a tool can hold state in its fields, be built at runtime, and report failure as text the model recovers from; `Context` carries per-run data to every call without exposing it to the model. `Agent::guard` vets every requested call before dispatch, so a policy can refuse one and the model reads why.
+**Phase 2, the agent.** Complete. `Tool` and `#[tool]` derive schemas from sync or async function signatures and provide typed execution, and `Agent` drives the tool-calling loop automatically, dispatching parallel tool calls concurrently, eight at a time. `Tool` is now a trait, so a tool can hold state in its fields, be built at runtime, and report failure as text the model recovers from; `Context` carries per-run data to every call without exposing it to the model. `Agent::guard` vets every requested call before dispatch, so a policy can refuse one and the model reads why.
 
-**Phase 3, memory and context.** Started. `Storage` is the backend a conversation reads and writes, and it decides what reaches the model by trimming inside its own `load`, with the caller's transcript kept whole. `InMemoryStorage::window` bounds one by turn group. Token-aware windows, summarization, persistent backends, and retrieval with embeddings and a vector store are not built.
+**Phase 3, memory and context.** Started. `Storage` is the backend a conversation reads and writes, and it decides what reaches the model by trimming inside its own `load`, with the caller's transcript kept whole. `InMemoryStorage::window` bounds one by turn group, and `window_by_groups` is public, so a backend of your own applies the same group-aware rule rather than reimplementing it or cutting mid-pair. Token-aware windows, summarization, persistent backends, and retrieval with embeddings and a vector store are not built.
 
 **Phase 4, orchestration.** The namesake. Multi-agent handoff, workflow primitives for chains and fan-out, shared state, propagated cancellation and budgets, and human-in-the-loop pause and resume.
 
