@@ -905,3 +905,31 @@ async fn tool_calls_run_with_bounded_concurrency() {
         .count();
     assert_eq!(results, REQUESTED);
 }
+
+#[tokio::test]
+async fn the_system_instruction_is_prepended_once_per_turn() {
+    // The instruction is inserted into the transcript and taken off again
+    // rather than swapped for a copy carrying it. A turn that inserted without
+    // removing would send two on the next request, then three, and the
+    // transcript the caller gets back would carry the leftovers.
+    let (base, requests) = serve(&[canned(CALLS_ADD), canned(ANSWER)]);
+    let agent = Agent::new(client(base)).system("SENTINEL-SYSTEM").tool(add);
+
+    let mut messages = Vec::new();
+    let run = agent
+        .conversation(&mut messages)
+        .send("go")
+        .await
+        .expect("the run completes");
+
+    assert_eq!(run.turns, 2, "the tool round trip makes two requests");
+    for turn in 0..2 {
+        let body = requests.recv().expect("a request");
+        assert_eq!(
+            body.matches(r#""role":"system""#).count(),
+            1,
+            "turn {turn}: {body}"
+        );
+    }
+    assert!(messages.iter().all(|message| message.role != Role::System));
+}
