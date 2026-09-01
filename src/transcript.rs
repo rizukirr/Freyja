@@ -73,23 +73,64 @@ pub(crate) fn split(history: &[Message]) -> (Vec<&Message>, Vec<&[Message]>) {
     (pinned, groups)
 }
 
-/// Pinned turns plus the most recent `keep` groups.
+/// Pinned turns plus the most recent `keep` turn groups.
 ///
-/// Cuts only on group boundaries, so its output never needs repairing.
+/// The trimming rule [`crate::InMemoryStorage::window`] uses, published so a
+/// backend of your own can apply the same one inside its
+/// [`load`](crate::Storage::load) rather than reimplementing it. Everything it
+/// reads is public, so writing your own was always possible; this is here to
+/// save you the forty lines and to keep one rule in one place.
 ///
-/// A group is a message, except that an assistant turn requesting tools and
-/// the results answering it are one group. So an exchange costs two groups
-/// without tools and three with them: `keep` of 20 retains roughly seven
-/// exchanges, not twenty.
+/// **A group is a message, except that an assistant turn requesting tools and
+/// the results answering it are one group.** So an exchange costs two groups
+/// without tools and three with them, and `keep` of 20 retains roughly seven
+/// exchanges rather than twenty.
 ///
-/// Pinned turns are emitted first, so this reorders a `System` or `Developer`
-/// message written mid-conversation to the front. See [`split`].
+/// ```
+/// use freyja::{InputContent, Message, Role, window_by_groups};
 ///
-/// A pinned turn written inside a tool exchange stays with that exchange while
-/// the exchange survives, and moves to the front once the exchange ages out.
-/// It is never dropped, so an instruction always reaches the model, but its
-/// position depends on the window size.
-pub(crate) fn window_by_groups(history: &[Message], keep: usize) -> Vec<Message> {
+/// let history = vec![
+///     Message::text(Role::System, "be brief"),
+///     Message::text(Role::User, "one"),
+///     Message::new(Role::Assistant, vec![InputContent::ToolCall {
+///         id: "c1".into(), name: "clock".into(), arguments: "{}".into(),
+///     }]),
+///     Message::tool_result("c1", "noon"),
+///     Message::text(Role::User, "two"),
+/// ];
+///
+/// // Two groups here: the call and its answer are one, and "two" is the other.
+/// let kept = window_by_groups(&history, 1);
+///
+/// // The pinned turn survives, and the tool exchange went whole.
+/// assert_eq!(kept.len(), 2);
+/// assert_eq!(kept[0].role, Role::System);
+/// assert_eq!(kept[1].role, Role::User);
+/// ```
+///
+/// # What it guarantees
+///
+/// It cuts only on group boundaries, so a call is never separated from the
+/// result answering it and the output never needs repairing. You are not
+/// obliged to use it: [`crate::Conversation::send`] repairs whatever `load`
+/// returns, so a backend may trim by count, by age, by token budget, or not at
+/// all, and a cut landing mid-pair is cleaned up before the request is built.
+///
+/// # What it does not
+///
+/// Pinned turns, meaning [`Role::System`] and [`Role::Developer`], are never
+/// dropped, and they are emitted first. A `Developer` message written
+/// mid-conversation therefore reaches the model at the front, framing the whole
+/// conversation rather than applying from the point it was written. One written
+/// inside a tool exchange stays with that exchange while it survives and moves
+/// to the front once it ages out, so its position depends on the window size.
+///
+/// It takes the whole history, so a backend has to have loaded the whole
+/// history to call it. For a store holding thousands of turns, pushing a bound
+/// into the query first and calling this on the result is cheaper than fetching
+/// everything, and is safe for the reason above: the repair pass covers the
+/// boundary the query cut on.
+pub fn window_by_groups(history: &[Message], keep: usize) -> Vec<Message> {
     let (pinned, groups) = split(history);
     let from = groups.len().saturating_sub(keep);
 

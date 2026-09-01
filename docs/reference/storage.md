@@ -48,6 +48,24 @@ let mut chat = agent.conversation(InMemoryStorage::new().window(20));
 
 Windowing is a feature of the backend, not of `Conversation`, because a backend of your own decides its own trimming inside its own `load`, where it can push the limit into the query rather than fetching everything first. `InMemoryStorage::window(groups)` is the built-in backend's version of that same choice: the window is applied inside `InMemoryStorage::load`, not on the way in, so calling `window(groups)` does not discard anything. Everything ever appended is still held, and reachable through `InMemoryStorage::messages`, which borrows the transcript rather than cloning it, so `chat.storage().messages().len()` sees the whole transcript even when a window is set. Only what one `send` puts on the wire is shaped. A turn group is a message, except that an assistant turn requesting tools and the results answering it are one group, so an exchange without tools costs two groups and one with tools costs three or more. `window(20)` therefore keeps roughly seven exchanges for a tool-using agent, not twenty. A backend of your own has no obligation to be group aware at all: it can trim by count, by age, by token budget, or not trim, since the repair pass downstream cleans up whatever cut it made.
 
+If you do want the same group-aware rule, `window_by_groups` is public and is the function `InMemoryStorage::load` calls:
+
+```rust
+use freyja::{Message, Storage, StorageFuture, window_by_groups};
+
+impl Storage for MyBackend {
+    fn load(&mut self) -> StorageFuture<'_, Vec<Message>> {
+        Box::pin(async move {
+            let all = self.fetch().await?;
+            Ok(window_by_groups(&all, 20))
+        })
+    }
+    // ...
+}
+```
+
+Everything it reads is public, so writing your own was always possible. It is exported to save you the forty lines and to keep one rule in one place. It takes the whole history, so a store holding thousands of turns is better off bounding the query first and calling this on the result, which is safe for the reason above: the repair pass covers whatever boundary the query cut on. `split`, the decomposition underneath it, stays private, because its return type commits to a group being one contiguous run and that is an implementation choice rather than a promise.
+
 ## `storage()` returns the backend
 
 ```rust
