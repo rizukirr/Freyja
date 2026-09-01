@@ -117,7 +117,7 @@ They conflict only if every vendor feature has to become a neutral field. Split 
    one name per capability            unportable on purpose
 ```
 
-Test it against reality: `previous_response_id` has a location on two dialects, so it is admitted. `metadata` on three, admitted. `safety_settings` on one — escape hatch. `ReasoningEffort::Minimal` is accepted by exactly one vendor, so it is not a rung on a portable ladder; it is a Gemini string wearing a portable name, and it lives in the hatch.
+Test it against reality: `previous_response_id` has a location on two dialects, so it is admitted. `metadata` on three, admitted. `safety_settings` on one — escape hatch. a `minimal` reasoning level is accepted by exactly one vendor, so it is not a rung on a portable ladder. There is deliberately no `ReasoningEffort::Minimal`: it would be a Gemini string wearing a portable name, and it lives in the hatch instead. See [Requests](../reference/requests.md) for how that variant came and went.
 
 This is why the neutral model stays small **without** the library becoming a subset of what vendors offer.
 
