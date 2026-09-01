@@ -92,7 +92,7 @@ let client = Client::without_key(config);
 | `path` | no | Replaces the path the dialect would append, see below |
 | `query` | no | Query parameters sent on every request, see below |
 | `extra_headers` | no | Attribution or routing hints some gateways want |
-| `secret_headers` | no | Header names classified as credentials by `secret_header` |
+| `secret_headers` | no | Header names classified as credentials by `secret_header`, lowercased |
 | `secret_query` | no | Query parameter names classified as credentials by `secret_query` |
 | `extra_body` | no | Body fields this endpoint wants on every request, see below |
 | `token_limit_field` | defaulted | `OpenAiChat` only: which field carries the output cap |
@@ -140,7 +140,9 @@ Configuration stays readable either way: `x-acme-tenant` and `api-version` above
 
 Classification is by name, and headers and query parameters are kept apart. Marking `sig` secret as a parameter says nothing about a header called `sig`, because they are different values and only one of them was called a credential. The same goes for `Auth::Query`: it names a parameter, not a header.
 
-`secret_headers` and `secret_query` hold only the names you classified, which is narrower than what gets withheld. Ask `config.is_secret_header(name)` or `config.is_secret_query(name)` for the whole answer: each covers your classification and the name heuristic, and the query one also covers the parameter `Auth::Query` uses. Reading a set alone would tell you that `x-api-key` is not classified, which is true and not the same as saying it is printed.
+They also differ on case, because HTTP does. A header name is case-insensitive, so `secret_header("X-Acme-Passport", ..)` answers for every spelling of it and the set holds the lowercased form. A query parameter name is case-sensitive, so `secret_query("Sig", ..)` says nothing about `sig`. The header still goes on the wire spelled the way you wrote it.
+
+`secret_headers` and `secret_query` hold only the names you classified, which is narrower than what gets withheld, and `secret_headers` holds them lowercased. Ask `config.is_secret_header(name)` or `config.is_secret_query(name)` for the whole answer: each covers your classification and the name heuristic, and the query one also covers the parameter `Auth::Query` uses. Reading a set alone would tell you that `x-api-key` is not classified, which is true and not the same as saying it is printed.
 
 ## Extra body fields
 
