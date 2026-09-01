@@ -124,7 +124,7 @@ pub use client::Client;
 pub use conversation::Conversation;
 pub use dialect::Dialect;
 pub use endpoint::{Auth, EndpointConfig, EndpointPreset, TokenLimitField};
-pub use error::{BODY_IN_MESSAGE, Error, TransportError};
+pub use error::{BODY_IN_MESSAGE, Error, MAX_RETRY_AFTER, TransportError};
 pub use freyja_macros::tool;
 pub use model::{
     Context, GenerateRequest, GenerateResponse, InputContent, Message, OutputContent,
