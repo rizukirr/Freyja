@@ -410,7 +410,12 @@ pub fn window_by_tokens(
     let pinned_cost: usize = pinned
         .iter()
         .copied()
-        .chain(groups.iter().flat_map(|group| group.iter()).filter(is_pinned))
+        .chain(
+            groups
+                .iter()
+                .flat_map(|group| group.iter())
+                .filter(is_pinned),
+        )
         .map(|message| counter.count(message))
         .sum();
 

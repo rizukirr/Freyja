@@ -38,7 +38,7 @@ let mut chat = agent.conversation(InMemoryStorage::new());
 let run = chat.send("what's the weather?").await?;
 ```
 
-`Conversation::send` loads from storage, repairs the transcript, applies a window if one is set, appends the new turn, runs the tool-calling loop, then writes the turns the run produced back to storage, storage last, so a run that fails partway records nothing. `Conversation::send_with` is the same call with per-run `Context` attached, and `send` is exactly `send_with` with an empty one.
+`Conversation::send` loads from storage, which applies a window inside `load` if the backend has one set, then repairs the transcript, appends the new turn, runs the tool-calling loop, then writes the turns the run produced back to storage, storage last, so a run that fails partway records nothing. `Conversation::send_with` is the same call with per-run `Context` attached, and `send` is exactly `send_with` with an empty one.
 
 ## `window` lives on the backend, and shapes what is sent
 
@@ -66,6 +66,36 @@ impl Storage for MyBackend {
 
 Everything it reads is public, so writing your own was always possible. It is exported to save you the forty lines and to keep one rule in one place. It takes the whole history, so a store holding thousands of turns is better off bounding the query first and calling this on the result, which is safe for the reason above: the repair pass covers whatever boundary the query cut on. `split`, the decomposition underneath it, stays private, because its return type commits to a group being one contiguous run and that is an implementation choice rather than a promise.
 
+## `window_by_tokens` bounds by an estimated budget instead
+
+```rust
+let mut chat = agent.conversation(InMemoryStorage::new().window_by_tokens(4_000, HeuristicCounter));
+```
+
+`InMemoryStorage::window_by_tokens(budget, counter)` is the token-aware counterpart to `window(groups)`, applied the same way, inside `InMemoryStorage::load`, so nothing already appended is discarded. `counter` is anything implementing `TokenCounter`, a trait with one method, `count(&self, message: &Message) -> usize`, and a blanket impl covers any `Fn(&Message) -> usize + Send` closure, so a real tokenizer needs no wrapper type. `HeuristicCounter` is the dependency-free estimate Freyja ships: roughly four bytes per token plus a small per-message constant, which undercounts code, JSON, and CJK text, so leave a margin.
+
+The budget covers the loaded transcript only. The agent's system instruction is inserted after `load` returns, every tool schema lives on the `Agent`, and the model's reply and the provider's own envelope both ride on top again, so none of the four count against the number you pass. Subtract all of them yourself when choosing a budget.
+
+Two guarantees make the budget a target rather than a cap. Every `System` and `Developer` turn survives at any budget, including zero, matching `window_by_groups`. And the newest turn group survives even when it alone is over budget, because a request that is too large may still fail on the wire while an empty one certainly does.
+
+`window` and `window_by_tokens` share the same field on `InMemoryStorage`, so calling one after the other replaces the first rather than combining with it. The last one called before `Agent::conversation` is the one that applies.
+
+A backend of your own applies the same rule inside its own `load`, the same way it would `window_by_groups`:
+
+```rust
+use freyja::{HeuristicCounter, Message, Storage, StorageFuture, window_by_tokens};
+
+impl Storage for MyBackend {
+    fn load(&mut self) -> StorageFuture<'_, Vec<Message>> {
+        Box::pin(async move {
+            let all = self.fetch().await?;
+            Ok(window_by_tokens(&all, 4_000, &HeuristicCounter))
+        })
+    }
+    // ...
+}
+```
+
 ## `storage()` returns the backend
 
 ```rust
@@ -76,7 +106,7 @@ let held = chat.storage();
 
 ## The repair pass
 
-`send` runs a crate-private repair pass on whatever `load` returns, before sending it. The pass drops any tool result whose originating call is absent, and any tool call whose result is absent, removing a message left with no content once its dropped half is gone. It also checks position, not only presence: a result is kept only when the call it answers strictly precedes it, so a backend that hands back a result ahead of its call loses both messages, the call going too because a call with no usable answer is rejected on the wire anyway. This protects a hand-written backend that trims on the wrong boundary or sorts on the wrong column: a backend cut at an arbitrary message rather than a group boundary can hand back a dangling call or a dangling result, and a backend ordering by a timestamp can hand back a pair in the wrong order, and every provider rejects both shapes with an error that says nothing about trimming or ordering. Repair runs unconditionally, once, after every `load`, before any window is applied, so a backend that knows nothing about tool pairing cannot produce a request that fails this way.
+`send` runs a crate-private repair pass on whatever `load` returns, before sending it. The pass drops any tool result whose originating call is absent, and any tool call whose result is absent, removing a message left with no content once its dropped half is gone. It also checks position, not only presence: a result is kept only when the call it answers strictly precedes it, so a backend that hands back a result ahead of its call loses both messages, the call going too because a call with no usable answer is rejected on the wire anyway. This protects a hand-written backend that trims on the wrong boundary or sorts on the wrong column: a backend cut at an arbitrary message rather than a group boundary can hand back a dangling call or a dangling result, and a backend ordering by a timestamp can hand back a pair in the wrong order, and every provider rejects both shapes with an error that says nothing about trimming or ordering. Repair runs unconditionally, once, after every `load`, on whatever the backend's own window already applied inside `load`, so a backend that knows nothing about tool pairing cannot produce a request that fails this way.
 
 ## A worked external backend
 
@@ -156,4 +186,4 @@ A backend fails with a boxed standard error rather than `freyja::Error`, because
 
 ## What is not built
 
-Token budgets, summarization, retrieval with embeddings and a vector store, and any persistent backend are not implemented. Freyja ships `InMemoryStorage` (holding a `Vec<Message>` and an optional window), `impl Storage for Vec<Message>` so a transcript you hold yourself can be passed as `&mut history`, and forwarding impls for `&mut T` and `Box<T>`. None of them survive the process. Writing one that persists is possible today against the `Storage` trait as it stands and needs nothing else from this crate: `Message` already derives `Serialize` and `Deserialize`, so a backend only has to move bytes and implement three methods.
+Summarization, retrieval with embeddings and a vector store, and any persistent backend are not implemented. Freyja ships `InMemoryStorage` (holding a `Vec<Message>` and an optional window), `impl Storage for Vec<Message>` so a transcript you hold yourself can be passed as `&mut history`, and forwarding impls for `&mut T` and `Box<T>`. None of them survive the process. Writing one that persists is possible today against the `Storage` trait as it stands and needs nothing else from this crate: `Message` already derives `Serialize` and `Deserialize`, so a backend only has to move bytes and implement three methods.
