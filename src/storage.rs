@@ -175,6 +175,23 @@ impl InMemoryStorage {
     ///
     /// Sets the same field [`InMemoryStorage::window`] does, so the last of
     /// the two you call is the one that applies.
+    ///
+    /// ```
+    /// use freyja::{InMemoryStorage, InputContent, Message};
+    ///
+    /// // A closure is a counter, so a real tokenizer needs no struct.
+    /// let storage = InMemoryStorage::new().window_by_tokens(8_000, |message: &Message| {
+    ///     message
+    ///         .content
+    ///         .iter()
+    ///         .map(|part| match part {
+    ///             InputContent::Text(text) => text.len() / 3,
+    ///             _ => 8,
+    ///         })
+    ///         .sum()
+    /// });
+    /// # let _ = storage;
+    /// ```
     pub fn window_by_tokens(mut self, budget: usize, counter: impl TokenCounter + 'static) -> Self {
         self.window = Some(Window::Tokens {
             budget,

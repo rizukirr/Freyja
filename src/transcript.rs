@@ -73,6 +73,30 @@ pub(crate) fn split(history: &[Message]) -> (Vec<&Message>, Vec<&[Message]>) {
     (pinned, groups)
 }
 
+/// Pinned turns, then pinned turns rescued out of the groups being dropped,
+/// then every surviving group, in order.
+///
+/// Shared by both windows so the rescue rule has one home: a pinned turn
+/// inside a group that ages out would otherwise leave the request entirely,
+/// and an instruction meant to persist would silently stop applying.
+fn reassemble(pinned: Vec<&Message>, groups: &[&[Message]], from: usize) -> Vec<Message> {
+    let rescued = groups[..from]
+        .iter()
+        .flat_map(|group| group.iter())
+        .filter(|message| matches!(message.role, Role::System | Role::Developer));
+
+    pinned
+        .into_iter()
+        .chain(rescued)
+        .cloned()
+        .chain(
+            groups[from..]
+                .iter()
+                .flat_map(|group| group.iter().cloned()),
+        )
+        .collect()
+}
+
 /// Pinned turns plus the most recent `keep` turn groups.
 ///
 /// The trimming rule [`crate::InMemoryStorage::window`] uses, published so a
@@ -133,26 +157,7 @@ pub(crate) fn split(history: &[Message]) -> (Vec<&Message>, Vec<&[Message]>) {
 pub fn window_by_groups(history: &[Message], keep: usize) -> Vec<Message> {
     let (pinned, groups) = split(history);
     let from = groups.len().saturating_sub(keep);
-
-    // A pinned turn inside a group that ages out would otherwise leave the
-    // request entirely, so an instruction meant to persist would silently stop
-    // applying. Rescued turns join the pinned list in the order they appeared,
-    // which means a pinned turn moves to the front once its group is dropped.
-    let rescued = groups[..from]
-        .iter()
-        .flat_map(|group| group.iter())
-        .filter(|message| matches!(message.role, Role::System | Role::Developer));
-
-    pinned
-        .into_iter()
-        .chain(rescued)
-        .cloned()
-        .chain(
-            groups[from..]
-                .iter()
-                .flat_map(|group| group.iter().cloned()),
-        )
-        .collect()
+    reassemble(pinned, &groups, from)
 }
 
 /// Approximates the tokens one message contributes to a request.
@@ -442,21 +447,7 @@ pub fn window_by_tokens(
         from = index;
     }
 
-    let rescued = groups[..from]
-        .iter()
-        .flat_map(|group| group.iter())
-        .filter(is_pinned);
-
-    pinned
-        .into_iter()
-        .chain(rescued)
-        .cloned()
-        .chain(
-            groups[from..]
-                .iter()
-                .flat_map(|group| group.iter().cloned()),
-        )
-        .collect()
+    reassemble(pinned, &groups, from)
 }
 
 #[cfg(test)]
