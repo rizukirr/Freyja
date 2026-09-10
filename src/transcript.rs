@@ -351,7 +351,7 @@ pub(crate) fn repair(messages: &mut Vec<Message>) {
 /// budget.
 ///
 /// The token counterpart to [`window_by_groups`], and the rule
-/// `InMemoryStorage::window_by_tokens` uses. Published for the same
+/// [`crate::InMemoryStorage::window_by_tokens`] uses. Published for the same
 /// reason: a backend of your own applies it inside its own
 /// [`load`](crate::Storage::load) rather than reimplementing it.
 ///
