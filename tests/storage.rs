@@ -5,8 +5,8 @@
 mod common;
 use common::{ok_response, serve};
 use freyja::{
-    Agent, Client, Dialect, EndpointConfig, InMemoryStorage, InputContent, Message, Role, Storage,
-    StorageFuture, tool, window_by_groups,
+    Agent, Client, Dialect, EndpointConfig, HeuristicCounter, InMemoryStorage, InputContent,
+    Message, Role, Storage, StorageFuture, TokenCounter, tool, window_by_groups,
 };
 
 #[tool(description = "adds two numbers together")]
@@ -198,6 +198,47 @@ async fn window_shapes_what_is_sent_while_the_backend_keeps_everything() {
     let sent_len = sent["messages"].as_array().expect("messages array").len();
 
     assert!(sent_len < chat.storage().messages().len());
+}
+
+#[tokio::test]
+async fn a_token_window_shapes_what_is_sent_while_the_backend_keeps_everything() {
+    let (base, requests) = serve(&[ok_response(), ok_response(), ok_response()]);
+    let agent = agent_for(base);
+    let budget = HeuristicCounter.count(&Message::text(Role::User, "first"));
+    let mut chat =
+        agent.conversation(InMemoryStorage::new().window_by_tokens(budget, HeuristicCounter));
+
+    chat.send("first").await.expect("run");
+    chat.send("second").await.expect("run");
+    chat.send("third").await.expect("run");
+
+    requests.recv().expect("first request");
+    requests.recv().expect("second request");
+    let last = requests.recv().expect("third request");
+    let split_at = last.rfind("\r\n").expect("a header line") + 2;
+    let body = &last[split_at..];
+    let sent: serde_json::Value = serde_json::from_str(body).expect("json body");
+    let sent_len = sent["messages"].as_array().expect("messages array").len();
+
+    assert!(sent_len < chat.storage().messages().len());
+}
+
+#[test]
+fn the_last_window_builder_called_replaces_the_earlier_one() {
+    let groups_then_tokens = format!(
+        "{:?}",
+        InMemoryStorage::new()
+            .window(1)
+            .window_by_tokens(64, HeuristicCounter)
+    );
+    let tokens_then_groups = format!(
+        "{:?}",
+        InMemoryStorage::new()
+            .window_by_tokens(64, HeuristicCounter)
+            .window(1)
+    );
+
+    assert_ne!(groups_then_tokens, tokens_then_groups);
 }
 
 #[tokio::test]

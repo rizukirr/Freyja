@@ -1,6 +1,6 @@
 //! Where a conversation lives between turns.
 
-use crate::Message;
+use crate::{Message, TokenCounter};
 use std::future::Future;
 use std::pin::Pin;
 
@@ -83,6 +83,35 @@ impl Storage for Vec<Message> {
     }
 }
 
+/// Which rule [`InMemoryStorage::load`] trims by.
+///
+/// One field rather than two, so the last window set is the window used. A
+/// token budget already subsumes what a group cap protects against, and
+/// composing the two would need a documented application order plus a builder
+/// pair whose two call orders mean the same thing without looking like it.
+enum Window {
+    Groups(usize),
+    Tokens {
+        budget: usize,
+        counter: Box<dyn TokenCounter>,
+    },
+}
+
+/// Hand-written because `Box<dyn TokenCounter>` is not `Debug` and requiring
+/// it of every counter would buy nothing: the budget is the part worth
+/// printing.
+impl std::fmt::Debug for Window {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Groups(groups) => formatter.debug_tuple("Groups").field(groups).finish(),
+            Self::Tokens { budget, .. } => formatter
+                .debug_struct("Tokens")
+                .field("budget", budget)
+                .finish_non_exhaustive(),
+        }
+    }
+}
+
 /// The conversation in this process, and nowhere else.
 ///
 /// A plain vector and an optional window. There is no lock, because a
@@ -97,7 +126,7 @@ impl Storage for Vec<Message> {
 #[derive(Debug, Default)]
 pub struct InMemoryStorage {
     messages: Vec<Message>,
-    window: Option<usize>,
+    window: Option<Window>,
 }
 
 impl InMemoryStorage {
@@ -121,8 +150,53 @@ impl InMemoryStorage {
     /// backend of your own decides its own rule, and may cut anywhere, since
     /// [`crate::Conversation::send`] repairs a cut that separated a tool call
     /// from the result answering it.
+    ///
+    /// The last window set is the one used.
     pub fn window(mut self, groups: usize) -> Self {
-        self.window = Some(groups);
+        self.window = Some(Window::Groups(groups));
+        self
+    }
+
+    /// Send only the most recent turn groups fitting an estimated token
+    /// budget, plus pinned turns.
+    ///
+    /// The rule is [`crate::window_by_tokens`], applied inside
+    /// [`load`](crate::Storage::load), so nothing is discarded and
+    /// [`InMemoryStorage::messages`] still returns everything.
+    ///
+    /// Pass [`crate::HeuristicCounter`] for a byte-length estimate with no
+    /// dependency, or a closure wrapping a real tokenizer.
+    ///
+    /// The budget covers this transcript only. The agent's system instruction
+    /// and every tool schema are added after this returns, and the model's
+    /// reply comes back on top of both, so subtract all three from the model's
+    /// context limit when choosing a budget, and leave a margin because
+    /// [`crate::HeuristicCounter`] undercounts code and JSON.
+    ///
+    /// Sets the same field [`InMemoryStorage::window`] does, so the last of
+    /// the two you call is the one that applies.
+    ///
+    /// ```
+    /// use freyja::{InMemoryStorage, InputContent, Message};
+    ///
+    /// // A closure is a counter, so a real tokenizer needs no struct.
+    /// let storage = InMemoryStorage::new().window_by_tokens(8_000, |message: &Message| {
+    ///     message
+    ///         .content
+    ///         .iter()
+    ///         .map(|part| match part {
+    ///             InputContent::Text(text) => text.len() / 3,
+    ///             _ => 8,
+    ///         })
+    ///         .sum()
+    /// });
+    /// # let _ = storage;
+    /// ```
+    pub fn window_by_tokens(mut self, budget: usize, counter: impl TokenCounter + 'static) -> Self {
+        self.window = Some(Window::Tokens {
+            budget,
+            counter: Box::new(counter),
+        });
         self
     }
 
@@ -141,8 +215,13 @@ impl InMemoryStorage {
 impl Storage for InMemoryStorage {
     fn load(&mut self) -> StorageFuture<'_, Vec<Message>> {
         Box::pin(async move {
-            Ok(match self.window {
-                Some(groups) => crate::transcript::window_by_groups(&self.messages, groups),
+            Ok(match &self.window {
+                Some(Window::Groups(groups)) => {
+                    crate::transcript::window_by_groups(&self.messages, *groups)
+                }
+                Some(Window::Tokens { budget, counter }) => {
+                    crate::transcript::window_by_tokens(&self.messages, *budget, counter.as_ref())
+                }
                 None => self.messages.clone(),
             })
         })

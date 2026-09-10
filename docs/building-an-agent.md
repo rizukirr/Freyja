@@ -151,7 +151,7 @@ It forces a tool call on **every** round, so the model can never produce a final
 
 Every tool result becomes part of the prompt on the next round, and is billed as input tokens on every round after that. A verbose tool is a recurring cost, not a one-time one. Return what the model needs and nothing more.
 
-Trimming what a tool returns bounds the cost of one round. It does not bound the conversation, which grows until the provider rejects it outright. `Agent::conversation(storage)` always takes a backend, `InMemoryStorage::new()` for one held in this process or a backend of your own, and `InMemoryStorage::window` bounds what reaches the model each turn, keeping pinned turns and the most recent turn groups. See [Storage](reference/storage.md).
+Trimming what a tool returns bounds the cost of one round. It does not bound the conversation, which grows until the provider rejects it outright. `Agent::conversation(storage)` always takes a backend, `InMemoryStorage::new()` for one held in this process or a backend of your own, and `InMemoryStorage::window` bounds what reaches the model each turn, keeping pinned turns and the most recent turn groups. A tool that occasionally returns something large is what a group window handles badly, since one oversized group still counts as one group: `InMemoryStorage::window_by_tokens` bounds by an estimated token budget instead, so a group's size affects whether it survives the cut. See [Storage](reference/storage.md).
 
 ### One result per call
 

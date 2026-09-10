@@ -2,6 +2,24 @@
 
 Notable changes per release. Freyja is pre-1.0, so a minor version may break.
 
+## Unreleased
+
+### Added
+
+- **`window_by_tokens`, a token-budget window beside `window_by_groups`.**
+  `TokenCounter` is a sync, per-message trait, `fn count(&self, message:
+  &Message) -> usize`, with a blanket impl so a closure is a counter.
+  `HeuristicCounter` estimates by byte length with no dependency, and
+  undercounts code, JSON and CJK. `InMemoryStorage::window_by_tokens(budget,
+  counter)` is the builder beside `window`, and `window_by_tokens` is the
+  public function beside `window_by_groups`.
+
+  The budget covers only the history: the agent's system instruction, the
+  tool schemas and the reply are excluded. It is a target rather than a cap
+  on two counts, a pinned turn is always kept, and the newest group is kept
+  even alone over budget. `window_by_tokens` and `window` share one field on
+  `InMemoryStorage`, so the last one called applies.
+
 ## 0.4.0 - 2026-09-01
 
 One theme, found by auditing what an endpoint controls. Freyja bounded what a

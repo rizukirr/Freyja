@@ -73,6 +73,30 @@ pub(crate) fn split(history: &[Message]) -> (Vec<&Message>, Vec<&[Message]>) {
     (pinned, groups)
 }
 
+/// Pinned turns, then pinned turns rescued out of the groups being dropped,
+/// then every surviving group, in order.
+///
+/// Shared by both windows so the rescue rule has one home: a pinned turn
+/// inside a group that ages out would otherwise leave the request entirely,
+/// and an instruction meant to persist would silently stop applying.
+fn reassemble(pinned: Vec<&Message>, groups: &[&[Message]], from: usize) -> Vec<Message> {
+    let rescued = groups[..from]
+        .iter()
+        .flat_map(|group| group.iter())
+        .filter(|message| matches!(message.role, Role::System | Role::Developer));
+
+    pinned
+        .into_iter()
+        .chain(rescued)
+        .cloned()
+        .chain(
+            groups[from..]
+                .iter()
+                .flat_map(|group| group.iter().cloned()),
+        )
+        .collect()
+}
+
 /// Pinned turns plus the most recent `keep` turn groups.
 ///
 /// The trimming rule [`crate::InMemoryStorage::window`] uses, published so a
@@ -133,26 +157,96 @@ pub(crate) fn split(history: &[Message]) -> (Vec<&Message>, Vec<&[Message]>) {
 pub fn window_by_groups(history: &[Message], keep: usize) -> Vec<Message> {
     let (pinned, groups) = split(history);
     let from = groups.len().saturating_sub(keep);
+    reassemble(pinned, &groups, from)
+}
 
-    // A pinned turn inside a group that ages out would otherwise leave the
-    // request entirely, so an instruction meant to persist would silently stop
-    // applying. Rescued turns join the pinned list in the order they appeared,
-    // which means a pinned turn moves to the front once its group is dropped.
-    let rescued = groups[..from]
-        .iter()
-        .flat_map(|group| group.iter())
-        .filter(|message| matches!(message.role, Role::System | Role::Developer));
+/// Approximates the tokens one message contributes to a request.
+///
+/// Counting exactly is provider-specific: a BPE table for OpenAI, a different
+/// one for Gemini, a network call for Anthropic. Freyja takes no tokenizer
+/// dependency, so the count comes from you. [`HeuristicCounter`] is the
+/// default for a caller who does not care.
+///
+/// Per message rather than per transcript, for two reasons. A trimmer can walk
+/// backwards and stop early instead of recounting a shrinking slice. And a
+/// counter handed a slice is handed partial transcripts mid-trim, where a tool
+/// result has lost the call it answers, which is a shape some provider
+/// counting endpoints reject outright.
+///
+/// `Send` and not `Sync`, matching [`crate::Storage`]: an
+/// [`crate::InMemoryStorage`] owns its counter and a [`crate::Conversation`]
+/// owns its backend outright, so nothing shares one.
+pub trait TokenCounter: Send {
+    /// Approximates the tokens `message` contributes.
+    ///
+    /// Must be cheap. It runs once per message on every
+    /// [`load`](crate::Storage::load).
+    ///
+    /// Infallible on purpose. A trimmer cannot ask anyone what to do about a
+    /// failed estimate, and refusing to load a conversation over one is worse
+    /// than a bad estimate, so a counter that could fail returns its own guess
+    /// instead.
+    fn count(&self, message: &Message) -> usize;
+}
 
-    pinned
-        .into_iter()
-        .chain(rescued)
-        .cloned()
-        .chain(
-            groups[from..]
-                .iter()
-                .flat_map(|group| group.iter().cloned()),
-        )
-        .collect()
+/// Any closure of the right shape is a counter, so a caller wiring up a real
+/// tokenizer writes a closure rather than a struct.
+impl<F: Fn(&Message) -> usize + Send> TokenCounter for F {
+    fn count(&self, message: &Message) -> usize {
+        self(message)
+    }
+}
+
+/// Bytes per token. English prose sits near four, code and JSON below it, so
+/// this undercounts exactly the content a token budget exists to bound. That
+/// is why the budget wants a margin and why [`TokenCounter`] is a trait.
+const BYTES_PER_TOKEN: usize = 4;
+
+/// The role marker and delimiters every provider wraps a turn in. Without it a
+/// transcript of many short turns undercounts badly.
+const PER_MESSAGE_OVERHEAD: usize = 4;
+
+/// Approximates a token count from UTF-8 byte length, with no tokenizer, no
+/// dependency and no network call.
+///
+/// An estimate, not a bound. It undercounts code, JSON and CJK, so size a
+/// budget below the model's real limit rather than at it. When the margin has
+/// to be tight, pass a real tokenizer as a closure instead.
+///
+/// ```
+/// use freyja::{HeuristicCounter, Message, Role, TokenCounter};
+///
+/// let counter = HeuristicCounter;
+/// let short = counter.count(&Message::text(Role::User, "hi"));
+/// let long = counter.count(&Message::text(Role::User, "hi".repeat(400)));
+///
+/// assert!(long > short);
+/// ```
+pub struct HeuristicCounter;
+
+impl TokenCounter for HeuristicCounter {
+    fn count(&self, message: &Message) -> usize {
+        // Exhaustive with no wildcard arm, and `InputContent` is not
+        // `non_exhaustive`, so a new variant is a compile error here rather
+        // than a silent zero.
+        let bytes: usize = message
+            .content
+            .iter()
+            .map(|part| match part {
+                InputContent::Text(text) => text.len(),
+                InputContent::ImageUrl(url) => url.len(),
+                InputContent::ToolCall {
+                    id,
+                    name,
+                    arguments,
+                } => id.len() + name.len() + arguments.len(),
+                InputContent::ToolResult { call_id, output } => call_id.len() + output.len(),
+                InputContent::Reasoning { data } => data.to_string().len(),
+            })
+            .sum();
+
+        bytes / BYTES_PER_TOKEN + PER_MESSAGE_OVERHEAD
+    }
 }
 
 /// Drops a tool result whose call is absent or does not precede it, and a tool
@@ -258,9 +352,110 @@ pub(crate) fn repair(messages: &mut Vec<Message>) {
     messages.retain(|message| !message.content.is_empty());
 }
 
+/// Pinned turns plus the most recent turn groups fitting an estimated token
+/// budget.
+///
+/// The token counterpart to [`window_by_groups`], and the rule
+/// [`crate::InMemoryStorage::window_by_tokens`] uses. Published for the same
+/// reason: a backend of your own applies it inside its own
+/// [`load`](crate::Storage::load) rather than reimplementing it.
+///
+/// # What the budget covers
+///
+/// `history`, and nothing else. The agent's system instruction is inserted
+/// after [`load`](crate::Storage::load) returns, and tool schemas live on the
+/// [`crate::Agent`], so both ride on top of this number, as do the model's
+/// reply and the provider's envelope. Subtract them yourself when choosing a
+/// budget.
+///
+/// # A target, not a cap
+///
+/// Two things are kept whatever they cost. Every [`Role::System`] and
+/// [`Role::Developer`] turn survives at any budget, including zero, matching
+/// [`window_by_groups`]. And the newest group survives even alone over budget,
+/// because a request that is too large may fail while an empty one certainly
+/// does. With `counter` a [`HeuristicCounter`] the number is an estimate on
+/// top of that, so leave a margin.
+///
+/// # What it guarantees
+///
+/// It cuts only on group boundaries, so a tool call is never separated from
+/// the result answering it. Cutting mid-pair would be legal, since
+/// [`crate::Conversation::send`] repairs whatever `load` returns, but the
+/// repair drops both halves and the budget spent on the surviving half is
+/// wasted.
+///
+/// ```
+/// use freyja::{HeuristicCounter, Message, Role, window_by_tokens};
+///
+/// let history = vec![
+///     Message::text(Role::System, "be brief"),
+///     Message::text(Role::User, "a".repeat(4_000)),
+///     Message::text(Role::User, "recent"),
+/// ];
+///
+/// let kept = window_by_tokens(&history, 100, &HeuristicCounter);
+///
+/// // The pinned turn survives, and so does the newest group. The long one
+/// // did not fit.
+/// assert_eq!(kept.len(), 2);
+/// assert_eq!(kept[0].role, Role::System);
+/// ```
+pub fn window_by_tokens(
+    history: &[Message],
+    budget: usize,
+    counter: &dyn TokenCounter,
+) -> Vec<Message> {
+    let (pinned, groups) = split(history);
+    let is_pinned = |message: &&Message| matches!(message.role, Role::System | Role::Developer);
+
+    // Every pinned turn reaches the output whichever way the cut falls, at top
+    // level or rescued out of a group that ages out, so the whole pinned cost
+    // is known before a single group is chosen. Nothing here is circular.
+    let pinned_cost: usize = pinned
+        .iter()
+        .copied()
+        .chain(
+            groups
+                .iter()
+                .flat_map(|group| group.iter())
+                .filter(is_pinned),
+        )
+        .map(|message| counter.count(message))
+        .sum();
+
+    let mut remaining = budget.saturating_sub(pinned_cost);
+
+    // Newest first, stopping before the first group that will not fit. A
+    // group's cost skips its pinned turns, which were counted above, so
+    // nothing is counted twice.
+    let mut from = groups.len();
+    for (index, group) in groups.iter().enumerate().rev() {
+        let cost: usize = group
+            .iter()
+            .filter(|message| !is_pinned(message))
+            .map(|message| counter.count(message))
+            .sum();
+
+        // The newest group is index `groups.len() - 1`, and it is taken
+        // whatever it costs.
+        if cost > remaining && index + 1 < groups.len() {
+            break;
+        }
+
+        remaining = remaining.saturating_sub(cost);
+        from = index;
+    }
+
+    reassemble(pinned, &groups, from)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{repair, window_by_groups};
+    use super::{
+        HeuristicCounter, PER_MESSAGE_OVERHEAD, TokenCounter, repair, window_by_groups,
+        window_by_tokens,
+    };
     use crate::{InputContent, Message, Role};
 
     fn transcript() -> Vec<Message> {
@@ -624,6 +819,95 @@ mod tests {
     }
 
     #[test]
+    fn every_pinned_turn_survives_a_zero_token_budget_and_comes_first() {
+        // The Developer turn sits inside the call/result pair, and a User
+        // turn after it becomes the newest group, so the pinned turn's group
+        // is not the one forced to survive: it only reaches the output by
+        // being rescued to the front.
+        let history = vec![
+            Message::text(Role::System, "sys"),
+            Message::text(Role::User, "go"),
+            call("c1"),
+            Message::text(Role::Developer, "mid"),
+            Message::tool_result("c1", "out"),
+            Message::text(Role::User, "final"),
+        ];
+
+        let kept = window_by_tokens(&history, 0, &HeuristicCounter);
+
+        let pinned_in_history = history
+            .iter()
+            .filter(|message| matches!(message.role, Role::System | Role::Developer))
+            .count();
+        let pinned_in_kept = kept
+            .iter()
+            .filter(|message| matches!(message.role, Role::System | Role::Developer))
+            .count();
+        assert_eq!(pinned_in_kept, pinned_in_history);
+        assert_eq!(kept[0].role, Role::System);
+        assert_eq!(kept[1].role, Role::Developer);
+    }
+
+    #[test]
+    fn a_single_group_survives_a_zero_token_budget() {
+        let history = vec![Message::text(Role::User, "hello")];
+        let kept = window_by_tokens(&history, 0, &HeuristicCounter);
+        assert!(!kept.is_empty());
+    }
+
+    #[test]
+    fn a_budget_between_a_call_and_its_result_drops_the_whole_pair() {
+        let counter = HeuristicCounter;
+        let call_msg = call("c1");
+        let result_msg = Message::tool_result("c1", "out");
+        let final_msg = Message::text(Role::User, "final");
+
+        let call_cost = counter.count(&call_msg);
+        let result_cost = counter.count(&result_msg);
+        let final_cost = counter.count(&final_msg);
+        // Otherwise budget below plus one still leaves no room for the
+        // result, which is the whole point of the fixture.
+        assert!(result_cost > 1);
+
+        let history = vec![call_msg, result_msg, final_msg];
+        // After the newest group ("final") is taken whatever it costs, what
+        // remains covers the call alone but not the result answering it:
+        // the budget line falls between the two halves of the pair.
+        let budget = final_cost + call_cost + 1;
+
+        let kept = window_by_tokens(&history, budget, &counter);
+
+        let calls = kept
+            .iter()
+            .flat_map(|message| message.content.iter())
+            .filter(|content| matches!(content, InputContent::ToolCall { .. }))
+            .count();
+        let results = kept
+            .iter()
+            .flat_map(|message| message.content.iter())
+            .filter(|content| matches!(content, InputContent::ToolResult { .. }))
+            .count();
+        assert_eq!(calls, results);
+    }
+
+    #[test]
+    fn a_multiple_group_budget_stays_within_the_budget() {
+        let counter = HeuristicCounter;
+        let history: Vec<Message> = (0..5)
+            .map(|_| Message::text(Role::User, "same length message"))
+            .collect();
+
+        // Derived from the counter rather than a literal, since a hardcoded
+        // budget would test nothing about the estimate this crate produces.
+        let group_cost = counter.count(&history[0]);
+        let budget = group_cost * 3;
+
+        let kept = window_by_tokens(&history, budget, &counter);
+        let total: usize = kept.iter().map(|message| counter.count(message)).sum();
+        assert!(total <= budget);
+    }
+
+    #[test]
     fn a_pinned_turn_travels_with_its_group_until_that_group_is_dropped() {
         let history = pinned_inside_exchange();
 
@@ -774,5 +1058,48 @@ mod tests {
         // on one shape only, and the shape this test was first written for is
         // the least sensitive of the ones measured.
         assert_linear(many_open_calls_then_results);
+    }
+
+    #[test]
+    fn heuristic_counter_counts_every_variant_above_overhead() {
+        let messages = vec![
+            Message::new(Role::User, vec![InputContent::Text("hello there".into())]),
+            Message::new(
+                Role::User,
+                vec![InputContent::ImageUrl("https://example.com/a.png".into())],
+            ),
+            Message::new(
+                Role::Assistant,
+                vec![InputContent::ToolCall {
+                    id: "call_1".into(),
+                    name: "search".into(),
+                    arguments: "{\"q\":\"x\"}".into(),
+                }],
+            ),
+            Message::new(
+                Role::User,
+                vec![InputContent::ToolResult {
+                    call_id: "call_1".into(),
+                    output: "result text".into(),
+                }],
+            ),
+            Message::new(
+                Role::Assistant,
+                vec![InputContent::Reasoning {
+                    data: serde_json::json!({"steps": ["a", "b"]}),
+                }],
+            ),
+        ];
+
+        let counter = HeuristicCounter;
+        for message in &messages {
+            assert!(counter.count(message) > PER_MESSAGE_OVERHEAD);
+        }
+    }
+
+    #[test]
+    fn closure_satisfies_token_counter() {
+        let counter: &dyn TokenCounter = &|_: &Message| 7usize;
+        assert_eq!(counter.count(&Message::text(Role::User, "hi")), 7);
     }
 }
