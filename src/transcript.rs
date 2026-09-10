@@ -347,9 +347,119 @@ pub(crate) fn repair(messages: &mut Vec<Message>) {
     messages.retain(|message| !message.content.is_empty());
 }
 
+/// Pinned turns plus the most recent turn groups fitting an estimated token
+/// budget.
+///
+/// The token counterpart to [`window_by_groups`], and the rule
+/// `InMemoryStorage::window_by_tokens` uses. Published for the same
+/// reason: a backend of your own applies it inside its own
+/// [`load`](crate::Storage::load) rather than reimplementing it.
+///
+/// # What the budget covers
+///
+/// `history`, and nothing else. The agent's system instruction is inserted
+/// after [`load`](crate::Storage::load) returns, and tool schemas live on the
+/// [`crate::Agent`], so both ride on top of this number, as do the model's
+/// reply and the provider's envelope. Subtract them yourself when choosing a
+/// budget.
+///
+/// # A target, not a cap
+///
+/// Two things are kept whatever they cost. Every [`Role::System`] and
+/// [`Role::Developer`] turn survives at any budget, including zero, matching
+/// [`window_by_groups`]. And the newest group survives even alone over budget,
+/// because a request that is too large may fail while an empty one certainly
+/// does. With `counter` a [`HeuristicCounter`] the number is an estimate on
+/// top of that, so leave a margin.
+///
+/// # What it guarantees
+///
+/// It cuts only on group boundaries, so a tool call is never separated from
+/// the result answering it. Cutting mid-pair would be legal, since
+/// [`crate::Conversation::send`] repairs whatever `load` returns, but the
+/// repair drops both halves and the budget spent on the surviving half is
+/// wasted.
+///
+/// ```
+/// use freyja::{HeuristicCounter, Message, Role, window_by_tokens};
+///
+/// let history = vec![
+///     Message::text(Role::System, "be brief"),
+///     Message::text(Role::User, "a".repeat(4_000)),
+///     Message::text(Role::User, "recent"),
+/// ];
+///
+/// let kept = window_by_tokens(&history, 100, &HeuristicCounter);
+///
+/// // The pinned turn survives, and so does the newest group. The long one
+/// // did not fit.
+/// assert_eq!(kept.len(), 2);
+/// assert_eq!(kept[0].role, Role::System);
+/// ```
+pub fn window_by_tokens(
+    history: &[Message],
+    budget: usize,
+    counter: &dyn TokenCounter,
+) -> Vec<Message> {
+    let (pinned, groups) = split(history);
+    let is_pinned = |message: &&Message| matches!(message.role, Role::System | Role::Developer);
+
+    // Every pinned turn reaches the output whichever way the cut falls, at top
+    // level or rescued out of a group that ages out, so the whole pinned cost
+    // is known before a single group is chosen. Nothing here is circular.
+    let pinned_cost: usize = pinned
+        .iter()
+        .copied()
+        .chain(groups.iter().flat_map(|group| group.iter()).filter(is_pinned))
+        .map(|message| counter.count(message))
+        .sum();
+
+    let mut remaining = budget.saturating_sub(pinned_cost);
+
+    // Newest first, stopping before the first group that will not fit. A
+    // group's cost skips its pinned turns, which were counted above, so
+    // nothing is counted twice.
+    let mut from = groups.len();
+    for (index, group) in groups.iter().enumerate().rev() {
+        let cost: usize = group
+            .iter()
+            .filter(|message| !is_pinned(message))
+            .map(|message| counter.count(message))
+            .sum();
+
+        // The newest group is index `groups.len() - 1`, and it is taken
+        // whatever it costs.
+        if cost > remaining && index + 1 < groups.len() {
+            break;
+        }
+
+        remaining = remaining.saturating_sub(cost);
+        from = index;
+    }
+
+    let rescued = groups[..from]
+        .iter()
+        .flat_map(|group| group.iter())
+        .filter(is_pinned);
+
+    pinned
+        .into_iter()
+        .chain(rescued)
+        .cloned()
+        .chain(
+            groups[from..]
+                .iter()
+                .flat_map(|group| group.iter().cloned()),
+        )
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{HeuristicCounter, PER_MESSAGE_OVERHEAD, TokenCounter, repair, window_by_groups};
+    use super::{
+        HeuristicCounter, PER_MESSAGE_OVERHEAD, TokenCounter, repair, window_by_groups,
+        window_by_tokens,
+    };
     use crate::{InputContent, Message, Role};
 
     fn transcript() -> Vec<Message> {
@@ -710,6 +820,95 @@ mod tests {
         let history = tool_conversation();
         let selected = window_by_groups(&history, history.len());
         assert_eq!(selected, history);
+    }
+
+    #[test]
+    fn every_pinned_turn_survives_a_zero_token_budget_and_comes_first() {
+        // The Developer turn sits inside the call/result pair, and a User
+        // turn after it becomes the newest group, so the pinned turn's group
+        // is not the one forced to survive: it only reaches the output by
+        // being rescued to the front.
+        let history = vec![
+            Message::text(Role::System, "sys"),
+            Message::text(Role::User, "go"),
+            call("c1"),
+            Message::text(Role::Developer, "mid"),
+            Message::tool_result("c1", "out"),
+            Message::text(Role::User, "final"),
+        ];
+
+        let kept = window_by_tokens(&history, 0, &HeuristicCounter);
+
+        let pinned_in_history = history
+            .iter()
+            .filter(|message| matches!(message.role, Role::System | Role::Developer))
+            .count();
+        let pinned_in_kept = kept
+            .iter()
+            .filter(|message| matches!(message.role, Role::System | Role::Developer))
+            .count();
+        assert_eq!(pinned_in_kept, pinned_in_history);
+        assert_eq!(kept[0].role, Role::System);
+        assert_eq!(kept[1].role, Role::Developer);
+    }
+
+    #[test]
+    fn a_single_group_survives_a_zero_token_budget() {
+        let history = vec![Message::text(Role::User, "hello")];
+        let kept = window_by_tokens(&history, 0, &HeuristicCounter);
+        assert!(!kept.is_empty());
+    }
+
+    #[test]
+    fn a_budget_between_a_call_and_its_result_drops_the_whole_pair() {
+        let counter = HeuristicCounter;
+        let call_msg = call("c1");
+        let result_msg = Message::tool_result("c1", "out");
+        let final_msg = Message::text(Role::User, "final");
+
+        let call_cost = counter.count(&call_msg);
+        let result_cost = counter.count(&result_msg);
+        let final_cost = counter.count(&final_msg);
+        // Otherwise budget below plus one still leaves no room for the
+        // result, which is the whole point of the fixture.
+        assert!(result_cost > 1);
+
+        let history = vec![call_msg, result_msg, final_msg];
+        // After the newest group ("final") is taken whatever it costs, what
+        // remains covers the call alone but not the result answering it:
+        // the budget line falls between the two halves of the pair.
+        let budget = final_cost + call_cost + 1;
+
+        let kept = window_by_tokens(&history, budget, &counter);
+
+        let calls = kept
+            .iter()
+            .flat_map(|message| message.content.iter())
+            .filter(|content| matches!(content, InputContent::ToolCall { .. }))
+            .count();
+        let results = kept
+            .iter()
+            .flat_map(|message| message.content.iter())
+            .filter(|content| matches!(content, InputContent::ToolResult { .. }))
+            .count();
+        assert_eq!(calls, results);
+    }
+
+    #[test]
+    fn a_multiple_group_budget_stays_within_the_budget() {
+        let counter = HeuristicCounter;
+        let history: Vec<Message> = (0..5)
+            .map(|_| Message::text(Role::User, "same length message"))
+            .collect();
+
+        // Derived from the counter rather than a literal, since a hardcoded
+        // budget would test nothing about the estimate this crate produces.
+        let group_cost = counter.count(&history[0]);
+        let budget = group_cost * 3;
+
+        let kept = window_by_tokens(&history, budget, &counter);
+        let total: usize = kept.iter().map(|message| counter.count(message)).sum();
+        assert!(total <= budget);
     }
 
     #[test]

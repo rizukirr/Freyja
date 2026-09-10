@@ -133,7 +133,7 @@ pub use model::{
 };
 pub use storage::{InMemoryStorage, Storage, StorageError, StorageFuture};
 pub use stream::{EventStream, StreamEvent};
-pub use transcript::{HeuristicCounter, TokenCounter, window_by_groups};
+pub use transcript::{HeuristicCounter, TokenCounter, window_by_groups, window_by_tokens};
 
 /// Private dependencies used by generated code.
 #[doc(hidden)]
