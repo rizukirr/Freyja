@@ -40,40 +40,31 @@ cargo add tokio --features macros,rt-multi-thread
 ```
 
 ```rust
-use freyja::{Client, GenerateRequest, Message, EndpointPreset, Role};
+use freyja::{Agent, Client, EndpointPreset, InMemoryStorage, tool};
+
+#[tool(description = "adds two numbers. Use it instead of doing arithmetic yourself.")]
+fn add(a: i64, b: i64) -> i64 {
+    a + b
+}
 
 #[tokio::main]
-async fn main() {
+async fn main() -> Result<(), freyja::Error> {
     let client = Client::from_env(EndpointPreset::OpenAi).expect("OPENAI_API_KEY");
 
-    let request = GenerateRequest::new()
-        .message(Message::text(Role::User, "Name three Rust crates."));
+    let agent = Agent::new(client)
+        .tool(add)
+        .system("Answer in one short sentence.");
 
-    match client.generate(&request).await {
-        Ok(response) => println!("{}", response.output_text()),
-        Err(error) => eprintln!("request failed: {error}"),
-    }
+    let mut chat = agent.conversation(InMemoryStorage::new());
+    println!("{}", chat.send("What is 20 + 22?").await?.answer);
+    println!("{}", chat.send("And double that?").await?.answer);
+    Ok(())
 }
 ```
 
-Or take the same answer as it arrives. Tool-call arguments are assembled for you, so nothing hands you half a JSON object:
+`#[tool]` turns an ordinary Rust function into a tool: its parameters become the argument schema, and the model's JSON is checked against the Rust types before the function runs. `Agent` runs the loop, so when the model asks for `add`, Freyja calls it, sends the result back, and repeats until the model answers. `InMemoryStorage` holds the conversation, so the second question can refer to the first. Once conversations get long, `InMemoryStorage::new().window(20)` bounds what is sent each turn and keeps the transcript whole. See [Building an agent](docs/building-an-agent.md) and [Storage](docs/reference/storage.md).
 
-```rust
-use freyja::StreamEvent;
-
-let mut stream = client.stream(&request).await?;
-while let Some(event) = stream.next().await? {
-    match event {
-        StreamEvent::TextDelta(text) => print!("{text}"),
-        StreamEvent::ToolCall { name, arguments, .. } => println!("\n{name}({arguments})"),
-        _ => {}
-    }
-}
-```
-
-A drained stream converts back with `stream.into_response()?`, so a streaming tool loop reuses the same `to_message()` the non-streaming one does. See [Streaming](docs/reference/streaming.md).
-
-Add typed tools and a bounded loop and you have an agent. `#[tool]` derives the argument schema and JSON dispatcher from an ordinary Rust function. See [Building an agent](docs/building-an-agent.md).
+`Agent` is built on two calls you can use directly: `Client::generate` sends one request and returns one response, and `Client::stream` delivers the same answer as it arrives, with tool-call arguments assembled for you. See [Requests](docs/reference/requests.md) and [Streaming](docs/reference/streaming.md).
 
 ```bash
 cargo run --example simple           # one question, one answer
