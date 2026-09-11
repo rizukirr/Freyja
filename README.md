@@ -122,6 +122,7 @@ Phases 0 through 2 are complete, and Phase 3 has started: the neutral core is st
 | Untrusted endpoints | Same-origin redirects only, and ceilings on body, stream, frame, retry delay and tool fan-out |
 | Group-aware trimming | `window_by_groups`, the rule `InMemoryStorage::window` uses, public for a backend of your own |
 | Token-budget trimming | `window_by_tokens`, the rule `InMemoryStorage::window_by_tokens` uses, public for a backend of your own |
+| Summarizing dropped turns | `InMemoryStorage::summarize`, with a `Summarizer` that is public for a backend of your own |
 | Pre-flight checks | `client.check(&request)`, no network call |
 | Structured output | `strict_schema()` plus `generate_as::<T>()` |
 | Vendor-only fields | `extra_for()`, without forking |
@@ -138,7 +139,7 @@ The goal: everything you need to build an AI agent in Rust, with no vendor lock-
 
 **Phase 2, the agent.** Complete. `Tool` and `#[tool]` derive schemas from sync or async function signatures and provide typed execution, and `Agent` drives the tool-calling loop automatically, dispatching parallel tool calls concurrently, eight at a time. `Tool` is now a trait, so a tool can hold state in its fields, be built at runtime, and report failure as text the model recovers from; `Context` carries per-run data to every call without exposing it to the model. `Agent::guard` vets every requested call before dispatch, so a policy can refuse one and the model reads why.
 
-**Phase 3, memory and context.** Started. `Storage` is the backend a conversation reads and writes, and it decides what reaches the model by trimming inside its own `load`, with the caller's transcript kept whole. `InMemoryStorage::window` bounds one by turn group, and `window_by_groups` is public, so a backend of your own applies the same group-aware rule rather than reimplementing it or cutting mid-pair. `InMemoryStorage::window_by_tokens` bounds a transcript by an estimated budget instead, given a caller-supplied `TokenCounter`, and the budget covers the transcript only. Summarization, persistent backends, and retrieval with embeddings and a vector store are not built.
+**Phase 3, memory and context.** Started. `Storage` is the backend a conversation reads and writes, and it decides what reaches the model by trimming inside its own `load`, with the caller's transcript kept whole. `InMemoryStorage::window` bounds one by turn group, and `window_by_groups` is public, so a backend of your own applies the same group-aware rule rather than reimplementing it or cutting mid-pair. `InMemoryStorage::window_by_tokens` bounds a transcript by an estimated budget instead, given a caller-supplied `TokenCounter`, and the budget covers the transcript only. `InMemoryStorage::summarize` sends a summary of what either window drops, with one extra model call per summary. Persistent backends, and retrieval with embeddings and a vector store, are not built.
 
 **Phase 4, orchestration.** The namesake. Multi-agent handoff, workflow primitives for chains and fan-out, shared state, propagated cancellation and budgets, and human-in-the-loop pause and resume.
 

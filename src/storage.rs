@@ -1,6 +1,6 @@
 //! Where a conversation lives between turns.
 
-use crate::{Message, TokenCounter};
+use crate::{Message, Role, Summarizer, TokenCounter};
 use std::future::Future;
 use std::pin::Pin;
 
@@ -114,9 +114,9 @@ impl std::fmt::Debug for Window {
 
 /// The conversation in this process, and nowhere else.
 ///
-/// A plain vector and an optional window. There is no lock, because a
-/// [`crate::Conversation`] owns its backend outright, so [`Storage`] takes
-/// `&mut self` and nothing here needs interior mutability.
+/// A plain vector, an optional window and an optional summarizer. There is no
+/// lock, because a [`crate::Conversation`] owns its backend outright, so
+/// [`Storage`] takes `&mut self` and nothing here needs interior mutability.
 ///
 /// Lost when the value is dropped, which makes it the right choice for a
 /// short-lived process or a test and the wrong one for anything that has to
@@ -127,7 +127,24 @@ impl std::fmt::Debug for Window {
 pub struct InMemoryStorage {
     messages: Vec<Message>,
     window: Option<Window>,
+    summarizer: Option<Summarizer>,
+    summary: Option<Summary>,
 }
+
+/// The cached summary, and how many leading turn groups it stands for.
+///
+/// Turns are only ever appended, so the dropped part is always the oldest
+/// groups and the same count means the same turns. That count is the whole
+/// cache key.
+#[derive(Debug)]
+struct Summary {
+    covers: usize,
+    text: String,
+}
+
+/// Heads the summary message, so the model reads it as an account of what came
+/// before rather than as something the user just said.
+const SUMMARY_PREFIX: &str = "Summary of the earlier conversation:\n\n";
 
 impl InMemoryStorage {
     /// An empty conversation, with no window.
@@ -200,6 +217,42 @@ impl InMemoryStorage {
         self
     }
 
+    /// Summarize the turns the window drops, instead of losing them.
+    ///
+    /// Only turns a window drops are summarized, so this needs
+    /// [`InMemoryStorage::window`] or [`InMemoryStorage::window_by_tokens`].
+    /// Without one nothing is dropped and nothing is summarized.
+    ///
+    /// Inside [`load`](crate::Storage::load), the dropped turns, minus pinned
+    /// ones, go to `summarizer`, and the result is sent as one user message
+    /// after the pinned turns and before the turns still in view.
+    /// [`InMemoryStorage::messages`] still returns every raw turn, and
+    /// [`InMemoryStorage::summary`] returns the text last sent.
+    ///
+    /// Each summary is one extra model call, so it is made at a deeper cut
+    /// than the window needs: half the groups for [`InMemoryStorage::window`],
+    /// half the budget for [`InMemoryStorage::window_by_tokens`]. That leaves
+    /// room for the next several turns, and the summary is reused until the
+    /// window needs to drop more than it covers. A window of only a few groups
+    /// has little room to give, and summarizes again on most turns.
+    ///
+    /// A new summary is built from the raw turns, not from the previous
+    /// summary, so detail does not decay, at the price of a longer
+    /// summarizing input as the conversation grows. The summary rides on top
+    /// of a token budget rather than inside it.
+    ///
+    /// If the summarizing call fails, `load` sends the plain window and the
+    /// conversation carries on.
+    pub fn summarize(mut self, summarizer: Summarizer) -> Self {
+        self.summarizer = Some(summarizer);
+        self
+    }
+
+    /// The summary last sent in place of the dropped turns, if there is one.
+    pub fn summary(&self) -> Option<&str> {
+        self.summary.as_ref().map(|summary| summary.text.as_str())
+    }
+
     /// Everything held, which a window never shrinks.
     ///
     /// Borrowed rather than cloned, which is why there is no `all()`. An
@@ -210,20 +263,95 @@ impl InMemoryStorage {
     pub fn messages(&self) -> &[Message] {
         &self.messages
     }
+
+    /// What the window alone sends, with no summary.
+    fn windowed(&self) -> Vec<Message> {
+        match &self.window {
+            Some(Window::Groups(groups)) => {
+                crate::transcript::window_by_groups(&self.messages, *groups)
+            }
+            Some(Window::Tokens { budget, counter }) => {
+                crate::transcript::window_by_tokens(&self.messages, *budget, counter.as_ref())
+            }
+            None => self.messages.clone(),
+        }
+    }
 }
 
 impl Storage for InMemoryStorage {
     fn load(&mut self) -> StorageFuture<'_, Vec<Message>> {
         Box::pin(async move {
-            Ok(match &self.window {
-                Some(Window::Groups(groups)) => {
-                    crate::transcript::window_by_groups(&self.messages, *groups)
+            let Some(summarizer) = &self.summarizer else {
+                return Ok(self.windowed());
+            };
+
+            let (pinned, groups) = crate::transcript::split(&self.messages);
+            // The cut the window needs, and the deeper one a new summary is
+            // made at, half the window, so one summary serves several turns.
+            let (needed, deeper) = match &self.window {
+                Some(Window::Groups(keep)) => (
+                    crate::transcript::cut_by_groups(&groups, *keep),
+                    crate::transcript::cut_by_groups(&groups, keep.div_ceil(2)),
+                ),
+                Some(Window::Tokens { budget, counter }) => (
+                    crate::transcript::cut_by_tokens(&pinned, &groups, *budget, counter.as_ref()),
+                    crate::transcript::cut_by_tokens(
+                        &pinned,
+                        &groups,
+                        budget / 2,
+                        counter.as_ref(),
+                    ),
+                ),
+                None => (0, 0),
+            };
+            if needed == 0 {
+                return Ok(self.windowed());
+            }
+
+            // A summary covering at least what the window needs dropped still
+            // serves. It may cover more than the window would drop, and that
+            // difference is the room it made.
+            let cached = self
+                .summary
+                .as_ref()
+                .filter(|summary| summary.covers >= needed)
+                .map(|summary| (summary.covers, summary.text.clone()));
+            let (from, text) = match cached {
+                Some(hit) => hit,
+                None => {
+                    // Pinned turns are kept, not summarized: the window rescues
+                    // them out of the groups it drops.
+                    let dropped: Vec<Message> = groups[..deeper]
+                        .iter()
+                        .flat_map(|group| group.iter())
+                        .filter(|message| !matches!(message.role, Role::System | Role::Developer))
+                        .cloned()
+                        .collect();
+                    match summarizer.summarize(&dropped).await {
+                        Ok(text) => {
+                            self.summary = Some(Summary {
+                                covers: deeper,
+                                text: text.clone(),
+                            });
+                            (deeper, text)
+                        }
+                        // A summary improves on the window and is never a
+                        // condition for it, so the conversation goes on
+                        // without one.
+                        Err(_) => return Ok(self.windowed()),
+                    }
                 }
-                Some(Window::Tokens { budget, counter }) => {
-                    crate::transcript::window_by_tokens(&self.messages, *budget, counter.as_ref())
-                }
-                None => self.messages.clone(),
-            })
+            };
+
+            // After the pinned and rescued turns and before the groups still
+            // in view, so it reads as what came before them.
+            let kept: usize = groups[from..].iter().map(|group| group.len()).sum();
+            let mut messages = crate::transcript::reassemble(pinned, &groups, from);
+            messages.insert(
+                messages.len() - kept,
+                Message::text(Role::User, format!("{SUMMARY_PREFIX}{text}")),
+            );
+            Ok(messages)
         })
     }
 
@@ -237,6 +365,9 @@ impl Storage for InMemoryStorage {
     fn clear(&mut self) -> StorageFuture<'_, ()> {
         Box::pin(async move {
             self.messages.clear();
+            // A summary of a conversation that no longer exists would
+            // otherwise open the next one.
+            self.summary = None;
             Ok(())
         })
     }

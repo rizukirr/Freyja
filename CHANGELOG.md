@@ -20,6 +20,22 @@ Notable changes per release. Freyja is pre-1.0, so a minor version may break.
   even alone over budget. `window_by_tokens` and `window` share one field on
   `InMemoryStorage`, so the last one called applies.
 
+- **`Summarizer` and `InMemoryStorage::summarize`, so turns a window drops are
+  summarized instead of lost.** `Summarizer::new(client)` owns its own
+  `Client` and makes one request per summary, with optional `model`, `prompt`
+  and `max_tokens`. It sends the dropped turns as one block of text under its
+  own instruction, not as a replayed conversation, so no provider's rules on
+  turn order apply, and it leaves reasoning parts out. A reply cut short or
+  empty is an `Error::InvalidResponse`, never half a summary.
+
+  `InMemoryStorage::new().window(n).summarize(summarizer)` sends the summary
+  in place of the dropped turns, as one user message after the pinned turns.
+  It is made at half the window, so one summary serves several turns, and
+  rebuilt from the raw turns once the window needs to drop more than it
+  covers. `InMemoryStorage::summary` returns it, and `messages` still holds
+  every raw turn. If the summarizing call fails, `load` sends the plain
+  window.
+
 ## 0.4.0 - 2026-09-01
 
 One theme, found by auditing what an endpoint controls. Freyja bounded what a
