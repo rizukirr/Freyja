@@ -36,6 +36,7 @@ Streaming delivers the same answer incrementally, and a drained stream converts 
 | Reasoning state replay | Handled for you, see [Concepts](concepts.md#opaque-state) |
 | Group-aware trimming | `window_by_groups` is public, so a backend of your own applies the same rule `InMemoryStorage::window` does |
 | Token-budget trimming | `window_by_tokens` is public, so a backend of your own applies the same rule `InMemoryStorage::window_by_tokens` does, given a `TokenCounter` |
+| Summarizing dropped turns | `Summarizer` is public, so a backend of your own can summarize what it trims inside its own `load`, the way `InMemoryStorage::summarize` does |
 | Token estimation | `HeuristicCounter`, a dependency-free byte-length estimate, or any `Fn(&Message) -> usize + Send` closure wrapping a real tokenizer |
 | Automatic loop orchestration | `Agent` runs the tool-calling loop for you and dispatches parallel tool calls concurrently, eight at a time |
 | Refusing a tool call | `Agent::guard` vets every requested call, and a refusal reaches the model as text it can act on |
@@ -45,6 +46,7 @@ Streaming delivers the same answer incrementally, and a drained stream converts 
 | Tools that fail | A `Result` return reaches the model as error text it can recover from |
 | Bounding a transcript | `InMemoryStorage::window` keeps pinned turns and the most recent turn groups, applied inside `load` |
 | Bounding a transcript by token budget | `InMemoryStorage::window_by_tokens` keeps pinned turns and the most recent turn groups fitting an estimated budget, applied inside `load` |
+| Summarizing what a window drops | `InMemoryStorage::summarize` sends one summary message in place of the turns its window drops, made by a `Summarizer` inside `load` at half the window and reused until the window needs to drop more |
 | Storage written elsewhere | `Storage` is three methods over public types, so a third-party crate implements it with no change here, and may cut anywhere it likes, because the repair pass drops both halves of a pair the cut separated |
 
 The round trip is the load-bearing feature. A model asks for a function, you run it, you feed the result back, and it continues. [Building an agent](building-an-agent.md) is the guide.
@@ -84,7 +86,7 @@ Be sure none of these is on your critical path before adopting.
 | **Per-tool timeouts** | Out of scope, deliberately | Racing a call against a clock needs a timer, and Freyja depends on no runtime. A wrapper tool that holds the inner one and applies your runtime's timeout gets there in a dozen lines, for a tool you did not write as much as one you did. The [`Tool`](https://docs.rs/freyja/latest/freyja/trait.Tool.html) documentation has the whole implementation. |
 | **Structured-output schema derivation** | Not implemented | `#[tool]` derives argument schemas, but `ResponseFormat::JsonSchema` still takes an explicit schema. Generate one with `schemars` and pass it through `strict_schema()`. |
 | **Capability tables** | Not planned | `Client::check` answers the same question by running the conversion, so there is nothing to keep in sync. It needs a request in hand, which a table would not. |
-| **Summarization and persistent storage** | Not implemented | Summarizing needs a model call, and is a thing a `Storage` backend can do inside its own `load`, without any change to the trait, and `window_by_groups` and `window_by_tokens` are both public so a backend can reuse either windowing rule while adding one of its own. `InMemoryStorage` is the only `Storage` Freyja ships, and a backend that survives a restart needs nothing from this crate beyond the trait, since `Message` already derives `Serialize` and `Deserialize`. |
+| **Persistent storage** | Not implemented | `InMemoryStorage` is the only `Storage` Freyja ships, and a backend that survives a restart needs nothing from this crate beyond the trait, since `Message` already derives `Serialize` and `Deserialize`. |
 | **Embeddings and RAG** | Not implemented | An embeddings endpoint is a request shape no dialect covers, so it is a wire format of its own rather than a feature on top of one. |
 
 ## Per-provider gaps

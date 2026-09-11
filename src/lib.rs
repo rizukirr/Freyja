@@ -116,6 +116,7 @@ pub mod model;
 mod storage;
 /// Types and utilities for consuming streaming provider responses.
 pub mod stream;
+mod summarize;
 mod transcript;
 mod transport;
 
@@ -133,6 +134,7 @@ pub use model::{
 };
 pub use storage::{InMemoryStorage, Storage, StorageError, StorageFuture};
 pub use stream::{EventStream, StreamEvent};
+pub use summarize::Summarizer;
 pub use transcript::{HeuristicCounter, TokenCounter, window_by_groups, window_by_tokens};
 
 /// Private dependencies used by generated code.

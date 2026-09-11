@@ -96,6 +96,28 @@ impl Storage for MyBackend {
 }
 ```
 
+## `summarize` sends a summary of what the window drops
+
+```rust
+let mut chat = agent.conversation(
+    InMemoryStorage::new()
+        .window(20)
+        .summarize(Summarizer::new(client)),
+);
+```
+
+`InMemoryStorage::summarize(summarizer)` turns what a window drops into one summary instead of losing it. It needs `window` or `window_by_tokens`: without one nothing is dropped, and nothing is summarized. Inside `InMemoryStorage::load`, the dropped turns, minus pinned ones, go to the `Summarizer`, and the result is sent as one user message headed "Summary of the earlier conversation:", after the pinned turns and before the turns still in view. `InMemoryStorage::messages` still returns every raw turn, and `InMemoryStorage::summary` returns the text last sent.
+
+Each summary is one extra model call, so it is made at a deeper cut than the window needs, half the window: half the groups for `window`, rounded up, and half the budget for `window_by_tokens`. That leaves room for the next several turns, and the summary is reused until the window needs to drop more than it covers. A small window has little room to give. `window(2)` keeps one group after summarizing and one exchange adds two, so it summarizes again on nearly every turn. A new summary is built from the raw turns, never from the previous summary, so detail does not decay, at the price of a longer summarizing input as the conversation grows. The summary rides on top of a token budget rather than inside it.
+
+If the summarizing call fails, `load` sends the plain window and the conversation carries on. `clear` drops the summary along with the turns.
+
+`Summarizer` owns its own `Client` and builds its own request, so nothing from the conversation carries over: not the agent's system instruction, not its tools, not its token cap. `model`, `prompt` and `max_tokens` set its own. It sends the dropped turns as one block of text under its own instruction rather than replaying them as a conversation, which would have the model answer the last turn instead of summarizing it, and it leaves reasoning parts out, since those may be dropped but never summarized. A reply cut short, or one with no text, is an `Error::InvalidResponse`. A backend of your own can call it inside its own `load`:
+
+```rust
+let summary = summarizer.summarize(&dropped).await?;
+```
+
 ## `storage()` returns the backend
 
 ```rust
@@ -186,4 +208,4 @@ A backend fails with a boxed standard error rather than `freyja::Error`, because
 
 ## What is not built
 
-Summarization, retrieval with embeddings and a vector store, and any persistent backend are not implemented. Freyja ships `InMemoryStorage` (holding a `Vec<Message>` and an optional window), `impl Storage for Vec<Message>` so a transcript you hold yourself can be passed as `&mut history`, and forwarding impls for `&mut T` and `Box<T>`. None of them survive the process. Writing one that persists is possible today against the `Storage` trait as it stands and needs nothing else from this crate: `Message` already derives `Serialize` and `Deserialize`, so a backend only has to move bytes and implement three methods.
+Retrieval with embeddings and a vector store, and any persistent backend, are not implemented. Freyja ships `InMemoryStorage` (holding a `Vec<Message>`, an optional window and an optional summarizer), `impl Storage for Vec<Message>` so a transcript you hold yourself can be passed as `&mut history`, and forwarding impls for `&mut T` and `Box<T>`. None of them survive the process. Writing one that persists is possible today against the `Storage` trait as it stands and needs nothing else from this crate: `Message` already derives `Serialize` and `Deserialize`, so a backend only has to move bytes and implement three methods.

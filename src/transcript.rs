@@ -79,7 +79,11 @@ pub(crate) fn split(history: &[Message]) -> (Vec<&Message>, Vec<&[Message]>) {
 /// Shared by both windows so the rescue rule has one home: a pinned turn
 /// inside a group that ages out would otherwise leave the request entirely,
 /// and an instruction meant to persist would silently stop applying.
-fn reassemble(pinned: Vec<&Message>, groups: &[&[Message]], from: usize) -> Vec<Message> {
+pub(crate) fn reassemble(
+    pinned: Vec<&Message>,
+    groups: &[&[Message]],
+    from: usize,
+) -> Vec<Message> {
     let rescued = groups[..from]
         .iter()
         .flat_map(|group| group.iter())
@@ -156,7 +160,7 @@ fn reassemble(pinned: Vec<&Message>, groups: &[&[Message]], from: usize) -> Vec<
 /// boundary the query cut on.
 pub fn window_by_groups(history: &[Message], keep: usize) -> Vec<Message> {
     let (pinned, groups) = split(history);
-    let from = groups.len().saturating_sub(keep);
+    let from = cut_by_groups(&groups, keep);
     reassemble(pinned, &groups, from)
 }
 
@@ -407,6 +411,27 @@ pub fn window_by_tokens(
     counter: &dyn TokenCounter,
 ) -> Vec<Message> {
     let (pinned, groups) = split(history);
+    let from = cut_by_tokens(&pinned, &groups, budget, counter);
+    reassemble(pinned, &groups, from)
+}
+
+/// How many of the oldest `groups` [`window_by_groups`] drops to keep `keep`.
+///
+/// Separate from the window because [`crate::InMemoryStorage`] needs the cut
+/// itself, not only the trimmed transcript, to know which turns to summarize.
+pub(crate) fn cut_by_groups(groups: &[&[Message]], keep: usize) -> usize {
+    groups.len().saturating_sub(keep)
+}
+
+/// How many of the oldest `groups` [`window_by_tokens`] drops to fit `budget`.
+///
+/// Separate for the same reason as [`cut_by_groups`].
+pub(crate) fn cut_by_tokens(
+    pinned: &[&Message],
+    groups: &[&[Message]],
+    budget: usize,
+    counter: &dyn TokenCounter,
+) -> usize {
     let is_pinned = |message: &&Message| matches!(message.role, Role::System | Role::Developer);
 
     // Every pinned turn reaches the output whichever way the cut falls, at top
@@ -447,7 +472,7 @@ pub fn window_by_tokens(
         from = index;
     }
 
-    reassemble(pinned, &groups, from)
+    from
 }
 
 #[cfg(test)]
