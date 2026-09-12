@@ -144,7 +144,7 @@ impl<S: Storage> Conversation<S> {
         // history alone deletes a trailing unanswered call one step before the
         // caller supplies the answer that would have made it valid, which is
         // exactly the human-in-the-loop tool approval shape.
-        crate::transcript::repair(&mut history);
+        crate::repair::repair(&mut history);
 
         // `repair` only removes content and never reorders, and the turn was
         // pushed last, so it is still last and still equal unless the repair
