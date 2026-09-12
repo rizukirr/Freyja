@@ -109,6 +109,7 @@ pub(crate) fn repair(messages: &mut Vec<Message>) {
 #[cfg(test)]
 mod tests {
     use super::repair;
+    use crate::fixtures::call;
     use crate::{InputContent, Message, Role};
 
     fn transcript() -> Vec<Message> {
@@ -117,17 +118,6 @@ mod tests {
             Message::text(Role::User, "first"),
             Message::text(Role::User, "second"),
         ]
-    }
-
-    fn call(id: &str) -> Message {
-        Message::new(
-            Role::Assistant,
-            vec![InputContent::ToolCall {
-                id: id.into(),
-                name: "t".into(),
-                arguments: "{}".into(),
-            }],
-        )
     }
 
     #[test]

@@ -287,19 +287,9 @@ pub(crate) fn cut_by_tokens(
 mod tests {
     use super::{window_by_groups, window_by_tokens};
     use crate::TokenCounter;
+    use crate::fixtures::call;
     use crate::transcript::repair;
     use crate::{HeuristicCounter, InputContent, Message, Role};
-
-    fn call(id: &str) -> Message {
-        Message::new(
-            Role::Assistant,
-            vec![InputContent::ToolCall {
-                id: id.into(),
-                name: "t".into(),
-                arguments: "{}".into(),
-            }],
-        )
-    }
 
     fn tool_conversation() -> Vec<Message> {
         vec![

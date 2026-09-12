@@ -114,6 +114,8 @@ mod counter;
 pub mod dialect;
 pub mod endpoint;
 pub mod error;
+#[cfg(test)]
+mod fixtures;
 mod helper;
 pub mod model;
 mod storage;
