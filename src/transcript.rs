@@ -1,4 +1,4 @@
-//! Deciding what part of a transcript reaches the model.
+//! Repairing a transcript whose tool calls and results were cut apart.
 
 use crate::{InputContent, Message};
 use std::collections::{HashMap, HashSet};

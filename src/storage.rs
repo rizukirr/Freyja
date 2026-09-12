@@ -1,4 +1,4 @@
-//! Where a conversation lives between turns.
+//! The contract a conversation's memory implements.
 
 use crate::Message;
 use std::future::Future;
