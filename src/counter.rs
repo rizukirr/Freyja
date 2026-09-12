@@ -6,7 +6,7 @@ use crate::Message;
 ///
 /// Counting exactly is provider-specific: a BPE table for OpenAI, a different
 /// one for Gemini, a network call for Anthropic. Freyja takes no tokenizer
-/// dependency, so the count comes from you. [`HeuristicCounter`] is the
+/// dependency, so the count comes from you. [`crate::HeuristicCounter`] is the
 /// default for a caller who does not care.
 ///
 /// Per message rather than per transcript, for two reasons. A trimmer can walk

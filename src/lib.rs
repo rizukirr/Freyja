@@ -107,6 +107,7 @@
 #![deny(missing_docs)]
 
 mod agent;
+mod builtin;
 mod client;
 mod conversation;
 mod counter;
@@ -123,6 +124,7 @@ mod transcript;
 mod transport;
 
 pub use agent::{Agent, Decision, Run, StopReason};
+pub use builtin::{HeuristicCounter, InMemoryStorage};
 pub use client::Client;
 pub use conversation::Conversation;
 pub use counter::TokenCounter;
@@ -136,10 +138,9 @@ pub use model::{
     ReasoningEffort, ResponseFormat, ResponseStatus, Role, Tool, ToolChoice, ToolDefinition,
     ToolError, ToolFuture, Usage, strict_schema,
 };
-pub use storage::{InMemoryStorage, Storage, StorageError, StorageFuture};
+pub use storage::{Storage, StorageError, StorageFuture};
 pub use stream::{EventStream, StreamEvent};
 pub use summarize::Summarizer;
-pub use transcript::HeuristicCounter;
 
 /// Private dependencies used by generated code.
 #[doc(hidden)]
