@@ -268,10 +268,10 @@ impl InMemoryStorage {
     fn windowed(&self) -> Vec<Message> {
         match &self.window {
             Some(Window::Groups(groups)) => {
-                crate::transcript::window_by_groups(&self.messages, *groups)
+                crate::helper::window_by_groups(&self.messages, *groups)
             }
             Some(Window::Tokens { budget, counter }) => {
-                crate::transcript::window_by_tokens(&self.messages, *budget, counter.as_ref())
+                crate::helper::window_by_tokens(&self.messages, *budget, counter.as_ref())
             }
             None => self.messages.clone(),
         }
@@ -285,22 +285,17 @@ impl Storage for InMemoryStorage {
                 return Ok(self.windowed());
             };
 
-            let (pinned, groups) = crate::transcript::split(&self.messages);
+            let (pinned, groups) = crate::helper::split(&self.messages);
             // The cut the window needs, and the deeper one a new summary is
             // made at, half the window, so one summary serves several turns.
             let (needed, deeper) = match &self.window {
                 Some(Window::Groups(keep)) => (
-                    crate::transcript::cut_by_groups(&groups, *keep),
-                    crate::transcript::cut_by_groups(&groups, keep.div_ceil(2)),
+                    crate::helper::cut_by_groups(&groups, *keep),
+                    crate::helper::cut_by_groups(&groups, keep.div_ceil(2)),
                 ),
                 Some(Window::Tokens { budget, counter }) => (
-                    crate::transcript::cut_by_tokens(&pinned, &groups, *budget, counter.as_ref()),
-                    crate::transcript::cut_by_tokens(
-                        &pinned,
-                        &groups,
-                        budget / 2,
-                        counter.as_ref(),
-                    ),
+                    crate::helper::cut_by_tokens(&pinned, &groups, *budget, counter.as_ref()),
+                    crate::helper::cut_by_tokens(&pinned, &groups, budget / 2, counter.as_ref()),
                 ),
                 None => (0, 0),
             };
@@ -346,7 +341,7 @@ impl Storage for InMemoryStorage {
             // After the pinned and rescued turns and before the groups still
             // in view, so it reads as what came before them.
             let kept: usize = groups[from..].iter().map(|group| group.len()).sum();
-            let mut messages = crate::transcript::reassemble(pinned, &groups, from);
+            let mut messages = crate::helper::reassemble(pinned, &groups, from);
             messages.insert(
                 messages.len() - kept,
                 Message::text(Role::User, format!("{SUMMARY_PREFIX}{text}")),

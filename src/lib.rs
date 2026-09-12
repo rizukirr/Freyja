@@ -113,6 +113,7 @@ mod counter;
 pub mod dialect;
 pub mod endpoint;
 pub mod error;
+mod helper;
 pub mod model;
 mod storage;
 /// Types and utilities for consuming streaming provider responses.
@@ -129,6 +130,7 @@ pub use dialect::Dialect;
 pub use endpoint::{Auth, EndpointConfig, EndpointPreset, TokenLimitField};
 pub use error::{BODY_IN_MESSAGE, Error, MAX_RETRY_AFTER, TransportError};
 pub use freyja_macros::tool;
+pub use helper::{window_by_groups, window_by_tokens};
 pub use model::{
     Context, GenerateRequest, GenerateResponse, InputContent, Message, OutputContent,
     ReasoningEffort, ResponseFormat, ResponseStatus, Role, Tool, ToolChoice, ToolDefinition,
@@ -137,7 +139,7 @@ pub use model::{
 pub use storage::{InMemoryStorage, Storage, StorageError, StorageFuture};
 pub use stream::{EventStream, StreamEvent};
 pub use summarize::Summarizer;
-pub use transcript::{HeuristicCounter, window_by_groups, window_by_tokens};
+pub use transcript::HeuristicCounter;
 
 /// Private dependencies used by generated code.
 #[doc(hidden)]
