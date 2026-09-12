@@ -109,6 +109,7 @@
 mod agent;
 mod client;
 mod conversation;
+mod counter;
 pub mod dialect;
 pub mod endpoint;
 pub mod error;
@@ -123,6 +124,7 @@ mod transport;
 pub use agent::{Agent, Decision, Run, StopReason};
 pub use client::Client;
 pub use conversation::Conversation;
+pub use counter::TokenCounter;
 pub use dialect::Dialect;
 pub use endpoint::{Auth, EndpointConfig, EndpointPreset, TokenLimitField};
 pub use error::{BODY_IN_MESSAGE, Error, MAX_RETRY_AFTER, TransportError};
@@ -135,7 +137,7 @@ pub use model::{
 pub use storage::{InMemoryStorage, Storage, StorageError, StorageFuture};
 pub use stream::{EventStream, StreamEvent};
 pub use summarize::Summarizer;
-pub use transcript::{HeuristicCounter, TokenCounter, window_by_groups, window_by_tokens};
+pub use transcript::{HeuristicCounter, window_by_groups, window_by_tokens};
 
 /// Private dependencies used by generated code.
 #[doc(hidden)]
