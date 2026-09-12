@@ -288,7 +288,7 @@ mod tests {
     use super::{window_by_groups, window_by_tokens};
     use crate::TokenCounter;
     use crate::fixtures::call;
-    use crate::transcript::repair;
+    use crate::repair::repair;
     use crate::{HeuristicCounter, InputContent, Message, Role};
 
     fn tool_conversation() -> Vec<Message> {

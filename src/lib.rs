@@ -118,11 +118,11 @@ pub mod error;
 mod fixtures;
 mod helper;
 pub mod model;
+mod repair;
 mod storage;
 /// Types and utilities for consuming streaming provider responses.
 pub mod stream;
 mod summarize;
-mod transcript;
 mod transport;
 
 pub use agent::{Agent, Decision, Run, StopReason};
