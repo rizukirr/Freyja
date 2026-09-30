@@ -4,9 +4,10 @@ use crate::{Message, Role, Storage, StorageFuture, Summarizer, TokenCounter};
 
 /// The conversation in this process, and nowhere else.
 ///
-/// Lost when the vector is dropped. Persisting is a different backend, and
-/// writing one needs nothing from this crate beyond [`Storage`], since
-/// [`Message`] already derives `Serialize` and `Deserialize`.
+/// Lost when the vector is dropped. [`crate::JsonlStorage`] is the backend
+/// that persists, and writing another needs nothing from this crate beyond
+/// [`Storage`], since [`Message`] already derives `Serialize` and
+/// `Deserialize`.
 ///
 /// This is what a caller passes when they want to hold the transcript
 /// themselves, as `agent.conversation(&mut history)`, and it is extended in
@@ -68,9 +69,9 @@ impl std::fmt::Debug for Window {
 ///
 /// Lost when the value is dropped, which makes it the right choice for a
 /// short-lived process or a test and the wrong one for anything that has to
-/// survive a restart. Persisting is a different backend, and writing one needs
-/// nothing from this crate beyond [`Storage`], since [`Message`] already
-/// derives `Serialize` and `Deserialize`.
+/// survive a restart. [`crate::JsonlStorage`] is the backend that persists,
+/// and writing another needs nothing from this crate beyond [`Storage`], since
+/// [`Message`] already derives `Serialize` and `Deserialize`.
 #[derive(Debug, Default)]
 pub struct InMemoryStorage {
     messages: Vec<Message>,
@@ -210,6 +211,31 @@ impl InMemoryStorage {
     /// inherent method of the same name would shadow one silently.
     pub fn messages(&self) -> &[Message] {
         &self.messages
+    }
+
+    /// A conversation read back from somewhere that outlived the process.
+    ///
+    /// A summary claiming to cover more groups than the transcript has is
+    /// dropped, since `load` indexes the groups by that count and the pair
+    /// came from a file, not from this process.
+    pub(crate) fn restore(messages: Vec<Message>, summary: Option<(usize, String)>) -> Self {
+        let groups = crate::helper::split(&messages).1.len();
+        let summary = summary
+            .filter(|(covers, _)| *covers <= groups)
+            .map(|(covers, text)| Summary { covers, text });
+        Self {
+            messages,
+            summary,
+            ..Self::default()
+        }
+    }
+
+    /// The cached summary and how many leading groups it covers, which is
+    /// what a persisting backend stores beside the transcript.
+    pub(crate) fn cached(&self) -> Option<(usize, &str)> {
+        self.summary
+            .as_ref()
+            .map(|summary| (summary.covers, summary.text.as_str()))
     }
 
     /// What the window alone sends, with no summary.

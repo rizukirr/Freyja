@@ -36,6 +36,20 @@ Notable changes per release. Freyja is pre-1.0, so a minor version may break.
   every raw turn. If the summarizing call fails, `load` sends the plain
   window.
 
+- **`JsonlStorage`, a conversation kept in a file.** `JsonlStorage::open(path)`
+  reads the transcript at `path`, creating the file if it is missing, and
+  writes every append through to it, so a later process opening the same path
+  continues the conversation. It holds an `InMemoryStorage`, so `window`,
+  `window_by_tokens`, `summarize`, `messages` and `summary` are the same rules,
+  and it adds no dependency.
+
+  The file is JSON Lines: a version header, one line per turn, and the summary
+  as a line of its own, so a reopened conversation does not summarize again.
+  One append is one write, and a final line the process died inside is cut off
+  at `open`. A file from a newer format, or a bad line anywhere but the tail,
+  is an error. File access is blocking `std::fs`, and nothing locks the file
+  against a second process.
+
 ## 0.4.0 - 2026-09-01
 
 One theme, found by auditing what an endpoint controls. Freyja bounded what a

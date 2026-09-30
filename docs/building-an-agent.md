@@ -151,7 +151,7 @@ It forces a tool call on **every** round, so the model can never produce a final
 
 Every tool result becomes part of the prompt on the next round, and is billed as input tokens on every round after that. A verbose tool is a recurring cost, not a one-time one. Return what the model needs and nothing more.
 
-Trimming what a tool returns bounds the cost of one round. It does not bound the conversation, which grows until the provider rejects it outright. `Agent::conversation(storage)` always takes a backend, `InMemoryStorage::new()` for one held in this process or a backend of your own, and `InMemoryStorage::window` bounds what reaches the model each turn, keeping pinned turns and the most recent turn groups. A tool that occasionally returns something large is what a group window handles badly, since one oversized group still counts as one group: `InMemoryStorage::window_by_tokens` bounds by an estimated token budget instead, so a group's size affects whether it survives the cut. Either window can summarize what it drops instead of losing it, with `InMemoryStorage::summarize`, at the cost of one extra model call per summary. See [Storage](reference/storage.md).
+Trimming what a tool returns bounds the cost of one round. It does not bound the conversation, which grows until the provider rejects it outright. `Agent::conversation(storage)` always takes a backend, `InMemoryStorage::new()` for one held in this process, `JsonlStorage::open(path)` for one held in a file, or a backend of your own, and `InMemoryStorage::window` bounds what reaches the model each turn, keeping pinned turns and the most recent turn groups. A tool that occasionally returns something large is what a group window handles badly, since one oversized group still counts as one group: `InMemoryStorage::window_by_tokens` bounds by an estimated token budget instead, so a group's size affects whether it survives the cut. Either window can summarize what it drops instead of losing it, with `InMemoryStorage::summarize`, at the cost of one extra model call per summary. See [Storage](reference/storage.md).
 
 ### One result per call
 
@@ -173,7 +173,7 @@ The loop above is the skeleton. Three things separate it from something you woul
 
 **Watch the status, not just the content.** A response can come back `Incomplete` because it hit the token cap, or with a refusal. Both are `Ok`, because the call succeeded. See [Responses](reference/responses.md).
 
-**Persist the transcript if the conversation outlives the process.** `Message` is `Serialize` and `Deserialize`, so a `Vec<Message>` goes to disk or a database and comes back without a conversion layer. Keep the reasoning parts when you do; they are part of the transcript, not decoration.
+**Persist the transcript if the conversation outlives the process.** `Message` is `Serialize` and `Deserialize`, so a `Vec<Message>` goes to disk or a database and comes back without a conversion layer. Keep the reasoning parts when you do. They are part of the transcript, not decoration. With `Agent`, `JsonlStorage::open(path)` does this for you, in a file a later process reopens. See [Storage](reference/storage.md#jsonlstorage-keeps-the-conversation-in-a-file).
 
 ## Agent runs this loop for you
 

@@ -47,6 +47,7 @@ Streaming delivers the same answer incrementally, and a drained stream converts 
 | Bounding a transcript | `InMemoryStorage::window` keeps pinned turns and the most recent turn groups, applied inside `load` |
 | Bounding a transcript by token budget | `InMemoryStorage::window_by_tokens` keeps pinned turns and the most recent turn groups fitting an estimated budget, applied inside `load` |
 | Summarizing what a window drops | `InMemoryStorage::summarize` sends one summary message in place of the turns its window drops, made by a `Summarizer` inside `load` at half the window and reused until the window needs to drop more |
+| A conversation that survives a restart | `JsonlStorage::open(path)` keeps one conversation in a file, one JSON record per line, with the same `window`, `window_by_tokens` and `summarize` as `InMemoryStorage`, and stores the summary beside the turns |
 | Storage written elsewhere | `Storage` is three methods over public types, so a third-party crate implements it with no change here, and may cut anywhere it likes, because the repair pass drops both halves of a pair the cut separated |
 
 The round trip is the load-bearing feature. A model asks for a function, you run it, you feed the result back, and it continues. [Building an agent](building-an-agent.md) is the guide.
@@ -86,7 +87,7 @@ Be sure none of these is on your critical path before adopting.
 | **Per-tool timeouts** | Out of scope, deliberately | Racing a call against a clock needs a timer, and Freyja depends on no runtime. A wrapper tool that holds the inner one and applies your runtime's timeout gets there in a dozen lines, for a tool you did not write as much as one you did. The [`Tool`](https://docs.rs/freyja/latest/freyja/trait.Tool.html) documentation has the whole implementation. |
 | **Structured-output schema derivation** | Not implemented | `#[tool]` derives argument schemas, but `ResponseFormat::JsonSchema` still takes an explicit schema. Generate one with `schemars` and pass it through `strict_schema()`. |
 | **Capability tables** | Not planned | `Client::check` answers the same question by running the conversion, so there is nothing to keep in sync. It needs a request in hand, which a table would not. |
-| **Persistent storage** | Not implemented | `InMemoryStorage` is the only `Storage` Freyja ships, and a backend that survives a restart needs nothing from this crate beyond the trait, since `Message` already derives `Serialize` and `Deserialize`. |
+| **Database storage** | Not implemented | `JsonlStorage` persists to a file and is the only persistent `Storage` Freyja ships. A database driver brings a runtime with it, and Freyja depends on none, so a database backend is written against the trait, and needs nothing else from this crate, since `Message` already derives `Serialize` and `Deserialize`. [Storage](reference/storage.md#a-worked-external-backend) has one. |
 | **Embeddings and RAG** | Not implemented | An embeddings endpoint is a request shape no dialect covers, so it is a wire format of its own rather than a feature on top of one. |
 
 ## Per-provider gaps
