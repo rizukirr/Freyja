@@ -9,7 +9,7 @@ pub struct Message {
 }
 ```
 
-Derives `Debug`, `Clone`, `Serialize`, `Deserialize`, `PartialEq`. Being serializable means you can persist a transcript to disk or a database and load it back without writing a conversion layer.
+Derives `Debug`, `Clone`, `Serialize`, `Deserialize`, `PartialEq`. Being serializable means you can persist a transcript to disk or a database and load it back without writing a conversion layer. `JsonlStorage` is built on exactly that, one serialized `Message` per line. See [Storage](storage.md#jsonlstorage-keeps-the-conversation-in-a-file).
 
 ## Role
 

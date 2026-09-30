@@ -24,7 +24,7 @@ impl Storage for Vec<Message> {
 }
 ```
 
-A plain vector is a complete `Storage` implementation. It holds the conversation for as long as the value lives and loses it the moment the value drops, which is the right tradeoff for a short-lived process, a script, or a test, and the wrong one for anything that has to survive a restart. `&mut T` and `Box<T>` also implement `Storage` by forwarding to the `T` underneath, so a caller can pass a borrowed vector they keep for themselves, or erase the backend behind `Box<dyn Storage>` when the concrete type is chosen at run time.
+A plain vector is a complete `Storage` implementation. It holds the conversation for as long as the value lives and loses it the moment the value drops, which is the right tradeoff for a short-lived process, a script, or a test, and the wrong one for anything that has to survive a restart, which is what `JsonlStorage` is for. `&mut T` and `Box<T>` also implement `Storage` by forwarding to the `T` underneath, so a caller can pass a borrowed vector they keep for themselves, or erase the backend behind `Box<dyn Storage>` when the concrete type is chosen at run time.
 
 ## Starting a conversation
 
@@ -32,7 +32,7 @@ A plain vector is a complete `Storage` implementation. It holds the conversation
 let mut chat = agent.conversation(InMemoryStorage::new());
 ```
 
-`Agent::conversation(storage)` is the only constructor, and it always takes the backend as an argument, so nothing chooses one for you. Pass `InMemoryStorage::new()` for a conversation held in this process, a borrowed vector, or a backend of your own. All return a `Conversation<S>` over whichever `Storage` you passed, and all are driven the same way from there.
+`Agent::conversation(storage)` is the only constructor, and it always takes the backend as an argument, so nothing chooses one for you. Pass `InMemoryStorage::new()` for a conversation held in this process, `JsonlStorage::open(path)?` for one held in a file, a borrowed vector, or a backend of your own. All return a `Conversation<S>` over whichever `Storage` you passed, and all are driven the same way from there.
 
 ```rust
 let run = chat.send("what's the weather?").await?;
@@ -117,6 +117,31 @@ If the summarizing call fails, `load` sends the plain window and the conversatio
 ```rust
 let summary = summarizer.summarize(&dropped).await?;
 ```
+
+## `JsonlStorage` keeps the conversation in a file
+
+```rust
+let mut chat = agent.conversation(JsonlStorage::open("chat.jsonl")?.window(20));
+```
+
+`JsonlStorage::open(path)` opens the conversation stored at `path`, creating the file if it does not exist, so a later process opening the same path continues where this one stopped. `cargo run --example persist -- "a message"` shows it: run it twice and the second run remembers the first. One file is one conversation, the same way one `Storage` value is. An application with several conversations picks a path per conversation, and one that builds the path from an id a client supplied validates the id first, because it becomes part of a path.
+
+The whole transcript is read at `open` and held in an `InMemoryStorage`, and every `append` is written to the file before it is held. `window`, `window_by_tokens` and `summarize` are therefore the same rules with the same guarantees, and `messages` and `summary` read the same things. The file keeps every turn, whatever window is set.
+
+```
+{"header":{"version":1}}
+{"message":{"role":"user","content":[{"Text":"What is 20 + 22?"}]}}
+{"message":{"role":"assistant","content":[{"Text":"42."}]}}
+{"summary":{"covers":1,"text":"- The user asked for 20 + 22"}}
+```
+
+The file is JSON Lines. The first line carries a format version, and a file written by a version this build does not know is refused at `open` instead of being misread. Each turn is one line. A summary is a line of its own, written when `load` makes a new one, and the last one in the file is the one a later `open` restores, so a process that reopens the conversation does not pay for a summary that was already made. `clear` empties the file along with the transcript and the summary.
+
+One `append` is one write, followed by a sync. A process killed inside that write leaves a final line with no newline after it, and `open` cuts that fragment off, so a crash loses at most the tail of the last run. If the cut separates a tool call from its result, the repair pass drops the half that is left. A line that does not parse anywhere else in the file is corruption, and `open` returns an error for it. A summary that fails to write is ignored, since the next process makes it again at the cost of one model call.
+
+`open` returns a `StorageError`, not a `freyja::Error`, because no endpoint is involved. A `main` returning `Box<dyn std::error::Error + Send + Sync>` takes `?` on both.
+
+Two limits are specific to a file. It is read and written with blocking `std::fs` calls, since Freyja has no runtime to hand them to, and each is one small write next to a model call that takes seconds. Nothing locks the file either, so two processes over one path race the way two conversations over one backend do.
 
 ## `storage()` returns the backend
 
@@ -208,4 +233,4 @@ A backend fails with a boxed standard error rather than `freyja::Error`, because
 
 ## What is not built
 
-Retrieval with embeddings and a vector store, and any persistent backend, are not implemented. Freyja ships `InMemoryStorage` (holding a `Vec<Message>`, an optional window and an optional summarizer), `impl Storage for Vec<Message>` so a transcript you hold yourself can be passed as `&mut history`, and forwarding impls for `&mut T` and `Box<T>`. None of them survive the process. Writing one that persists is possible today against the `Storage` trait as it stands and needs nothing else from this crate: `Message` already derives `Serialize` and `Deserialize`, so a backend only has to move bytes and implement three methods.
+Retrieval with embeddings and a vector store, and a database backend, are not implemented. Freyja ships `InMemoryStorage` (holding a `Vec<Message>`, an optional window and an optional summarizer), `JsonlStorage` (the same, written through to a file), `impl Storage for Vec<Message>` so a transcript you hold yourself can be passed as `&mut history`, and forwarding impls for `&mut T` and `Box<T>`. Only `JsonlStorage` survives the process. A database driver brings a runtime with it and Freyja depends on none, so a database backend is written against the `Storage` trait as it stands and needs nothing else from this crate: `Message` already derives `Serialize` and `Deserialize`, so a backend only has to move bytes and implement three methods.
