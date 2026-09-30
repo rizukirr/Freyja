@@ -382,9 +382,10 @@ impl Agent {
 
     /// Starts a conversation held in `storage`.
     ///
-    /// Pass [`crate::InMemoryStorage`] for one held in this process, `&mut
-    /// history` to run over a transcript you already hold, which is extended
-    /// in place, or a backend of your own.
+    /// Pass [`crate::InMemoryStorage`] for one held in this process,
+    /// [`crate::JsonlStorage`] for one held in a file that a later process
+    /// reopens, `&mut history` to run over a transcript you already hold,
+    /// which is extended in place, or a backend of your own.
     ///
     /// ```no_run
     /// # async fn run(agent: freyja::Agent) -> Result<(), freyja::Error> {
