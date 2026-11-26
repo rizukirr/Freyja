@@ -1,8 +1,9 @@
 //! Driving the tool-calling loop.
 
 use crate::{
-    Client, Context, Conversation, Dialect, Error, GenerateRequest, Message, OutputContent,
-    ReasoningEffort, ResponseStatus, Storage, Tool, ToolChoice, ToolDefinition, Usage,
+    Client, Context, Conversation, Dialect, Error, GenerateRequest, GenerateResponse, Message,
+    OutputContent, ReasoningEffort, ResponseStatus, Storage, StreamEvent, Tool, ToolChoice,
+    ToolDefinition, Usage,
 };
 use futures_util::StreamExt;
 use serde_json::Value;
@@ -60,6 +61,34 @@ pub struct Run {
     /// How many requests this run made.
     pub turns: usize,
 }
+
+/// One thing that happened during [`Conversation::send_streaming`], as it
+/// happens.
+///
+/// The enum is `#[non_exhaustive]`: match with a trailing `_ => {}` arm.
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq)]
+pub enum AgentEvent {
+    /// Something the model streamed, exactly as [`Client::stream`] yields it.
+    /// A tool call arrives here as [`StreamEvent::ToolCall`], before it runs.
+    Model(StreamEvent),
+    /// A tool finished, and its output is about to go back to the model.
+    ///
+    /// Sent once every call the turn requested has finished, in the order the
+    /// model requested them. A denied or failed call is reported too, with the
+    /// text the model will see.
+    ToolResult {
+        /// The id of the call this answers.
+        id: String,
+        /// The tool that ran.
+        name: String,
+        /// What the model will read.
+        output: String,
+    },
+}
+
+/// Where a streaming run sends its events.
+pub(crate) type EventSink<'a> = &'a mut (dyn FnMut(AgentEvent) + Send);
 
 /// Why a [`Conversation`] turn stopped.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -247,10 +276,14 @@ impl Agent {
     /// every round, and the model could never produce a final answer.
     ///
     /// `cx` is handed to every tool call and is never sent to the model.
+    ///
+    /// With a sink, every request streams and its events go to the sink as
+    /// they arrive. Without one, every request is a plain `generate`.
     pub(crate) async fn run_loop(
         &self,
         messages: &mut Vec<Message>,
         cx: &Context,
+        mut sink: Option<EventSink<'_>>,
     ) -> Result<Run, Error> {
         let original_len = messages.len();
         let mut request = self.template.clone();
@@ -281,7 +314,10 @@ impl Agent {
                     .insert(0, Message::text(crate::Role::System, system.clone()));
             }
 
-            let response = self.client.generate(&request).await;
+            let response = match sink.as_deref_mut() {
+                Some(sink) => self.stream_turn(&request, sink).await,
+                None => self.client.generate(&request).await,
+            };
 
             if self.system.is_some() {
                 request.messages.remove(0);
@@ -353,20 +389,30 @@ impl Agent {
             // choice into pressure on the caller's process. `buffered` yields
             // in input order, so nothing is refused or reordered, only
             // staggered.
-            let outputs: Vec<String> = futures_util::stream::iter(
-                calls
-                    .iter()
-                    .map(|(_, name, arguments)| self.dispatch(name, arguments, cx)),
-            )
-            .buffered(MAX_CONCURRENT_TOOL_CALLS)
-            .collect()
-            .await;
+            //
+            // The futures are collected before they are streamed. Streaming
+            // the `map` itself kept a closure over borrowed tuples alive across
+            // the await, which rustc cannot prove `Send` for every lifetime, so
+            // no `send` future could be spawned onto a multi-threaded runtime.
+            let pending: Vec<_> = calls
+                .iter()
+                .map(|(_, name, arguments)| self.dispatch(name, arguments, cx))
+                .collect();
+            let outputs: Vec<String> = futures_util::stream::iter(pending)
+                .buffered(MAX_CONCURRENT_TOOL_CALLS)
+                .collect()
+                .await;
 
             request.messages.reserve(outputs.len());
-            for ((id, _, _), output) in calls.iter().zip(outputs) {
-                request
-                    .messages
-                    .push(Message::tool_result(id.clone(), output));
+            for ((id, name, _), output) in calls.into_iter().zip(outputs) {
+                if let Some(sink) = sink.as_deref_mut() {
+                    sink(AgentEvent::ToolResult {
+                        id: id.clone(),
+                        name,
+                        output: output.clone(),
+                    });
+                }
+                request.messages.push(Message::tool_result(id, output));
             }
         }
 
@@ -378,6 +424,20 @@ impl Agent {
             usage,
             turns,
         })
+    }
+
+    /// Streams one request, handing each event to `sink`, and assembles the
+    /// response the loop goes on with.
+    async fn stream_turn(
+        &self,
+        request: &GenerateRequest,
+        sink: &mut (dyn FnMut(AgentEvent) + Send),
+    ) -> Result<GenerateResponse, Error> {
+        let mut stream = self.client.stream(request).await?;
+        while let Some(event) = stream.next().await? {
+            sink(AgentEvent::Model(event));
+        }
+        stream.into_response()
     }
 
     /// Starts a conversation held in `storage`.

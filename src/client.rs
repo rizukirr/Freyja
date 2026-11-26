@@ -347,7 +347,7 @@ impl Client {
     ) -> Result<crate::stream::EventStream, Error> {
         let wire = crate::dialect::with_dialect!(self.config.dialect, |provider| {
             let body = provider.build(request, &self.config)?.streaming();
-            crate::transport::to_value(&body, request, &self.config)?
+            crate::transport::to_body(&body, request, &self.config)?
         });
         let decoder = crate::dialect::decoder_for(self.config.dialect);
 
@@ -356,7 +356,7 @@ impl Client {
             &self.config,
             self.api_key.as_deref(),
             self.config.send_stream_url(),
-            &wire,
+            wire,
         )
         .await?;
 
@@ -365,7 +365,7 @@ impl Client {
             // Read before `text()`, which consumes the response and takes the
             // headers with it.
             let retry_after = crate::transport::parse_retry_after(response.headers());
-            let body = crate::transport::read_body(response, &self.config.name).await?;
+            let body = crate::transport::read_error_body(response, &self.config.name).await?;
             return Err(Error::from_status(
                 self.config.name.clone(),
                 status.as_u16(),
@@ -389,21 +389,20 @@ impl Client {
         request: &GenerateRequest,
     ) -> Result<GenerateResponse, Error> {
         let wire = wire_dialect.build(request, &self.config)?;
-        let body = crate::transport::to_value(&wire, request, &self.config)?;
+        let body = crate::transport::to_body(&wire, request, &self.config)?;
         let response = crate::transport::post(
             &self.http,
             &self.config,
             self.api_key.as_deref(),
             self.config.send_url(),
-            &body,
+            body,
         )
         .await?;
 
         let status = response.status();
-        let retry_after = crate::transport::parse_retry_after(response.headers());
-        let body = crate::transport::read_body(response, &self.config.name).await?;
-
         if !status.is_success() {
+            let retry_after = crate::transport::parse_retry_after(response.headers());
+            let body = crate::transport::read_error_body(response, &self.config.name).await?;
             return Err(Error::from_status(
                 self.config.name.clone(),
                 status.as_u16(),
@@ -411,6 +410,8 @@ impl Client {
                 body,
             ));
         }
+
+        let body = crate::transport::read_body(response, &self.config.name).await?;
 
         wire_dialect.parse(&body, &self.config)
     }

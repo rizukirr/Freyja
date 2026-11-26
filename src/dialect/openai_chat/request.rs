@@ -12,11 +12,12 @@ use crate::model::{
 };
 use serde::Serialize;
 use serde_json::Value;
+use std::borrow::Cow;
 
 #[derive(Serialize)]
-pub struct Request {
+pub struct Request<'a> {
     model: String,
-    messages: Vec<MessageWire>,
+    messages: Vec<MessageWire<'a>>,
     // Exactly one of these carries the cap, chosen by
     // `EndpointConfig::token_limit_field`. Newer OpenAI models reject the
     // presence of `max_tokens`, not just its value, so sending both to cover
@@ -34,11 +35,11 @@ pub struct Request {
     #[serde(skip_serializing_if = "Option::is_none")]
     response_format: Option<Value>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    tools: Vec<ToolWire>,
+    tools: Vec<ToolWire<'a>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     tool_choice: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    metadata: Option<Value>,
+    metadata: Option<&'a Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     stream: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -49,75 +50,78 @@ pub struct Request {
 /// here rather than a separate top-level field, so system turns stay in the
 /// array instead of being hoisted out of it.
 #[derive(Serialize)]
-struct MessageWire {
+struct MessageWire<'a> {
     role: &'static str,
     /// Serialized as `null` rather than omitted when an assistant turn carries
     /// only tool calls, which is the shape the API documents.
-    content: Option<ContentWire>,
+    content: Option<ContentWire<'a>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    tool_calls: Option<Vec<ToolCallWire>>,
+    tool_calls: Option<Vec<ToolCallWire<'a>>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    tool_call_id: Option<String>,
+    tool_call_id: Option<&'a str>,
 }
 
 /// Content is a bare string or an array of parts. Freyja sends the string form
 /// whenever it can, because the simpler compatible endpoints accept only that.
 #[derive(Serialize)]
 #[serde(untagged)]
-enum ContentWire {
-    Text(String),
-    Parts(Vec<PartWire>),
+enum ContentWire<'a> {
+    Text(Cow<'a, str>),
+    Parts(Vec<PartWire<'a>>),
 }
 
 #[derive(Serialize)]
 #[serde(tag = "type")]
-enum PartWire {
+enum PartWire<'a> {
     #[serde(rename = "text")]
-    Text { text: String },
+    Text { text: &'a str },
     #[serde(rename = "image_url")]
-    Image { image_url: ImageUrlWire },
+    Image { image_url: ImageUrlWire<'a> },
 }
 
 #[derive(Serialize)]
-struct ImageUrlWire {
-    url: String,
+struct ImageUrlWire<'a> {
+    url: &'a str,
 }
 
 #[derive(Serialize)]
-struct ToolCallWire {
-    id: String,
+struct ToolCallWire<'a> {
+    id: &'a str,
     #[serde(rename = "type")]
     kind: &'static str,
-    function: FunctionCallWire,
+    function: FunctionCallWire<'a>,
 }
 
 #[derive(Serialize)]
-struct FunctionCallWire {
-    name: String,
+struct FunctionCallWire<'a> {
+    name: &'a str,
     /// A JSON string, as in the Responses API and unlike Gemini or Anthropic.
-    arguments: String,
+    arguments: &'a str,
 }
 
 #[derive(Serialize)]
-struct ToolWire {
+struct ToolWire<'a> {
     #[serde(rename = "type")]
     kind: &'static str,
-    function: FunctionWire,
+    function: FunctionWire<'a>,
 }
 
 #[derive(Serialize)]
-struct FunctionWire {
-    name: String,
+struct FunctionWire<'a> {
+    name: &'a str,
     #[serde(skip_serializing_if = "Option::is_none")]
-    description: Option<String>,
+    description: Option<&'a str>,
     parameters: Value,
     #[serde(skip_serializing_if = "Option::is_none")]
     strict: Option<bool>,
 }
 
-impl Request {
+impl<'a> Request<'a> {
     /// Converts a neutral request into this dialect's wire format.
-    pub(crate) fn build(value: &GenerateRequest, config: &EndpointConfig) -> Result<Self, Error> {
+    pub(crate) fn build(
+        value: &'a GenerateRequest,
+        config: &EndpointConfig,
+    ) -> Result<Self, Error> {
         // Chat Completions is stateless; the whole transcript goes every time.
         if value.previous_response_id.is_some() {
             return Err(refusal::unsupported(
@@ -147,7 +151,7 @@ impl Request {
                 .iter()
                 .any(|part| matches!(part, InputContent::ImageUrl(_)));
 
-            let mut text = Vec::new();
+            let mut text: Vec<&str> = Vec::new();
             let mut parts = Vec::new();
             let mut tool_calls = Vec::new();
             let mut tool_call_id = None;
@@ -156,11 +160,9 @@ impl Request {
                 match part {
                     InputContent::Text(value) => {
                         if has_image {
-                            parts.push(PartWire::Text {
-                                text: value.clone(),
-                            });
+                            parts.push(PartWire::Text { text: value });
                         } else {
-                            text.push(value.clone());
+                            text.push(value);
                         }
                     }
                     // Every role takes one. Verified live: an image part on an
@@ -169,7 +171,7 @@ impl Request {
                     // all three until they were tried.
                     InputContent::ImageUrl(url) => {
                         parts.push(PartWire::Image {
-                            image_url: ImageUrlWire { url: url.clone() },
+                            image_url: ImageUrlWire { url },
                         });
                     }
                     InputContent::ToolCall {
@@ -177,12 +179,9 @@ impl Request {
                         name,
                         arguments,
                     } => tool_calls.push(ToolCallWire {
-                        id: id.clone(),
+                        id,
                         kind: "function",
-                        function: FunctionCallWire {
-                            name: name.clone(),
-                            arguments: arguments.clone(),
-                        },
+                        function: FunctionCallWire { name, arguments },
                     }),
                     InputContent::ToolResult { call_id, output } => {
                         // A tool turn answers exactly one call here, unlike
@@ -195,17 +194,15 @@ impl Request {
                                     .into(),
                             });
                         }
-                        tool_call_id = Some(call_id.clone());
+                        tool_call_id = Some(call_id.as_str());
                         // Into whichever rendering this turn is getting. An
                         // image elsewhere in it decides that, and putting the
                         // output in only `text` would drop it whenever the
                         // parts form won.
                         if has_image {
-                            parts.push(PartWire::Text {
-                                text: output.clone(),
-                            });
+                            parts.push(PartWire::Text { text: output });
                         } else {
-                            text.push(output.clone());
+                            text.push(output);
                         }
                     }
                     // No standard place for opaque reasoning state in this
@@ -218,7 +215,11 @@ impl Request {
             let content = if has_image {
                 Some(ContentWire::Parts(parts))
             } else if !text.is_empty() {
-                Some(ContentWire::Text(text.join("\n")))
+                // One part, the usual case, is sent as it stands.
+                Some(ContentWire::Text(match text.as_slice() {
+                    [only] => Cow::Borrowed(*only),
+                    _ => Cow::Owned(text.join("\n")),
+                }))
             } else {
                 None
             };
@@ -278,15 +279,15 @@ impl Request {
                 .map(|tool| ToolWire {
                     kind: "function",
                     function: FunctionWire {
-                        name: tool.name.clone(),
-                        description: tool.description.clone(),
+                        name: &tool.name,
+                        description: tool.description.as_deref(),
                         parameters: tool.schema(),
                         strict: tool.strict,
                     },
                 })
                 .collect(),
             tool_choice,
-            metadata: value.metadata.clone(),
+            metadata: value.metadata.as_ref(),
             stream: None,
             stream_options: None,
         })

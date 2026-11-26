@@ -138,6 +138,7 @@ cargo run --example structured_output # JSON constrained by a schema, deserializ
 cargo run --example images           # an image in a prompt, by URL or data URI
 cargo run --example async_tools      # several tool calls running at once
 cargo run --example agent            # the loop driven by Agent
+cargo run --example agent_streaming  # the same loop, printed as it streams
 cargo run --example guarded_tools    # tool state, run context, failures, and a guard
 cargo run --example memory           # bounding what reaches the model, transcript kept whole
 cargo run --example persist -- "hi"  # a conversation in a file, continued by the next run

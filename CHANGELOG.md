@@ -48,7 +48,25 @@ Notable changes per release. Freyja is pre-1.0, so a minor version may break.
   One append is one write, and a final line the process died inside is cut off
   at `open`. A file from a newer format, or a bad line anywhere but the tail,
   is an error. File access is blocking `std::fs`, and nothing locks the file
-  against a second process.
+  against a second process. On Unix a file `open` creates has mode 0600, and an existing file keeps its mode.
+
+- **`Conversation::send_streaming` and `send_streaming_with`, the tool loop with every request streamed.** A callback receives `AgentEvent::Model(StreamEvent)` for text, reasoning, refusals and complete tool calls as they arrive, and `AgentEvent::ToolResult` once a turn's tools have finished. It returns the same `Run` and stores the same turns `send` does. `examples/agent_streaming.rs` shows it.
+
+- **A `cargo audit` workflow**, on pushes to `main`, pull requests, and weekly.
+
+### Changed
+
+- **An error response keeps only the first 64 KiB of its body.** It was read under the 64 MiB success cap and held whole inside the `Error`. `Error::body` returns the kept part.
+- **A request body is sent with `Content-Type: application/json` unless an endpoint header names one**, the rule `RequestBuilder::json` followed, so an endpoint's own `Content-Type` replaces it rather than going out twice.
+- **Less copying per request and per stream.** Request bodies borrow the transcript instead of cloning it, and serialize straight from the wire struct when there are no extra body fields. A valid UTF-8 response is no longer copied to become a `String`. The SSE buffer parses frames in place and drops consumed bytes once per chunk.
+
+### Fixed
+
+- **The future `Conversation::send` returns is now `Send`**, so it can be passed to `tokio::spawn`. A closure over borrowed tool calls lived across an await, and rustc could not prove it `Send`.
+
+### Security
+
+- **`url` is 2.5.9**, past RUSTSEC-2026-0592. Freyja does not call the affected `Url::origin`.
 
 ## 0.4.0 - 2026-09-01
 

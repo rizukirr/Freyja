@@ -16,10 +16,10 @@ use serde_json::Value;
 const DEFAULT_MAX_TOKENS: u32 = 16_000;
 
 #[derive(Serialize)]
-pub struct Request {
+pub struct Request<'a> {
     model: String,
     max_tokens: u32,
-    messages: Vec<MessageWire>,
+    messages: Vec<MessageWire<'a>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     system: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -31,11 +31,11 @@ pub struct Request {
     #[serde(skip_serializing_if = "Option::is_none")]
     output_config: Option<Value>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    tools: Vec<ToolWire>,
+    tools: Vec<ToolWire<'a>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     tool_choice: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    metadata: Option<Value>,
+    metadata: Option<&'a Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     stream: Option<bool>,
 }
@@ -44,15 +44,15 @@ pub struct Request {
 /// content blocks inside a message, not siblings of it. There are only two
 /// roles on the wire, and tool results ride on a `user` turn.
 #[derive(Serialize)]
-struct MessageWire {
+struct MessageWire<'a> {
     role: &'static str,
-    content: Vec<BlockWire>,
+    content: Vec<BlockWire<'a>>,
 }
 
 /// Whether every block in a turn is a `tool_result`.
 ///
 /// An empty turn is not, since it carries nothing to merge.
-fn only_tool_results(blocks: &[BlockWire]) -> bool {
+fn only_tool_results(blocks: &[BlockWire<'_>]) -> bool {
     !blocks.is_empty()
         && blocks
             .iter()
@@ -61,48 +61,60 @@ fn only_tool_results(blocks: &[BlockWire]) -> bool {
 
 #[derive(Serialize)]
 #[serde(untagged)]
-enum BlockWire {
+enum BlockWire<'a> {
     /// A block Freyja models.
-    Typed(TypedBlockWire),
+    Typed(TypedBlockWire<'a>),
     /// A block preserved from a previous response and replayed verbatim, such
     /// as a signed `thinking` block the model requires back unchanged.
-    Raw(Value),
+    Raw(&'a Value),
 }
 
 #[derive(Serialize)]
 #[serde(tag = "type")]
-enum TypedBlockWire {
+enum TypedBlockWire<'a> {
     #[serde(rename = "text")]
-    Text { text: String },
+    Text { text: &'a str },
     #[serde(rename = "image")]
-    Image { source: Value },
+    Image { source: ImageSourceWire<'a> },
     #[serde(rename = "tool_use")]
     ToolUse {
-        id: String,
-        name: String,
+        id: &'a str,
+        name: &'a str,
         /// A structured object, not a JSON string as on OpenAI.
         input: Value,
     },
     #[serde(rename = "tool_result")]
     ToolResult {
-        tool_use_id: String,
-        content: String,
+        tool_use_id: &'a str,
+        content: &'a str,
     },
 }
 
+/// Where an image comes from. A data URI is split in place, so its base64
+/// payload, usually the largest thing in a request, is never copied.
 #[derive(Serialize)]
-struct ToolWire {
-    name: String,
+#[serde(tag = "type", rename_all = "lowercase")]
+enum ImageSourceWire<'a> {
+    Url { url: &'a str },
+    Base64 { media_type: &'a str, data: &'a str },
+}
+
+#[derive(Serialize)]
+struct ToolWire<'a> {
+    name: &'a str,
     #[serde(skip_serializing_if = "Option::is_none")]
-    description: Option<String>,
+    description: Option<&'a str>,
     input_schema: Value,
     #[serde(skip_serializing_if = "Option::is_none")]
     strict: Option<bool>,
 }
 
-impl Request {
+impl<'a> Request<'a> {
     /// Converts a neutral request into this dialect's wire format.
-    pub(crate) fn build(value: &GenerateRequest, config: &EndpointConfig) -> Result<Self, Error> {
+    pub(crate) fn build(
+        value: &'a GenerateRequest,
+        config: &EndpointConfig,
+    ) -> Result<Self, Error> {
         // Anthropic keeps no server-side transcript; the full history goes on
         // every request, so there is nothing to continue from.
         if value.previous_response_id.is_some() {
@@ -112,14 +124,14 @@ impl Request {
             ));
         }
 
-        let mut system = Vec::new();
-        let mut messages: Vec<MessageWire> = Vec::new();
+        let mut system: Vec<&str> = Vec::new();
+        let mut messages: Vec<MessageWire<'a>> = Vec::new();
 
         for message in &value.messages {
             if matches!(message.role, Role::System | Role::Developer) {
                 for content in &message.content {
                     match content {
-                        InputContent::Text(text) => system.push(text.clone()),
+                        InputContent::Text(text) => system.push(text),
                         _ => {
                             return Err(refusal::unsupported(config, refusal::NON_TEXT_SYSTEM));
                         }
@@ -146,9 +158,7 @@ impl Request {
             for part in &message.content {
                 match part {
                     InputContent::Text(text) => {
-                        content.push(BlockWire::Typed(TypedBlockWire::Text {
-                            text: text.clone(),
-                        }));
+                        content.push(BlockWire::Typed(TypedBlockWire::Text { text }));
                     }
                     InputContent::ImageUrl(url) => {
                         if message.role != Role::User {
@@ -164,19 +174,19 @@ impl Request {
                         arguments,
                     } => {
                         content.push(BlockWire::Typed(TypedBlockWire::ToolUse {
-                            id: id.clone(),
-                            name: name.clone(),
+                            id,
+                            name,
                             input: parse_arguments(arguments, config)?,
                         }));
                     }
                     InputContent::ToolResult { call_id, output } => {
                         content.push(BlockWire::Typed(TypedBlockWire::ToolResult {
-                            tool_use_id: call_id.clone(),
-                            content: output.clone(),
+                            tool_use_id: call_id,
+                            content: output,
                         }));
                     }
                     InputContent::Reasoning { data } => {
-                        content.push(BlockWire::Raw(data.clone()));
+                        content.push(BlockWire::Raw(data));
                     }
                 }
             }
@@ -253,14 +263,14 @@ impl Request {
                 .tools
                 .iter()
                 .map(|tool| ToolWire {
-                    name: tool.name.clone(),
-                    description: tool.description.clone(),
+                    name: &tool.name,
+                    description: tool.description.as_deref(),
                     input_schema: tool.schema(),
                     strict: tool.strict,
                 })
                 .collect(),
             tool_choice,
-            metadata: value.metadata.clone(),
+            metadata: value.metadata.as_ref(),
             stream: None,
         })
     }
@@ -292,9 +302,9 @@ fn parse_arguments(raw: &str, config: &EndpointConfig) -> Result<Value, Error> {
 /// Builds an image source block. Anthropic distinguishes remote URLs from
 /// inline base64, so a data URI has to be split into its media type and payload
 /// rather than passed through as a URL.
-fn image_source(url: &str, config: &EndpointConfig) -> Result<Value, Error> {
+fn image_source<'a>(url: &'a str, config: &EndpointConfig) -> Result<ImageSourceWire<'a>, Error> {
     let Some(rest) = url.strip_prefix("data:") else {
-        return Ok(serde_json::json!({"type": "url", "url": url}));
+        return Ok(ImageSourceWire::Url { url });
     };
 
     let invalid = || Error::InvalidRequest {
@@ -305,11 +315,7 @@ fn image_source(url: &str, config: &EndpointConfig) -> Result<Value, Error> {
     let (media_type, data) = rest.split_once(',').ok_or_else(invalid)?;
     let media_type = media_type.strip_suffix(";base64").ok_or_else(invalid)?;
 
-    Ok(serde_json::json!({
-        "type": "base64",
-        "media_type": media_type,
-        "data": data,
-    }))
+    Ok(ImageSourceWire::Base64 { media_type, data })
 }
 
 #[cfg(test)]

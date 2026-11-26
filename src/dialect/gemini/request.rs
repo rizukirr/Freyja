@@ -55,10 +55,55 @@ fn tool_choice(choice: &ToolChoice) -> Value {
     }
 }
 
+/// The whole input: a bare string for a lone text turn, steps otherwise.
 #[derive(Serialize)]
-pub struct Request {
+#[serde(untagged)]
+enum InputWire<'a> {
+    Text(&'a str),
+    Steps(Vec<StepWire<'a>>),
+}
+
+/// One step of the transcript, borrowing its text from the request.
+#[derive(Serialize)]
+#[serde(untagged)]
+enum StepWire<'a> {
+    /// `user_input` or `model_output`, holding text and images.
+    Message {
+        #[serde(rename = "type")]
+        kind: &'static str,
+        content: Vec<ContentWire<'a>>,
+    },
+    Call(CallStepWire<'a>),
+    /// A step preserved from a previous response and replayed verbatim.
+    Raw(&'a Value),
+}
+
+#[derive(Serialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+enum CallStepWire<'a> {
+    FunctionCall {
+        id: &'a str,
+        name: &'a str,
+        arguments: Value,
+    },
+    FunctionResult {
+        call_id: &'a str,
+        name: &'a str,
+        result: Value,
+    },
+}
+
+#[derive(Serialize)]
+#[serde(tag = "type", rename_all = "lowercase")]
+enum ContentWire<'a> {
+    Text { text: &'a str },
+    Image { uri: &'a str },
+}
+
+#[derive(Serialize)]
+pub struct Request<'a> {
     model: String,
-    input: Value,
+    input: InputWire<'a>,
     #[serde(skip_serializing_if = "Option::is_none")]
     system_instruction: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -72,20 +117,23 @@ pub struct Request {
     /// Agent Platform", a deployment gating a field it has, not a format
     /// missing one, so it is sent and the endpoint answers.
     #[serde(skip_serializing_if = "Option::is_none")]
-    labels: Option<Value>,
+    labels: Option<&'a Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    previous_interaction_id: Option<String>,
+    previous_interaction_id: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     stream: Option<bool>,
 }
 
-impl Request {
+impl<'a> Request<'a> {
     /// Converts a neutral request into this dialect's wire format.
-    pub(crate) fn build(value: &GenerateRequest, config: &EndpointConfig) -> Result<Self, Error> {
+    pub(crate) fn build(
+        value: &'a GenerateRequest,
+        config: &EndpointConfig,
+    ) -> Result<Self, Error> {
         let tool_choice = value.tool_choice.as_ref().map(tool_choice);
 
-        let mut system = Vec::new();
-        let mut steps: Vec<Value> = Vec::new();
+        let mut system: Vec<&str> = Vec::new();
+        let mut steps: Vec<StepWire<'a>> = Vec::new();
 
         // A function_result must carry the name of the tool it answers, but the
         // neutral model only records the call id, so the name is resolved from
@@ -100,7 +148,7 @@ impl Request {
             if matches!(message.role, Role::System | Role::Developer) {
                 for part in &message.content {
                     match part {
-                        InputContent::Text(text) => system.push(text.clone()),
+                        InputContent::Text(text) => system.push(text),
                         _ => {
                             return Err(refusal::unsupported(config, refusal::NON_TEXT_SYSTEM));
                         }
@@ -118,7 +166,7 @@ impl Request {
             } else {
                 "user_input"
             };
-            let mut pending: Vec<Value> = Vec::new();
+            let mut pending: Vec<ContentWire<'a>> = Vec::new();
 
             for part in &message.content {
                 match part {
@@ -129,7 +177,7 @@ impl Request {
                                 message: "tool messages may only contain tool results".into(),
                             });
                         }
-                        pending.push(serde_json::json!({"type": "text", "text": text}));
+                        pending.push(ContentWire::Text { text });
                     }
                     // A `model_output` step takes typed content just as
                     // `user_input` does, and the endpoint validates an image in
@@ -143,7 +191,7 @@ impl Request {
                                 message: "tool messages may only contain tool results".into(),
                             });
                         }
-                        pending.push(serde_json::json!({"type": "image", "uri": url}));
+                        pending.push(ContentWire::Image { uri: url });
                     }
                     InputContent::ToolCall {
                         id,
@@ -152,11 +200,10 @@ impl Request {
                     } => {
                         flush(&mut steps, step_type, &mut pending);
                         tool_names.insert(id.as_str(), name.as_str());
-                        steps.push(serde_json::json!({
-                            "type": "function_call",
-                            "id": id,
-                            "name": name,
-                            "arguments": parse_json_or_string(arguments),
+                        steps.push(StepWire::Call(CallStepWire::FunctionCall {
+                            id,
+                            name,
+                            arguments: parse_json_or_string(arguments),
                         }));
                     }
                     InputContent::ToolResult { call_id, output } => {
@@ -170,16 +217,15 @@ impl Request {
                                 ),
                             });
                         };
-                        steps.push(serde_json::json!({
-                            "type": "function_result",
-                            "call_id": call_id,
-                            "name": name,
-                            "result": result_value(output),
+                        steps.push(StepWire::Call(CallStepWire::FunctionResult {
+                            call_id,
+                            name,
+                            result: result_value(output),
                         }));
                     }
                     InputContent::Reasoning { data } => {
                         flush(&mut steps, step_type, &mut pending);
-                        steps.push(data.clone());
+                        steps.push(StepWire::Raw(data));
                     }
                 }
             }
@@ -188,15 +234,21 @@ impl Request {
         }
 
         // A lone plain-text user step may be sent as a bare string.
-        let input = if steps.len() == 1
-            && steps[0]["type"] == "user_input"
-            && steps[0]["content"]
-                .as_array()
-                .is_some_and(|content| content.len() == 1 && content[0]["type"] == "text")
-        {
-            steps[0]["content"][0]["text"].clone()
-        } else {
-            Value::Array(steps)
+        let lone = match steps.as_slice() {
+            [
+                StepWire::Message {
+                    kind: "user_input",
+                    content,
+                },
+            ] => match content.as_slice() {
+                [ContentWire::Text { text }] => Some(*text),
+                _ => None,
+            },
+            _ => None,
+        };
+        let input = match lone {
+            Some(text) => InputWire::Text(text),
+            None => InputWire::Steps(steps),
         };
 
         // `response_format` on this API *is* the schema: its `type` takes the
@@ -240,8 +292,8 @@ impl Request {
                     })
                 })
                 .collect(),
-            labels: value.metadata.clone(),
-            previous_interaction_id: value.previous_response_id.clone(),
+            labels: value.metadata.as_ref(),
+            previous_interaction_id: value.previous_response_id.as_deref(),
             stream: None,
         })
     }
@@ -254,14 +306,18 @@ impl Request {
 }
 
 /// Emits the accumulated text and image parts as one step, if any.
-fn flush(steps: &mut Vec<Value>, step_type: &str, pending: &mut Vec<Value>) {
+fn flush<'a>(
+    steps: &mut Vec<StepWire<'a>>,
+    step_type: &'static str,
+    pending: &mut Vec<ContentWire<'a>>,
+) {
     if pending.is_empty() {
         return;
     }
-    steps.push(serde_json::json!({
-        "type": step_type,
-        "content": std::mem::take(pending),
-    }));
+    steps.push(StepWire::Message {
+        kind: step_type,
+        content: std::mem::take(pending),
+    });
 }
 
 /// Tool arguments travel as strings in the neutral model but as structured

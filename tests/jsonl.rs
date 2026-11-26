@@ -192,3 +192,19 @@ fn a_file_it_cannot_read_is_refused() {
     std::fs::write(&corrupt, "{\"header\":{\"version\":1}}\nnot json\n").expect("write");
     assert!(JsonlStorage::open(&corrupt).is_err());
 }
+
+#[cfg(unix)]
+#[test]
+fn a_new_transcript_is_readable_by_its_owner_alone() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let path = path("mode");
+    JsonlStorage::open(&path).expect("opens");
+
+    let mode = std::fs::metadata(&path)
+        .expect("exists")
+        .permissions()
+        .mode();
+    assert_eq!(mode & 0o777, 0o600, "{mode:o}");
+    let _ = std::fs::remove_file(&path);
+}

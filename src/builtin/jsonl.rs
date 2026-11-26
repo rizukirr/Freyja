@@ -69,12 +69,13 @@ impl JsonlStorage {
     /// loses at most the tail of the last run. A line that does not parse
     /// anywhere else is an error, and so is a file written by a newer format.
     pub fn open(path: impl AsRef<Path>) -> Result<Self, StorageError> {
-        let mut file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .open(path)?;
+        let mut options = OpenOptions::new();
+        options.read(true).write(true).create(true).truncate(false);
+        // A transcript is the conversation itself, so a new one is readable by
+        // its owner alone. An existing file keeps the mode it already has.
+        #[cfg(unix)]
+        std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+        let mut file = options.open(path)?;
 
         let mut bytes = Vec::new();
         file.read_to_end(&mut bytes)?;
