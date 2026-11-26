@@ -111,4 +111,6 @@ jobs:
       - uses: actions/checkout@v4
       - run: rustup update stable && rustup default stable
       # Fails on missing metadata, bad links, or anything cargo publish would reject.
-      - run: cargo publish --dry-run
+      # --workspace packages freyja-macros alongside freyja and resolves it from
+      # there, so the check holds whether or not the macro crate is on crates.io.
+      - run: cargo publish --workspace --dry-run
