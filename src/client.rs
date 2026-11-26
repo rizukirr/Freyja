@@ -347,7 +347,7 @@ impl Client {
     ) -> Result<crate::stream::EventStream, Error> {
         let wire = crate::dialect::with_dialect!(self.config.dialect, |provider| {
             let body = provider.build(request, &self.config)?.streaming();
-            crate::transport::to_value(&body, request, &self.config)?
+            crate::transport::to_body(&body, request, &self.config)?
         });
         let decoder = crate::dialect::decoder_for(self.config.dialect);
 
@@ -356,7 +356,7 @@ impl Client {
             &self.config,
             self.api_key.as_deref(),
             self.config.send_stream_url(),
-            &wire,
+            wire,
         )
         .await?;
 
@@ -389,13 +389,13 @@ impl Client {
         request: &GenerateRequest,
     ) -> Result<GenerateResponse, Error> {
         let wire = wire_dialect.build(request, &self.config)?;
-        let body = crate::transport::to_value(&wire, request, &self.config)?;
+        let body = crate::transport::to_body(&wire, request, &self.config)?;
         let response = crate::transport::post(
             &self.http,
             &self.config,
             self.api_key.as_deref(),
             self.config.send_url(),
-            &body,
+            body,
         )
         .await?;
 

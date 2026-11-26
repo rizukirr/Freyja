@@ -209,17 +209,28 @@ fn apply_query_auth(url: String, config: &EndpointConfig, api_key: Option<&str>)
     parsed.into()
 }
 
-pub(crate) async fn post<T: Serialize>(
+/// Posts an already serialized JSON body.
+///
+/// `Content-Type` is set only when no endpoint header already names one, the
+/// same rule `RequestBuilder::json` follows, so a gateway that needs its own
+/// media type still gets exactly one header.
+pub(crate) async fn post(
     http: &reqwest::Client,
     config: &EndpointConfig,
     api_key: Option<&str>,
     url: String,
-    wire: &T,
+    body: Vec<u8>,
 ) -> Result<reqwest::Response, Error> {
     let url = apply_query_auth(url, config, api_key);
-    let post = apply_headers(http.post(url), config, api_key);
+    let typed = resolved_headers(config, api_key)
+        .iter()
+        .any(|(name, _)| name.eq_ignore_ascii_case("content-type"));
+    let mut post = apply_headers(http.post(url), config, api_key);
+    if !typed {
+        post = post.header(reqwest::header::CONTENT_TYPE, "application/json");
+    }
 
-    post.json(wire)
+    post.body(body)
         .send()
         .await
         .map_err(|error| Error::transport(config.name.clone(), &error, Some(config)))
@@ -323,6 +334,32 @@ pub(crate) fn parse_retry_after(headers: &reqwest::header::HeaderMap) -> Option<
         .ok()?;
 
     Some(Duration::from_secs(seconds).min(crate::error::MAX_RETRY_AFTER))
+}
+
+/// The request body as JSON bytes, escape hatches merged in.
+///
+/// Serialized straight from the wire struct when there is nothing to merge,
+/// which is the common case, so the transcript is not first copied into a
+/// `Value` tree.
+pub(crate) fn to_body<T: Serialize>(
+    wire: &T,
+    request: &GenerateRequest,
+    config: &EndpointConfig,
+) -> Result<Vec<u8>, Error> {
+    let merges = !config.extra_body.is_empty()
+        || request
+            .extra
+            .iter()
+            .any(|(dialect, _)| *dialect == config.dialect);
+    let bytes = if merges {
+        serde_json::to_vec(&to_value(wire, request, config)?)
+    } else {
+        serde_json::to_vec(wire)
+    };
+    bytes.map_err(|error| Error::InvalidRequest {
+        endpoint: config.name.clone(),
+        message: error.to_string(),
+    })
 }
 
 pub(crate) fn to_value<T: Serialize>(
@@ -470,6 +507,25 @@ mod tests {
     fn text_survives_invalid_utf8_and_keeps_valid_utf8_whole() {
         assert_eq!(into_text("café".as_bytes().to_vec()), "café");
         assert_eq!(into_text(vec![b'a', 0xff, b'b']), "a\u{fffd}b");
+    }
+
+    #[test]
+    fn the_direct_body_matches_the_merged_one_when_nothing_merges() {
+        // The shortcut is only sound if skipping the `Value` changes nothing.
+        let config = EndpointConfig::new(Dialect::OpenAiChat, "test", "https://x.test");
+        let request = GenerateRequest::new()
+            .model("m")
+            .message(crate::Message::text(crate::Role::User, "Hi"));
+        let wire = crate::dialect::WireDialect::build(
+            &crate::dialect::openai_chat::OpenAiChatProvider,
+            &request,
+            &config,
+        )
+        .unwrap();
+
+        let direct: Value = serde_json::from_slice(&to_body(&wire, &request, &config).unwrap())
+            .expect("the body is JSON");
+        assert_eq!(direct, to_value(&wire, &request, &config).unwrap());
     }
 
     #[test]

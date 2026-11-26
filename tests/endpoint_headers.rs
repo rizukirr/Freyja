@@ -88,6 +88,33 @@ async fn a_caller_header_survives_when_no_key_claims_the_name() {
 }
 
 #[tokio::test]
+async fn the_body_goes_out_as_json_with_one_content_type() {
+    let (base, requests) = serve(&[ok_response()]);
+    let config =
+        EndpointConfig::new(Dialect::OpenAiChat, "local", base).default_model("test-model");
+
+    let sent = send_with(config, requests).await;
+    assert_eq!(header_values(&sent, "content-type"), ["application/json"]);
+    let body = &sent[sent.find("{\"").expect("a JSON body")..];
+    let body: serde_json::Value = serde_json::from_str(body).expect("the body is JSON");
+    assert_eq!(body["messages"][0]["content"], "Hi");
+}
+
+#[tokio::test]
+async fn an_endpoint_content_type_replaces_the_default() {
+    let (base, requests) = serve(&[ok_response()]);
+    let config = EndpointConfig::new(Dialect::OpenAiChat, "local", base)
+        .default_model("test-model")
+        .header("Content-Type", "application/json; charset=utf-8");
+
+    let sent = send_with(config, requests).await;
+    assert_eq!(
+        header_values(&sent, "content-type"),
+        ["application/json; charset=utf-8"]
+    );
+}
+
+#[tokio::test]
 async fn an_error_body_is_kept_only_up_to_its_cap() {
     // Far past the cap, so a body kept whole would fail the length check.
     let body = "x".repeat(1024 * 1024);
