@@ -30,6 +30,10 @@ const SEPARATOR_OVERLAP: usize = 3;
 #[derive(Default)]
 pub(super) struct SseBuffer {
     bytes: Vec<u8>,
+    /// Where the next unread frame begins. Bytes before it are consumed and
+    /// dropped on the next `push`, so a chunk holding many frames is shifted
+    /// once rather than once per frame.
+    start: usize,
     /// How much of `bytes` has already been searched and found separator-free.
     ///
     /// Without it every arriving chunk rescanned the whole buffer from zero,
@@ -41,27 +45,32 @@ pub(super) struct SseBuffer {
 impl SseBuffer {
     /// Appends raw bytes from the response body.
     pub(super) fn push(&mut self, chunk: &[u8]) {
+        if self.start > 0 {
+            self.bytes.drain(..self.start);
+            self.scanned -= self.start;
+            self.start = 0;
+        }
         self.bytes.extend_from_slice(chunk);
     }
 
     /// Whether the buffer has grown past what any real frame needs.
     pub(super) fn overflowed(&self) -> bool {
-        self.bytes.len() > MAX_FRAME_BYTES
+        self.bytes.len() - self.start > MAX_FRAME_BYTES
     }
 
     /// Splits off the next complete frame, or `None` when more bytes are needed.
     pub(super) fn next_frame(&mut self) -> Option<SseFrame> {
-        let from = self.scanned.saturating_sub(SEPARATOR_OVERLAP);
+        let from = self
+            .scanned
+            .saturating_sub(SEPARATOR_OVERLAP)
+            .max(self.start);
         let Some((end, next)) = separator(&self.bytes[from..]) else {
             self.scanned = self.bytes.len();
             return None;
         };
         let (end, next) = (from + end, from + next);
 
-        let raw: Vec<u8> = self.bytes.drain(..next).collect();
-        self.scanned = 0;
-        let text = String::from_utf8_lossy(&raw[..end]);
-
+        let text = String::from_utf8_lossy(&self.bytes[self.start..end]);
         let mut event = None;
         let mut data = String::new();
         for line in text.lines() {
@@ -79,6 +88,8 @@ impl SseBuffer {
             }
         }
 
+        self.start = next;
+        self.scanned = next;
         Some(SseFrame { event, data })
     }
 }
@@ -165,6 +176,41 @@ mod tests {
             assert_eq!(buffer.next_frame().expect("second frame").data, "two");
             assert!(buffer.next_frame().is_none());
         }
+    }
+
+    #[test]
+    fn reads_many_frames_from_one_chunk_then_resumes_after_compacting() {
+        let mut buffer = SseBuffer::default();
+        let mut chunk = Vec::new();
+        for index in 0..100 {
+            chunk.extend_from_slice(format!("data: {index}\n\n").as_bytes());
+        }
+        chunk.extend_from_slice(b"data: tail\n");
+        buffer.push(&chunk);
+
+        for index in 0..100 {
+            assert_eq!(buffer.next_frame().expect("frame").data, index.to_string());
+        }
+        assert!(buffer.next_frame().is_none());
+
+        // The consumed frames are dropped here, and the partial one survives.
+        buffer.push(b"\n");
+        assert_eq!(buffer.next_frame().expect("tail").data, "tail");
+        assert!(buffer.next_frame().is_none());
+        assert_eq!(buffer.start, buffer.bytes.len());
+    }
+
+    #[test]
+    fn consumed_frames_do_not_count_toward_the_ceiling() {
+        let mut buffer = SseBuffer::default();
+        let mut big = b"data: ".to_vec();
+        big.extend(vec![b'x'; MAX_FRAME_BYTES - 8]);
+        big.extend_from_slice(b"\n\n");
+        buffer.push(&big);
+        assert!(buffer.next_frame().is_some());
+
+        buffer.push(b"data: small");
+        assert!(!buffer.overflowed());
     }
 
     #[test]
