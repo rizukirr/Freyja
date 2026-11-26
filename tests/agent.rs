@@ -8,9 +8,9 @@
 mod common;
 use common::serve;
 use freyja::{
-    Agent, Client, Context, Decision, Dialect, EndpointConfig, GenerateRequest, InMemoryStorage,
-    Message, ReasoningEffort, Role, StopReason, Storage, StorageFuture, Tool, ToolChoice,
-    ToolDefinition, ToolError, ToolFuture, tool,
+    Agent, AgentEvent, Client, Context, Decision, Dialect, EndpointConfig, GenerateRequest,
+    InMemoryStorage, Message, ReasoningEffort, Role, StopReason, Storage, StorageFuture,
+    StreamEvent, Tool, ToolChoice, ToolDefinition, ToolError, ToolFuture, tool,
 };
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -934,6 +934,86 @@ async fn the_system_instruction_is_prepended_once_per_turn() {
     assert!(messages.iter().all(|message| message.role != Role::System));
 }
 
+/// Wraps SSE `data:` payloads in a streaming HTTP response.
+fn sse(frames: &[&str]) -> &'static str {
+    let mut body = String::new();
+    for frame in frames {
+        body.push_str(&format!("data: {frame}\n\n"));
+    }
+    body.push_str("data: [DONE]\n\n");
+    format!("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\n{body}")
+        .leak()
+}
+
+#[tokio::test]
+async fn send_streaming_runs_the_tool_loop_and_reports_every_step() {
+    let calls = sse(&[
+        r#"{"id":"c1","model":"test-model","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"add","arguments":""}}]}}]}"#,
+        r#"{"id":"c1","model":"test-model","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"a\":20,\"b\":22}"}}]}}]}"#,
+        r#"{"id":"c1","model":"test-model","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":5,"completion_tokens":5,"total_tokens":10}}"#,
+    ]);
+    let answer = sse(&[
+        r#"{"id":"c2","model":"test-model","choices":[{"index":0,"delta":{"content":"It is "}}]}"#,
+        r#"{"id":"c2","model":"test-model","choices":[{"index":0,"delta":{"content":"42."}}]}"#,
+        r#"{"id":"c2","model":"test-model","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":7,"completion_tokens":3,"total_tokens":10}}"#,
+    ]);
+    let (base, requests) = serve(&[calls, answer]);
+    let agent = Agent::new(client(base)).tool(add);
+
+    let mut messages = Vec::new();
+    let mut events = Vec::new();
+    let run = agent
+        .conversation(&mut messages)
+        .send_streaming("What is 20 + 22?", |event| events.push(event))
+        .await
+        .unwrap();
+
+    assert_eq!(run.stop, StopReason::Answered);
+    assert_eq!(run.answer, "It is 42.");
+    assert_eq!(run.turns, 2);
+    assert_eq!(run.usage.total_tokens, 20);
+    // The same transcript `send` would have stored.
+    assert_eq!(messages.len(), 4);
+
+    // Every request streamed.
+    for _ in 0..2 {
+        assert!(requests.recv().unwrap().contains("\"stream\":true"));
+    }
+
+    // The call, then its result, then the answer text, in that order.
+    let call = events
+        .iter()
+        .position(|event| {
+            matches!(event, AgentEvent::Model(StreamEvent::ToolCall { name, arguments, .. })
+                if name == "add" && arguments.contains("20"))
+        })
+        .expect("the tool call was streamed");
+    let result = events
+        .iter()
+        .position(|event| {
+            *event
+                == AgentEvent::ToolResult {
+                    id: "call_1".into(),
+                    name: "add".into(),
+                    output: "42".into(),
+                }
+        })
+        .expect("the tool result was reported");
+    let text: String = events
+        .iter()
+        .filter_map(|event| match event {
+            AgentEvent::Model(StreamEvent::TextDelta(text)) => Some(text.as_str()),
+            _ => None,
+        })
+        .collect();
+    let first_text = events
+        .iter()
+        .position(|event| matches!(event, AgentEvent::Model(StreamEvent::TextDelta(_))))
+        .expect("text was streamed");
+    assert!(call < result && result < first_text, "{events:?}");
+    assert_eq!(text, "It is 42.");
+}
+
 #[test]
 fn every_send_can_be_spawned() {
     // A future that is not `Send` cannot go on a multi-threaded runtime,
@@ -942,4 +1022,5 @@ fn every_send_can_be_spawned() {
     let agent = Agent::new(client("http://127.0.0.1:9".into()));
     let mut chat = agent.conversation(InMemoryStorage::new());
     assert_send(chat.send("hi"));
+    assert_send(chat.send_streaming("hi", |_| {}));
 }

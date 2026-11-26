@@ -1,6 +1,7 @@
 //! One conversation, and the storage holding it.
 
-use crate::{Agent, Context, Error, InputContent, Message, Run, Storage};
+use crate::agent::EventSink;
+use crate::{Agent, AgentEvent, Context, Error, InputContent, Message, Run, Storage};
 
 /// One conversation, driven one turn at a time.
 ///
@@ -121,11 +122,62 @@ impl<S: Storage> Conversation<S> {
         message: impl Into<Message>,
         cx: &Context,
     ) -> Result<Run, Error> {
-        // Held rather than pushed and forgotten: the append boundary below
-        // cannot be an index into `history`, because `repair` may remove
-        // messages before it and shift everything after.
-        let turn: Message = message.into();
+        self.run(message.into(), cx, None).await
+    }
 
+    /// Adds one turn and runs the loop, streaming as it goes.
+    ///
+    /// The same run as [`Conversation::send`], with every request streamed:
+    /// `on_event` sees the model's text, reasoning and tool calls as they
+    /// arrive, and each tool's result before it goes back to the model. The
+    /// returned [`Run`] and what is written to storage are the same as `send`
+    /// would produce.
+    ///
+    /// ```no_run
+    /// # async fn run(agent: freyja::Agent) -> Result<(), freyja::Error> {
+    /// use freyja::{AgentEvent, InMemoryStorage, StreamEvent};
+    ///
+    /// let mut chat = agent.conversation(InMemoryStorage::new());
+    /// let run = chat
+    ///     .send_streaming("what's 2 + 2?", |event| match event {
+    ///         AgentEvent::Model(StreamEvent::TextDelta(text)) => print!("{text}"),
+    ///         AgentEvent::ToolResult { name, output, .. } => println!("[{name}: {output}]"),
+    ///         _ => {}
+    ///     })
+    ///     .await?;
+    /// println!("\n{} turns", run.turns);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn send_streaming(
+        &mut self,
+        message: impl Into<Message>,
+        on_event: impl FnMut(AgentEvent) + Send,
+    ) -> Result<Run, Error> {
+        self.send_streaming_with(message, &Context::new(), on_event)
+            .await
+    }
+
+    /// [`Conversation::send_streaming`] with per-run context.
+    pub async fn send_streaming_with(
+        &mut self,
+        message: impl Into<Message>,
+        cx: &Context,
+        mut on_event: impl FnMut(AgentEvent) + Send,
+    ) -> Result<Run, Error> {
+        self.run(message.into(), cx, Some(&mut on_event)).await
+    }
+
+    /// Loads, repairs, runs and stores one turn, the body every `send` shares.
+    async fn run(
+        &mut self,
+        turn: Message,
+        cx: &Context,
+        sink: Option<EventSink<'_>>,
+    ) -> Result<Run, Error> {
+        // `turn` is held rather than pushed and forgotten: the append boundary
+        // below cannot be an index into `history`, because `repair` may remove
+        // messages before it and shift everything after.
         let mut history = self
             .storage
             .load()
@@ -201,7 +253,7 @@ impl<S: Storage> Conversation<S> {
 
         let before = history.len();
 
-        let run = self.agent.run_loop(&mut history, cx).await?;
+        let run = self.agent.run_loop(&mut history, cx, sink).await?;
 
         // The caller's turn is recorded whether or not `repair` kept it in the
         // request. `repair` never writes back, so content it drops from a

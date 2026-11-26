@@ -208,6 +208,24 @@ let agent = Agent::new(client)
 
 `run.stop` tells you why the loop ended, `Answered`, `MaxTurns`, `Refused`, `Incomplete`, or `Failed`, and `Conversation::send`, reached through `Agent::conversation`, wraps the same loop with the transcript held in a `Storage` backend instead of a vector you own, for a multi-turn conversation. See `examples/agent.rs`.
 
+### Streaming the loop
+
+`send_streaming` runs the same loop with every request streamed, and hands each event to a callback as it arrives. Text, reasoning and tool calls come through as `AgentEvent::Model(StreamEvent)`, exactly as `Client::stream` yields them. Each tool's output comes through as `AgentEvent::ToolResult` once the turn's calls have finished, before it goes back to the model.
+
+```rust
+let run = agent
+    .conversation(&mut messages)
+    .send_streaming("What is 20 + 22?", |event| match event {
+        AgentEvent::Model(StreamEvent::TextDelta(text)) => print!("{text}"),
+        AgentEvent::Model(StreamEvent::ToolCall { name, .. }) => println!("[calling {name}]"),
+        AgentEvent::ToolResult { name, output, .. } => println!("[{name}: {output}]"),
+        _ => {}
+    })
+    .await?;
+```
+
+It returns the same `Run` and stores the same turns `send` would. `send_streaming_with` takes a `Context`, as `send_with` does.
+
 ## Next
 
 | | |

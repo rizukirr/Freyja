@@ -38,7 +38,7 @@ let mut chat = agent.conversation(InMemoryStorage::new());
 let run = chat.send("what's the weather?").await?;
 ```
 
-`Conversation::send` loads from storage, which applies a window inside `load` if the backend has one set, then repairs the transcript, appends the new turn, runs the tool-calling loop, then writes the turns the run produced back to storage, storage last, so a run that fails partway records nothing. `Conversation::send_with` is the same call with per-run `Context` attached, and `send` is exactly `send_with` with an empty one.
+`Conversation::send` loads from storage, which applies a window inside `load` if the backend has one set, then repairs the transcript, appends the new turn, runs the tool-calling loop, then writes the turns the run produced back to storage, storage last, so a run that fails partway records nothing. `Conversation::send_with` is the same call with per-run `Context` attached, and `send` is exactly `send_with` with an empty one. `send_streaming` and `send_streaming_with` are the same calls with every request streamed to a callback, and they load, repair and store exactly as `send` does.
 
 ## `window` lives on the backend, and shapes what is sent
 

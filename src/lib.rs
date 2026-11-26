@@ -125,7 +125,7 @@ pub mod stream;
 mod summarize;
 mod transport;
 
-pub use agent::{Agent, Decision, Run, StopReason};
+pub use agent::{Agent, AgentEvent, Decision, Run, StopReason};
 pub use builtin::{HeuristicCounter, InMemoryStorage, JsonlStorage};
 pub use client::Client;
 pub use conversation::Conversation;
