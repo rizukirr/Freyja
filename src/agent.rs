@@ -353,14 +353,19 @@ impl Agent {
             // choice into pressure on the caller's process. `buffered` yields
             // in input order, so nothing is refused or reordered, only
             // staggered.
-            let outputs: Vec<String> = futures_util::stream::iter(
-                calls
-                    .iter()
-                    .map(|(_, name, arguments)| self.dispatch(name, arguments, cx)),
-            )
-            .buffered(MAX_CONCURRENT_TOOL_CALLS)
-            .collect()
-            .await;
+            //
+            // The futures are collected before they are streamed. Streaming
+            // the `map` itself kept a closure over borrowed tuples alive across
+            // the await, which rustc cannot prove `Send` for every lifetime, so
+            // no `send` future could be spawned onto a multi-threaded runtime.
+            let pending: Vec<_> = calls
+                .iter()
+                .map(|(_, name, arguments)| self.dispatch(name, arguments, cx))
+                .collect();
+            let outputs: Vec<String> = futures_util::stream::iter(pending)
+                .buffered(MAX_CONCURRENT_TOOL_CALLS)
+                .collect()
+                .await;
 
             request.messages.reserve(outputs.len());
             for ((id, _, _), output) in calls.iter().zip(outputs) {

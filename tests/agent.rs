@@ -933,3 +933,13 @@ async fn the_system_instruction_is_prepended_once_per_turn() {
     }
     assert!(messages.iter().all(|message| message.role != Role::System));
 }
+
+#[test]
+fn every_send_can_be_spawned() {
+    // A future that is not `Send` cannot go on a multi-threaded runtime,
+    // which is where an agent serving requests runs.
+    fn assert_send<T: Send>(_: T) {}
+    let agent = Agent::new(client("http://127.0.0.1:9".into()));
+    let mut chat = agent.conversation(InMemoryStorage::new());
+    assert_send(chat.send("hi"));
+}
