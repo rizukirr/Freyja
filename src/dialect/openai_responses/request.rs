@@ -10,9 +10,9 @@ use serde::Serialize;
 use serde_json::Value;
 
 #[derive(Serialize)]
-pub(crate) struct Request {
+pub(crate) struct Request<'a> {
     model: String,
-    input: Vec<InputItemWire>,
+    input: Vec<InputItemWire<'a>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     instructions: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -26,13 +26,13 @@ pub(crate) struct Request {
     #[serde(skip_serializing_if = "Option::is_none")]
     text: Option<TextWire>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    tools: Vec<ToolWire>,
+    tools: Vec<ToolWire<'a>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     tool_choice: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    previous_response_id: Option<String>,
+    previous_response_id: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    metadata: Option<Value>,
+    metadata: Option<&'a Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     stream: Option<bool>,
 }
@@ -41,39 +41,42 @@ pub(crate) struct Request {
 /// results all sit at the top level rather than nesting inside a message.
 #[derive(Serialize)]
 #[serde(untagged)]
-enum InputItemWire {
+enum InputItemWire<'a> {
     /// An item Freyja models.
-    Item(TypedItemWire),
+    Item(TypedItemWire<'a>),
     /// An item preserved from a previous response and replayed verbatim, such
     /// as a reasoning item that the model requires back unchanged.
-    Raw(Value),
+    Raw(&'a Value),
 }
 
 #[derive(Serialize)]
 #[serde(tag = "type")]
-enum TypedItemWire {
+enum TypedItemWire<'a> {
     #[serde(rename = "message")]
-    Message { role: Role, content: Vec<InputWire> },
+    Message {
+        role: Role,
+        content: Vec<InputWire<'a>>,
+    },
     #[serde(rename = "function_call")]
     FunctionCall {
-        call_id: String,
-        name: String,
-        arguments: String,
+        call_id: &'a str,
+        name: &'a str,
+        arguments: &'a str,
     },
     #[serde(rename = "function_call_output")]
-    FunctionCallOutput { call_id: String, output: String },
+    FunctionCallOutput { call_id: &'a str, output: &'a str },
 }
 
 #[derive(Serialize)]
 #[serde(tag = "type")]
-enum InputWire {
+enum InputWire<'a> {
     #[serde(rename = "input_text")]
-    Text { text: String },
+    Text { text: &'a str },
     /// Assistant turns replayed as input use `output_text`, not `input_text`.
     #[serde(rename = "output_text")]
-    OutputText { text: String },
+    OutputText { text: &'a str },
     #[serde(rename = "input_image")]
-    Image { image_url: String },
+    Image { image_url: &'a str },
 }
 
 #[derive(Serialize)]
@@ -87,28 +90,31 @@ struct TextWire {
 }
 
 #[derive(Serialize)]
-struct ToolWire {
+struct ToolWire<'a> {
     #[serde(rename = "type")]
     kind: &'static str,
-    name: String,
+    name: &'a str,
     #[serde(skip_serializing_if = "Option::is_none")]
-    description: Option<String>,
+    description: Option<&'a str>,
     parameters: Value,
     #[serde(skip_serializing_if = "Option::is_none")]
     strict: Option<bool>,
 }
 
-impl Request {
+impl<'a> Request<'a> {
     /// Converts a neutral request into this dialect's wire format.
-    pub(crate) fn build(value: &GenerateRequest, config: &EndpointConfig) -> Result<Self, Error> {
-        let mut instructions = Vec::new();
+    pub(crate) fn build(
+        value: &'a GenerateRequest,
+        config: &EndpointConfig,
+    ) -> Result<Self, Error> {
+        let mut instructions: Vec<&str> = Vec::new();
         let mut input = Vec::new();
 
         for message in &value.messages {
             if matches!(message.role, Role::System | Role::Developer) {
                 for content in &message.content {
                     match content {
-                        InputContent::Text(text) => instructions.push(text.clone()),
+                        InputContent::Text(text) => instructions.push(text),
                         _ => {
                             return Err(refusal::unsupported(config, refusal::NON_TEXT_SYSTEM));
                         }
@@ -120,21 +126,19 @@ impl Request {
             // Text and images accumulate into one message item; tool calls and
             // tool results are separate top-level items, so the pending message
             // is flushed before each of them to keep transcript order intact.
-            let mut pending: Vec<InputWire> = Vec::new();
+            let mut pending: Vec<InputWire<'a>> = Vec::new();
             for content in &message.content {
                 match content {
                     InputContent::Text(text) => pending.push(if message.role == Role::Assistant {
-                        InputWire::OutputText { text: text.clone() }
+                        InputWire::OutputText { text }
                     } else {
-                        InputWire::Text { text: text.clone() }
+                        InputWire::Text { text }
                     }),
                     InputContent::ImageUrl(image_url) => {
                         if message.role != Role::User {
                             return Err(refusal::unsupported(config, refusal::IMAGES_OUTSIDE_USER));
                         }
-                        pending.push(InputWire::Image {
-                            image_url: image_url.clone(),
-                        });
+                        pending.push(InputWire::Image { image_url });
                     }
                     InputContent::ToolCall {
                         id,
@@ -143,21 +147,21 @@ impl Request {
                     } => {
                         flush(&mut input, message.role, &mut pending);
                         input.push(InputItemWire::Item(TypedItemWire::FunctionCall {
-                            call_id: id.clone(),
-                            name: name.clone(),
-                            arguments: arguments.clone(),
+                            call_id: id,
+                            name,
+                            arguments,
                         }));
                     }
                     InputContent::ToolResult { call_id, output } => {
                         flush(&mut input, message.role, &mut pending);
                         input.push(InputItemWire::Item(TypedItemWire::FunctionCallOutput {
-                            call_id: call_id.clone(),
-                            output: output.clone(),
+                            call_id,
+                            output,
                         }));
                     }
                     InputContent::Reasoning { data } => {
                         flush(&mut input, message.role, &mut pending);
-                        input.push(InputItemWire::Raw(data.clone()));
+                        input.push(InputItemWire::Raw(data));
                     }
                 }
             }
@@ -211,15 +215,15 @@ impl Request {
                 .iter()
                 .map(|tool| ToolWire {
                     kind: "function",
-                    name: tool.name.clone(),
-                    description: tool.description.clone(),
+                    name: &tool.name,
+                    description: tool.description.as_deref(),
                     parameters: tool.schema(),
                     strict: tool.strict,
                 })
                 .collect(),
             tool_choice,
-            previous_response_id: value.previous_response_id.clone(),
-            metadata: value.metadata.clone(),
+            previous_response_id: value.previous_response_id.as_deref(),
+            metadata: value.metadata.as_ref(),
             stream: None,
         })
     }
@@ -232,7 +236,7 @@ impl Request {
 }
 
 /// Emits the accumulated text/image parts as a message item, if any.
-fn flush(input: &mut Vec<InputItemWire>, role: Role, pending: &mut Vec<InputWire>) {
+fn flush<'a>(input: &mut Vec<InputItemWire<'a>>, role: Role, pending: &mut Vec<InputWire<'a>>) {
     if pending.is_empty() {
         return;
     }

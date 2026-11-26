@@ -15,13 +15,13 @@ use crate::model::{GenerateRequest, GenerateResponse};
 pub(crate) struct GeminiProvider;
 
 impl WireDialect for GeminiProvider {
-    type Request = request::Request;
+    type Request<'a> = request::Request<'a>;
 
-    fn build(
+    fn build<'a>(
         &self,
-        request: &GenerateRequest,
+        request: &'a GenerateRequest,
         config: &EndpointConfig,
-    ) -> Result<Self::Request, Error> {
+    ) -> Result<Self::Request<'a>, Error> {
         request::Request::build(request, config)
     }
 

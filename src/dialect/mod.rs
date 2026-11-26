@@ -80,13 +80,15 @@ impl Dialect {
 
 /// Internal implementation of a wire dialect.
 pub(crate) trait WireDialect: Send + Sync {
-    type Request: Serialize + Send;
+    /// Borrows the transcript from the `GenerateRequest` it was built from,
+    /// so building a body does not copy every message.
+    type Request<'a>: Serialize + Send;
 
-    fn build(
+    fn build<'a>(
         &self,
-        request: &GenerateRequest,
+        request: &'a GenerateRequest,
         config: &EndpointConfig,
-    ) -> Result<Self::Request, Error>;
+    ) -> Result<Self::Request<'a>, Error>;
 
     fn parse(&self, body: &str, config: &EndpointConfig) -> Result<GenerateResponse, Error>;
 }
