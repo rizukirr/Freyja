@@ -1,9 +1,6 @@
 # Freyja
 
-[![crates.io](https://img.shields.io/crates/v/freyja.svg)](https://crates.io/crates/freyja)
-[![docs.rs](https://img.shields.io/docsrs/freyja)](https://docs.rs/freyja)
 [![CI](https://github.com/rizukirr/Freyja/actions/workflows/ci.yml/badge.svg)](https://github.com/rizukirr/Freyja/actions/workflows/ci.yml)
-[![license](https://img.shields.io/crates/l/freyja.svg)](LICENSE)
 
 A provider-neutral LLM client for Rust, and the foundation for building agents on top of it.
 
