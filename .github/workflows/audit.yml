@@ -1,0 +1,36 @@
+name: Audit
+
+# Checks Cargo.lock against the RustSec advisory database.
+#
+# A workflow of its own, not a job in CI, because it also runs on a schedule:
+# an advisory published against a dependency fails nothing until something
+# runs the check, and on a quiet repository nothing else would.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    # Mondays, 06:00 UTC.
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  audit:
+    name: Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # A prebuilt binary, since building cargo-audit from source takes minutes.
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+      # Fails on any vulnerability. Unmaintained and yanked crates are reported
+      # as warnings and do not fail the run.
+      - run: cargo audit
