@@ -302,11 +302,12 @@ impl Error {
             _ => None,
         }
     }
-    /// The endpoint's raw response body, untrimmed, when the error has one.
+    /// The endpoint's raw response body, when the error has one.
     ///
     /// What [`Display`](fmt::Display) and [`Debug`](fmt::Debug) shorten. Reach
     /// for this when a provider's rejection runs past [`BODY_IN_MESSAGE`] and
-    /// the part that matters is not in the first two kilobytes.
+    /// the part that matters is not in the first two kilobytes. Freyja keeps
+    /// the first 64 KiB of an error body and drops the rest unread.
     pub fn body(&self) -> Option<&str> {
         match self {
             Self::BadRequest { body, .. }

@@ -233,6 +233,43 @@ pub(crate) async fn post<T: Serialize>(
 /// `stream::sse::MAX_FRAME_BYTES`, one layer up.
 pub(crate) const MAX_BODY_BYTES: usize = 64 * 1024 * 1024;
 
+/// The most of an error body Freyja keeps.
+///
+/// An error body is a message for a person, and `Error`'s `Display` already
+/// shows only the start of it. Reading it under [`MAX_BODY_BYTES`] let every
+/// failed call hold 64 MiB an endpoint chose to send.
+pub(crate) const MAX_ERROR_BODY_BYTES: usize = 64 * 1024;
+
+/// Reads at most `limit` bytes of a body, and says whether more were sent.
+async fn read_up_to(
+    mut response: reqwest::Response,
+    endpoint: &std::sync::Arc<str>,
+    limit: usize,
+) -> Result<(Vec<u8>, bool), Error> {
+    let mut body: Vec<u8> = Vec::new();
+
+    while let Some(chunk) = response
+        .chunk()
+        .await
+        .map_err(|error| Error::transport(endpoint.clone(), &error, None))?
+    {
+        let room = limit - body.len();
+        if chunk.len() > room {
+            body.extend_from_slice(&chunk[..room]);
+            return Ok((body, true));
+        }
+        body.extend_from_slice(&chunk);
+    }
+
+    Ok((body, false))
+}
+
+/// Bytes as text, without copying them when they are already valid UTF-8.
+fn into_text(body: Vec<u8>) -> String {
+    String::from_utf8(body)
+        .unwrap_or_else(|error| String::from_utf8_lossy(error.as_bytes()).into_owned())
+}
+
 /// Reads a whole response body, refusing to grow past [`MAX_BODY_BYTES`].
 ///
 /// Stands in for `Response::text`, which has no ceiling. JSON is UTF-8 by
@@ -241,24 +278,26 @@ pub(crate) async fn read_body(
     response: reqwest::Response,
     endpoint: &std::sync::Arc<str>,
 ) -> Result<String, Error> {
-    let mut response = response;
-    let mut body: Vec<u8> = Vec::new();
-
-    while let Some(chunk) = response
-        .chunk()
-        .await
-        .map_err(|error| Error::transport(endpoint.clone(), &error, None))?
-    {
-        if body.len() + chunk.len() > MAX_BODY_BYTES {
-            return Err(Error::InvalidResponse {
-                endpoint: endpoint.clone(),
-                message: format!("response body grew past {MAX_BODY_BYTES} bytes"),
-            });
-        }
-        body.extend_from_slice(&chunk);
+    let (body, cut) = read_up_to(response, endpoint, MAX_BODY_BYTES).await?;
+    if cut {
+        return Err(Error::InvalidResponse {
+            endpoint: endpoint.clone(),
+            message: format!("response body grew past {MAX_BODY_BYTES} bytes"),
+        });
     }
+    Ok(into_text(body))
+}
 
-    Ok(String::from_utf8_lossy(&body).into_owned())
+/// Reads the start of an error body, up to [`MAX_ERROR_BODY_BYTES`].
+///
+/// Cut rather than refused: the status is the error, and the body only
+/// explains it.
+pub(crate) async fn read_error_body(
+    response: reqwest::Response,
+    endpoint: &std::sync::Arc<str>,
+) -> Result<String, Error> {
+    let (body, _) = read_up_to(response, endpoint, MAX_ERROR_BODY_BYTES).await?;
+    Ok(into_text(body))
 }
 
 /// Reads `Retry-After`, clamped to [`crate::error::MAX_RETRY_AFTER`].
@@ -425,6 +464,12 @@ mod tests {
         // predicate above is correct whether or not `default_http` uses it.
         let rendered = format!("{:?}", default_http());
         assert!(rendered.contains("redirect"), "{rendered}");
+    }
+
+    #[test]
+    fn text_survives_invalid_utf8_and_keeps_valid_utf8_whole() {
+        assert_eq!(into_text("café".as_bytes().to_vec()), "café");
+        assert_eq!(into_text(vec![b'a', 0xff, b'b']), "a\u{fffd}b");
     }
 
     #[test]

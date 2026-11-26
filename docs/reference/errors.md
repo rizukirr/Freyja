@@ -57,7 +57,7 @@ Five methods answer the questions a caller actually has, so the knowledge does n
 | `is_retryable()` | Whether repeating the identical request could plausibly succeed |
 | `retry_after()` | The endpoint's own `Retry-After` delay, when it sent one |
 | `status()` | The HTTP status, for the errors that have one |
-| `body()` | The endpoint's raw response body, untrimmed, for the errors that have one |
+| `body()` | The endpoint's raw response body, up to its first 64 KiB, for the errors that have one |
 | `endpoint()` | The endpoint's configured name, on every variant |
 
 `is_retryable()` returning `false` means the request will fail the same way every time until something outside it changes: the key, the model name, the request body, or the account balance.
@@ -271,7 +271,7 @@ The reason is that a rejected request is usually logged rather than read, and pr
 
 `Debug` is capped for the same reason and to the same length. Capping only `Display` would have missed most of the problem, since `tracing::error!(?error)` is at least as common as `"{error}"`. `Debug` also trims `OutputMismatch`'s `text`, which is the model's whole answer and therefore as large as a generation is allowed to be.
 
-Nothing is lost. The fields are public, and `error.body()` reaches the untrimmed body without matching on the variant:
+Nothing past the first 64 KiB of an error body is read, so a hostile endpoint cannot make every failed call hold a large body. Up to that cap nothing is lost. The fields are public, and `error.body()` reaches the whole kept body without matching on the variant:
 
 ```rust
 Err(error) => {
