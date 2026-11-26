@@ -124,7 +124,7 @@ let summary = summarizer.summarize(&dropped).await?;
 let mut chat = agent.conversation(JsonlStorage::open("chat.jsonl")?.window(20));
 ```
 
-`JsonlStorage::open(path)` opens the conversation stored at `path`, creating the file if it does not exist, so a later process opening the same path continues where this one stopped. `cargo run --example persist -- "a message"` shows it: run it twice and the second run remembers the first. One file is one conversation, the same way one `Storage` value is. An application with several conversations picks a path per conversation, and one that builds the path from an id a client supplied validates the id first, because it becomes part of a path.
+`JsonlStorage::open(path)` opens the conversation stored at `path`, creating the file if it does not exist, so a later process opening the same path continues where this one stopped. `cargo run --example persist -- "a message"` shows it: run it twice and the second run remembers the first. One file is one conversation, the same way one `Storage` value is. An application with several conversations picks a path per conversation, and one that builds the path from an id a client supplied validates the id first, because it becomes part of a path. On Unix a file `open` creates is readable and writable by its owner alone (mode 0600), and a file that already exists keeps the mode it has.
 
 The whole transcript is read at `open` and held in an `InMemoryStorage`, and every `append` is written to the file before it is held. `window`, `window_by_tokens` and `summarize` are therefore the same rules with the same guarantees, and `messages` and `summary` read the same things. The file keeps every turn, whatever window is set.
 
