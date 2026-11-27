@@ -1,12 +1,7 @@
 //! An interactive multi-turn agent: [`Agent`] drives the tool-calling loop so
 //! the example does not have to.
 //!
-//! `tool_loop` writes that loop by hand, once, for one question. `chat` holds
-//! a plain conversation with no tools at all. This example needs both: every
-//! turn may call tools, more than once, before the model settles on an
-//! answer, and across turns the conversation itself continues. This example
-//! owns that transcript directly, as an explicit `Vec<Message>` it hands to a
-//! fresh [`freyja::Conversation`] on every turn.
+//! [`Agent`] drives the tool loop: every turn may call tools, more than once, before the model settles on an answer. The conversation keeps the history across turns in [`InMemoryStorage`], so this example holds no transcript of its own.
 //!
 //! ```sh
 //! cargo run --example agent
@@ -14,7 +9,7 @@
 //!
 //! Type a message and press enter. `/reset` starts over, `/exit` quits.
 
-use freyja::{Agent, Client, EndpointPreset, Message, StopReason, tool};
+use freyja::{Agent, Client, EndpointPreset, InMemoryStorage, StopReason, tool};
 use std::io::{BufRead, Write};
 
 /// A sync tool: no `.await` anywhere in its body.
@@ -54,9 +49,7 @@ async fn main() {
         )
         .max_turns(5);
 
-    // The transcript is ours to keep: `Agent` holds no state across calls, so
-    // this vector is the only place the conversation lives.
-    let mut messages: Vec<Message> = Vec::new();
+    let mut chat = agent.conversation(InMemoryStorage::new());
 
     println!("chatting with tools. /reset, /exit");
 
@@ -81,17 +74,16 @@ async fn main() {
             "" => continue,
             "/exit" | "/quit" => break,
             "/reset" => {
-                messages.clear();
-                println!("transcript cleared");
+                match chat.clear().await {
+                    Ok(()) => println!("transcript cleared"),
+                    Err(error) => eprintln!("could not clear the transcript: {error}"),
+                }
                 continue;
             }
             text => text,
         };
 
-        // A fresh conversation over the same vector every turn: `send` only
-        // appends the user turn and the answer once the run succeeds, so a
-        // failed run leaves the transcript exactly as it found it.
-        match agent.conversation(&mut messages).send(text).await {
+        match chat.send(text).await {
             Ok(run) => {
                 println!("\nbot> {}", run.answer);
                 if run.stop == StopReason::MaxTurns {
