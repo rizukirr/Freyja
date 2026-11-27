@@ -4,6 +4,16 @@ Notable changes per release. Freyja is pre-1.0, so a minor version may break.
 
 ## Unreleased
 
+## 0.5.0 - 2026-11-27
+
+Freyja becomes something a crate outside it can extend. The model, what the model remembers, where a conversation is kept, and the code around each call are now traits with documented rules: `Model`, `Memory`, `Storage` with a state slot, and `Hook`. [Extending Freyja](docs/extending.md) lists what each must honour, and `freyja::testing` holds a storage conformance check and `ScriptedModel` to test against.
+
+Code written for 0.4.0 breaks in three places:
+
+- `InMemoryStorage` and `JsonlStorage` no longer window or summarize. Set the same behaviour on the agent with `Agent::memory(Window::last(n))`, or `Window::last(n).summarize(summarizer)`.
+- `Client::from_env` returns `Result<Client, Error>` in place of `Option<Client>`, so `?` replaces the `Option` handling.
+- `StopReason` is `#[non_exhaustive]` and no longer `Copy`, so a match needs a trailing `_` arm and a copy needs `.clone()`.
+
 ### Added
 
 - **`Hook`, `Flow` and `Agent::hook`, code that runs around every model call and tool call.** `Hook` has `before_model`, `after_model`, `before_tool` and `after_tool`, each defaulting to `Flow::Continue`, and a method that returns `Flow::Stop(reason)` ends the run. `after_tool` also reports calls the guard refused.
