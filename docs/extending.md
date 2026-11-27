@@ -13,7 +13,7 @@ Freyja ships four traits a crate outside it can implement, each with a contract 
 
 ## The rules each implementation honours
 
-A `Storage` returns messages oldest first from `load`. Order is the backend's contract, so use a strictly monotonic column and never a timestamp with second resolution. `clear` must succeed on a conversation that is already empty, because the only recourse after a failed clear is to call it again. `clear` also removes everything stored with `set_state`. A backend that keeps state returns the latest value for a key from `state`, and a backend that does not can leave both state methods at their defaults.
+A `Storage` returns messages oldest first from `load`. Order is the backend's contract, so use a strictly monotonic column and never a timestamp with second resolution. `clear` must succeed on a conversation that is already empty, because the only recourse after a failed clear is to call it again. `clear` also removes everything stored with `set_state`. A backend that keeps state returns the latest value for a key from `state`, and a backend that does not can leave both state methods at their defaults. A backend that keeps no state leaves the summary in each conversation's own cache, so a clear made through another handle on a shared backend is not seen by that conversation, and a backend shared between conversations should keep state.
 
 A `Memory` keeps nothing in itself. What it needs between sends goes in the conversation's state slot through `State`, so one memory value serves every conversation an agent starts. `recall` receives the whole stored conversation, oldest first, and returns what to send. The default `compact` refuses, so only a memory that summarizes overrides it.
 

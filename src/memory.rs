@@ -66,11 +66,12 @@ pub trait Memory: Send + Sync {
 
 /// A conversation's state slot, as a [`Memory`] sees it.
 ///
-/// Reads come from a cache in this process first and fall back to
-/// [`Storage::state`]. Writes go to both. So a backend that keeps no state
-/// still lets one summary serve many sends within one
-/// [`crate::Conversation`], and one that keeps it lets the summary outlive
-/// the process.
+/// Reads come from [`Storage::state`] first and fall back to a cache in this
+/// process, which holds only what a backend keeping no state could not keep.
+/// So one summary serves many sends within one [`crate::Conversation`]
+/// either way, a backend that keeps state lets it outlive the process, and a
+/// clear made through another handle on a shared backend that keeps state is
+/// seen at once.
 pub struct State<'a> {
     storage: &'a mut dyn Storage,
     cache: Cache<'a>,
@@ -110,22 +111,25 @@ impl<'a> State<'a> {
         }
     }
 
-    /// The value under `key`, from the cache or else from the backend.
+    /// The value under `key`, from the backend, or else from this
+    /// conversation's cache when the backend keeps no state.
     pub async fn get(&mut self, key: &str) -> Result<Option<Value>, StorageError> {
-        if let Some(value) = self.map().get(key) {
-            return Ok(Some(value.clone()));
+        if let Some(value) = self.storage.state(key).await? {
+            return Ok(Some(value));
         }
-        let stored = self.storage.state(key).await?;
-        if let Some(value) = &stored {
-            self.map().insert(key.to_string(), value.clone());
-        }
-        Ok(stored)
+        Ok(self.map().get(key).cloned())
     }
 
-    /// Stores `value` under `key`, in the backend and in the cache.
+    /// Stores `value` under `key` in the backend. If reading it back finds
+    /// nothing, the backend keeps no state, and the value goes in this
+    /// conversation's cache instead.
     pub async fn set(&mut self, key: &str, value: Value) -> Result<(), StorageError> {
         self.storage.set_state(key, value.clone()).await?;
-        self.map().insert(key.to_string(), value);
+        if self.storage.state(key).await?.is_some() {
+            self.map().remove(key);
+        } else {
+            self.map().insert(key.to_string(), value);
+        }
         Ok(())
     }
 }

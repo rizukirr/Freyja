@@ -193,3 +193,84 @@ async fn a_new_conversation_over_a_backend_with_no_state_starts_with_an_empty_ca
     let mut chat = agent.conversation(&mut messages);
     assert!(chat.summary().await.expect("summary").is_none());
 }
+
+/// A backend that keeps state, shared between handles.
+#[derive(Clone, Default)]
+struct SharedState(std::sync::Arc<std::sync::Mutex<Held>>);
+
+type Held = (
+    Vec<freyja::Message>,
+    std::collections::HashMap<String, serde_json::Value>,
+);
+
+impl freyja::Storage for SharedState {
+    fn load(&mut self) -> freyja::StorageFuture<'_, Vec<freyja::Message>> {
+        let out = self.0.lock().expect("not poisoned").0.clone();
+        Box::pin(async move { Ok(out) })
+    }
+    fn append(&mut self, messages: Vec<freyja::Message>) -> freyja::StorageFuture<'_, ()> {
+        self.0.lock().expect("not poisoned").0.extend(messages);
+        Box::pin(async move { Ok(()) })
+    }
+    fn clear(&mut self) -> freyja::StorageFuture<'_, ()> {
+        let mut held = self.0.lock().expect("not poisoned");
+        held.0.clear();
+        held.1.clear();
+        Box::pin(async move { Ok(()) })
+    }
+    fn state<'a>(
+        &'a mut self,
+        key: &'a str,
+    ) -> freyja::StorageFuture<'a, Option<serde_json::Value>> {
+        let out = self.0.lock().expect("not poisoned").1.get(key).cloned();
+        Box::pin(async move { Ok(out) })
+    }
+    fn set_state<'a>(
+        &'a mut self,
+        key: &'a str,
+        value: serde_json::Value,
+    ) -> freyja::StorageFuture<'a, ()> {
+        self.0
+            .lock()
+            .expect("not poisoned")
+            .1
+            .insert(key.to_string(), value);
+        Box::pin(async move { Ok(()) })
+    }
+}
+
+#[tokio::test]
+async fn a_clear_through_another_handle_is_seen_on_a_backend_that_keeps_state() {
+    let body = r#"{"id":"x","model":"test-model","choices":[{"message":{"role":"assistant","content":"- SUMMARY"},"finish_reason":"stop"}]}"#;
+    let summary: &'static str = Box::leak(
+        format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{}",
+            body.len(),
+            body
+        )
+        .into_boxed_str(),
+    );
+    let (base, _requests) = common::serve(&[
+        common::ok_response(),
+        common::ok_response(),
+        common::ok_response(),
+        summary,
+        common::ok_response(),
+    ]);
+    let config = freyja::EndpointConfig::new(freyja::Dialect::OpenAiChat, "local", base)
+        .default_model("test-model");
+    let client = freyja::Client::new(config, "sk-test");
+    let agent = freyja::Agent::new(client.clone())
+        .memory(freyja::Window::groups(4).summarize(freyja::Summarizer::new(client)));
+
+    let backend = SharedState::default();
+    let mut first = agent.conversation(backend.clone());
+    let mut second = agent.conversation(backend.clone());
+    for turn in ["one", "two", "three", "four"] {
+        first.send(turn).await.expect("run");
+    }
+    assert!(first.summary().await.expect("summary").is_some());
+
+    second.clear().await.expect("clear");
+    assert!(first.summary().await.expect("summary").is_none());
+}
