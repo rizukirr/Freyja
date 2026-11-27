@@ -109,7 +109,7 @@
 - Modify: `tests/model.rs`
 - Modify: `CHANGELOG.md`
 
-- [ ] Step 1: In `src/agent.rs`, add after `conversation`:
+- [x] Step 1: In `src/agent.rs`, add after `conversation`:
 
 ```rust
     /// Answers one message with no history.
@@ -131,13 +131,13 @@
 
   adapting imports.
 
-- [ ] Step 2: In `tests/model.rs`, give the scripted model a record of the requests it receives (for example a `Mutex<Vec<usize>>` pushing `request.messages.len()` minus system messages on each `generate`, or the messages themselves), without changing what existing tests assert. Add `ask_keeps_no_history`: an agent over a script of two plain text answers, two `ask` calls, assert both answers, and assert the second recorded request carried exactly one non-system message.
+- [x] Step 2: In `tests/model.rs`, give the scripted model a record of the requests it receives (for example a `Mutex<Vec<usize>>` pushing `request.messages.len()` minus system messages on each `generate`, or the messages themselves), without changing what existing tests assert. Add `ask_keeps_no_history`: an agent over a script of two plain text answers, two `ask` calls, assert both answers, and assert the second recorded request carried exactly one non-system message.
 
-- [ ] Step 3: In `CHANGELOG.md` under `### Added`, add `Agent::ask`, following the file's entry style.
+- [x] Step 3: In `CHANGELOG.md` under `### Added`, add `Agent::ask`, following the file's entry style.
 
-- [ ] Step 4: Run `CHECK`
-- [ ] Step 5: Run `cargo test --test model ask` and `cargo test --test model -- --list | grep -c ask`
-- [ ] Step 6: Commit: `Add Agent::ask for one message with no history`
+- [x] Step 4: Run `CHECK`
+- [x] Step 5: Run `cargo test --test model ask` and `cargo test --test model -- --list | grep -c ask`
+- [x] Step 6: Commit: `Add Agent::ask for one message with no history`
 
 ### Task 3: `Window::last` replaces `Window::groups` → verify: `CHECK` exits 0, and `grep -rn "Window::groups" src tests examples README.md CHANGELOG.md docs --exclude-dir=specs --exclude-dir=plans` finds no match
 
