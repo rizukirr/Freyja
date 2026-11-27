@@ -34,9 +34,9 @@ Streaming delivers the same answer incrementally, and a drained stream converts 
 | The full tool round trip | **Yes, verified against live APIs**, not just tested offline |
 | Multi-turn conversations | Yes, transcripts are plain data you own |
 | Reasoning state replay | Handled for you, see [Concepts](concepts.md#opaque-state) |
-| Group-aware trimming | `window_by_groups` is public, so a backend of your own applies the same rule `InMemoryStorage::window` does |
-| Token-budget trimming | `window_by_tokens` is public, so a backend of your own applies the same rule `InMemoryStorage::window_by_tokens` does, given a `TokenCounter` |
-| Summarizing dropped turns | `Summarizer` is public, so a backend of your own can summarize what it trims inside its own `load`, the way `InMemoryStorage::summarize` does |
+| Group-aware trimming | `window_by_groups` is public, so a `Memory` of your own applies the same rule `Window::groups` does |
+| Token-budget trimming | `window_by_tokens` is public, so a `Memory` of your own applies the same rule `Window::tokens` does, given a `TokenCounter` |
+| Summarizing dropped turns | `Summarizer` is public, so a `Memory` of your own can summarize what it trims inside its own `recall`, the way `Window::summarize` does |
 | Token estimation | `HeuristicCounter`, a dependency-free byte-length estimate, or any `Fn(&Message) -> usize + Send` closure wrapping a real tokenizer |
 | Automatic loop orchestration | `Agent` runs the tool-calling loop for you and dispatches parallel tool calls concurrently, eight at a time |
 | Refusing a tool call | `Agent::guard` vets every requested call, and a refusal reaches the model as text it can act on |
@@ -44,11 +44,11 @@ Streaming delivers the same answer incrementally, and a drained stream converts 
 | Per-run data in a tool | `Context` is handed to every call and never sent to the model |
 | Tools defined at runtime | `name` and `definition` are values, so an MCP-shaped tool needs no compile-time type |
 | Tools that fail | A `Result` return reaches the model as error text it can recover from |
-| Bounding a transcript | `InMemoryStorage::window` keeps pinned turns and the most recent turn groups, applied inside `load` |
-| Bounding a transcript by token budget | `InMemoryStorage::window_by_tokens` keeps pinned turns and the most recent turn groups fitting an estimated budget, applied inside `load` |
-| Summarizing what a window drops | `InMemoryStorage::summarize` sends one summary message in place of the turns its window drops, made by a `Summarizer` inside `load` at half the window and reused until the window needs to drop more |
-| A conversation that survives a restart | `JsonlStorage::open(path)` keeps one conversation in a file, one JSON record per line, with the same `window`, `window_by_tokens` and `summarize` as `InMemoryStorage`, and stores the summary beside the turns |
-| Storage written elsewhere | `Storage` is three methods over public types, so a third-party crate implements it with no change here, and may cut anywhere it likes, because the repair pass drops both halves of a pair the cut separated |
+| Choosing what the model sees | `Agent::memory` takes a `Memory`, which works with any `Storage` and leaves every stored turn in place. `Window::groups` keeps pinned turns and the most recent turn groups |
+| Bounding a transcript by token budget | `Window::tokens` keeps pinned turns and the most recent turn groups fitting an estimated budget |
+| Summarizing what a window drops | `Window::summarize` sends one summary message in place of the turns its window drops, made by a `Summarizer` at half the window and reused until the window needs to drop more. `Conversation::summary` reads it and `Conversation::compact` makes one now |
+| A conversation that survives a restart | `JsonlStorage::open(path)` keeps one conversation in a file, one JSON record per line, as a pure store, and keeps the state slot, so a summary survives the restart too |
+| Storage written elsewhere | `Storage` is three required methods over public types, so a third-party crate implements it with no change here, and `freyja::testing::storage_conformance` checks it, and may cut anywhere it likes, because the repair pass drops both halves of a pair the cut separated |
 
 The round trip is the load-bearing feature. A model asks for a function, you run it, you feed the result back, and it continues. [Building an agent](building-an-agent.md) is the guide.
 
