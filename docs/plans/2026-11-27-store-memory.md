@@ -1122,11 +1122,11 @@ async fn compact_needs_a_memory_that_summarizes() {
 - Modify: `CHANGELOG.md`
 - Modify: `tests/public_api.rs`
 
-- [ ] Step 1: Create `docs/extending.md` with these sections, in prose that follows `plain`: what a crate can extend (a table of `Tool`, `Storage`, `Memory`, `TokenCounter`, one line each on its job and an example crate idea), the rules each implementation must honour (copied from each trait's doc comment: `Storage` order, `clear` on empty, `clear` removes state, state returns the latest value; `Memory` keeps nothing in itself and uses `State`; `TokenCounter` is sync and per message; `Tool` reports failure as text), how to run `freyja::testing::storage_conformance` from a backend crate's tests with a code block, and the stability rules (boxed futures for `dyn`, new trait methods arrive with defaults, `#[non_exhaustive]` types).
-- [ ] Step 2: In `docs/README.md`, add a link to `extending.md` in its table of contents, following the form of the existing entries (read the file first).
-- [ ] Step 3: Rewrite every passage in `docs/reference/storage.md`, `docs/building-an-agent.md`, `docs/features.md` and `README.md` that describes `InMemoryStorage::window`, `window_by_tokens`, `summarize` or `summary`, or `JsonlStorage`'s summary record, to describe `Agent::memory`, `Window`, `Summarize`, the state slot, `Conversation::summary` and `Conversation::compact`. Find them with `grep -n "window\|summar" docs/reference/storage.md docs/building-an-agent.md docs/features.md README.md`. In `README.md`'s roadmap Phase 3 paragraph, say memory is now a `Memory` trait that works with any `Storage`, and that a backend can be checked with `freyja::testing`.
-- [ ] Step 4: In `CHANGELOG.md` under `## Unreleased`, add under `### Added` entries for `Memory`, `Window`, `Summarize`, `State`, the `Storage` state slot, `Agent::memory`, `Conversation::compact`, `Conversation::summary` and `freyja::testing::storage_conformance`, and add a `### Changed` entry (create the heading if absent) saying `InMemoryStorage` and `JsonlStorage` are pure stores, their `window`, `window_by_tokens`, `summarize` and `summary` methods are removed in favour of `Agent::memory`, and `JsonlStorage` writes a `state` record in place of its `summary` record. Edit the existing `JsonlStorage` and `Summarizer` entries so they no longer name the removed builders.
-- [ ] Step 5: Append to `tests/public_api.rs`:
+- [x] Step 1: Create `docs/extending.md` with these sections, in prose that follows `plain`: what a crate can extend (a table of `Tool`, `Storage`, `Memory`, `TokenCounter`, one line each on its job and an example crate idea), the rules each implementation must honour (copied from each trait's doc comment: `Storage` order, `clear` on empty, `clear` removes state, state returns the latest value; `Memory` keeps nothing in itself and uses `State`; `TokenCounter` is sync and per message; `Tool` reports failure as text), how to run `freyja::testing::storage_conformance` from a backend crate's tests with a code block, and the stability rules (boxed futures for `dyn`, new trait methods arrive with defaults, `#[non_exhaustive]` types).
+- [x] Step 2: In `docs/README.md`, add a link to `extending.md` in its table of contents, following the form of the existing entries (read the file first).
+- [x] Step 3: Rewrite every passage in `docs/reference/storage.md`, `docs/building-an-agent.md`, `docs/features.md` and `README.md` that describes `InMemoryStorage::window`, `window_by_tokens`, `summarize` or `summary`, or `JsonlStorage`'s summary record, to describe `Agent::memory`, `Window`, `Summarize`, the state slot, `Conversation::summary` and `Conversation::compact`. Find them with `grep -n "window\|summar" docs/reference/storage.md docs/building-an-agent.md docs/features.md README.md`. In `README.md`'s roadmap Phase 3 paragraph, say memory is now a `Memory` trait that works with any `Storage`, and that a backend can be checked with `freyja::testing`.
+- [x] Step 4: In `CHANGELOG.md` under `## Unreleased`, add under `### Added` entries for `Memory`, `Window`, `Summarize`, `State`, the `Storage` state slot, `Agent::memory`, `Conversation::compact`, `Conversation::summary` and `freyja::testing::storage_conformance`, and add a `### Changed` entry (create the heading if absent) saying `InMemoryStorage` and `JsonlStorage` are pure stores, their `window`, `window_by_tokens`, `summarize` and `summary` methods are removed in favour of `Agent::memory`, and `JsonlStorage` writes a `state` record in place of its `summary` record. Edit the existing `JsonlStorage` and `Summarizer` entries so they no longer name the removed builders.
+- [x] Step 5: Append to `tests/public_api.rs`:
 
 ```rust
 #[test]
@@ -1143,6 +1143,6 @@ fn the_extension_traits_are_public() {
 }
 ```
 
-- [ ] Step 6: Run `CHECK`
-- [ ] Step 7: Run `test -f docs/extending.md` and `grep -c "extending.md" docs/README.md`
-- [ ] Step 8: Commit: `Document the extension contract and the memory split`
+- [x] Step 6: Run `CHECK`
+- [x] Step 7: Run `test -f docs/extending.md` and `grep -c "extending.md" docs/README.md`
+- [x] Step 8: Commit: `Document the extension contract and the memory split`
