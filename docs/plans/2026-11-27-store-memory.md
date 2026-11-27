@@ -1156,7 +1156,7 @@ fn the_extension_traits_are_public() {
 - Modify: `tests/memory.rs`
 - Modify: `docs/extending.md`
 
-- [ ] Step 1: In `src/memory.rs`, replace the bodies of `State::get` and `State::set` with:
+- [x] Step 1: In `src/memory.rs`, replace the bodies of `State::get` and `State::set` with:
 
 ```rust
     /// The value under `key`, from the backend, or else from this
@@ -1184,10 +1184,10 @@ fn the_extension_traits_are_public() {
 
   and rewrite the `State` struct doc so it says: reads come from `Storage::state` first and fall back to a cache in this process, which holds only what a backend keeping no state could not keep. So one summary serves many sends within one `crate::Conversation` either way, a backend that keeps state lets it outlive the process, and a clear made through another handle on a shared backend that keeps state is seen at once.
 
-- [ ] Step 2: Append a test to `tests/memory.rs`. Build a `Storage` in the test that shares one `freyja::InMemoryStorage` behind `std::sync::Arc<std::sync::Mutex<_>>` and forwards `load`, `append`, `clear`, `state` and `set_state` to it (lock, call, await the inner future by cloning out what is needed, or hold the guard only in sync code, whatever compiles without holding a `MutexGuard` across an `.await`; if that is impossible, use `tokio::sync::Mutex`, which the dev-dependencies already provide if `tokio` is listed with the `sync` feature, and check `Cargo.toml` first). Over one agent with `Window::groups(2).summarize(Summarizer::new(client))` and a local test server (reuse the reply helpers already in the file), make two conversations over clones of that backend. Send on the first until a summary is made and assert `first.summary().await` is `Ok(Some(_))`. Then `second.clear().await`, and assert `first.summary().await` is `Ok(None)`.
+- [x] Step 2: Append a test to `tests/memory.rs`. Build a `Storage` in the test that shares one `freyja::InMemoryStorage` behind `std::sync::Arc<std::sync::Mutex<_>>` and forwards `load`, `append`, `clear`, `state` and `set_state` to it (lock, call, await the inner future by cloning out what is needed, or hold the guard only in sync code, whatever compiles without holding a `MutexGuard` across an `.await`; if that is impossible, use `tokio::sync::Mutex`, which the dev-dependencies already provide if `tokio` is listed with the `sync` feature, and check `Cargo.toml` first). Over one agent with `Window::groups(2).summarize(Summarizer::new(client))` and a local test server (reuse the reply helpers already in the file), make two conversations over clones of that backend. Send on the first until a summary is made and assert `first.summary().await` is `Ok(Some(_))`. Then `second.clear().await`, and assert `first.summary().await` is `Ok(None)`.
 
-- [ ] Step 3: In `docs/extending.md`, where the state slot or `Storage` rules are described, add one sentence: a backend that keeps no state leaves the summary in each conversation's own cache, so a clear made through another handle on a shared backend is not seen by that conversation, and a backend shared between conversations should keep state.
+- [x] Step 3: In `docs/extending.md`, where the state slot or `Storage` rules are described, add one sentence: a backend that keeps no state leaves the summary in each conversation's own cache, so a clear made through another handle on a shared backend is not seen by that conversation, and a backend shared between conversations should keep state.
 
-- [ ] Step 4: Run `CHECK`
-- [ ] Step 5: Run `cargo test --test memory`
-- [ ] Step 6: Commit: `Read state from the backend before the conversation cache`
+- [x] Step 4: Run `CHECK`
+- [x] Step 5: Run `cargo test --test memory`
+- [x] Step 6: Commit: `Read state from the backend before the conversation cache`
