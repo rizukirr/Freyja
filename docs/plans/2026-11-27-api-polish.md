@@ -139,7 +139,7 @@
 - [x] Step 5: Run `cargo test --test model ask` and `cargo test --test model -- --list | grep -c ask`
 - [x] Step 6: Commit: `Add Agent::ask for one message with no history`
 
-### Task 3: `Window::last` replaces `Window::groups` → verify: `CHECK` exits 0, and `grep -rn "Window::groups" src tests examples README.md CHANGELOG.md docs --exclude-dir=specs --exclude-dir=plans` finds no match
+### Task 3: `Window::last` replaces `Window::groups` → verify: `CHECK` exits 0, and `grep -rn "Window::groups" src tests examples README.md docs --exclude-dir=specs --exclude-dir=plans` finds no match, and `sed -n "/^## Unreleased/,/^## [0-9]/p" CHANGELOG.md | grep -c "Window::groups"` prints 0
 
 **Blocked by:** Task 2
 
@@ -151,7 +151,7 @@
 - Modify: `examples/memory.rs`, `examples/persist.rs`
 - Modify: `README.md`, `CHANGELOG.md`, `docs/building-an-agent.md`, `docs/features.md`, `docs/reference/storage.md`, `docs/extending.md`
 
-- [ ] Step 1: In `src/memory.rs`, rename `Window::groups` to `Window::last` and give it this doc:
+- [x] Step 1: In `src/memory.rs`, rename `Window::groups` to `Window::last` and give it this doc:
 
 ```rust
     /// The last `n` turns, plus pinned turns.
@@ -163,11 +163,11 @@
 
   Update the `Debug` impl's label from `Window::groups` to `Window::last`.
 
-- [ ] Step 2: Replace every other `Window::groups` with `Window::last` in the listed files, found with `grep -rn "Window::groups" src tests examples README.md CHANGELOG.md docs --exclude-dir=specs --exclude-dir=plans`. Where prose around a call explains "groups", reword it to "turns" only where it describes `Window::last`. The `CHANGELOG.md` entries that added `Window::groups` under Unreleased now name `Window::last`.
+- [x] Step 2: Replace every other `Window::groups` with `Window::last` in the listed files, found with `grep -rn "Window::groups" src tests examples README.md CHANGELOG.md docs --exclude-dir=specs --exclude-dir=plans`. Where prose around a call explains "groups", reword it to "turns" only where it describes `Window::last`. The `CHANGELOG.md` entries that added `Window::groups` under Unreleased now name `Window::last`.
 
-- [ ] Step 3: Run `CHECK`
-- [ ] Step 4: Run the grep in this task's verify clause
-- [ ] Step 5: Commit: `Rename Window::groups to Window::last`
+- [x] Step 3: Run `CHECK`
+- [x] Step 4: Run the grep in this task's verify clause
+- [x] Step 5: Commit: `Rename Window::groups to Window::last`
 
 ### Task 4: `examples/agent.rs` over a conversation → verify: `CHECK` exits 0, `cargo build --examples` exits 0, and `grep -c "Vec<Message>" examples/agent.rs` prints 0
 
