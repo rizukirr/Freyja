@@ -176,7 +176,7 @@
 **Files:**
 - Modify: `examples/agent.rs`
 
-- [ ] Step 1: Read `examples/agent.rs`. Build `let mut chat = agent.conversation(InMemoryStorage::new());` once before the input loop, send each line with `chat.send(line).await`, and on `/reset` call `chat.clear().await` and report a failure if it returns one. Remove the `Vec<Message>` and every fresh conversation built per turn. Rewrite the module doc so it describes this: `Agent` drives the tool loop, and the conversation keeps the history in `InMemoryStorage`. Keep the tools, the system prompt, the stop-reason handling and the commands as they are.
-- [ ] Step 2: Run `CHECK`
-- [ ] Step 3: Run `cargo build --examples` and `grep -c "Vec<Message>" examples/agent.rs`
-- [ ] Step 4: Commit: `Drive the agent example through a conversation`
+- [x] Step 1: Read `examples/agent.rs`. Build `let mut chat = agent.conversation(InMemoryStorage::new());` once before the input loop, send each line with `chat.send(line).await`, and on `/reset` call `chat.clear().await` and report a failure if it returns one. Remove the `Vec<Message>` and every fresh conversation built per turn. Rewrite the module doc so it describes this: `Agent` drives the tool loop, and the conversation keeps the history in `InMemoryStorage`. Keep the tools, the system prompt, the stop-reason handling and the commands as they are.
+- [x] Step 2: Run `CHECK`
+- [x] Step 3: Run `cargo build --examples` and `grep -c "Vec<Message>" examples/agent.rs`
+- [x] Step 4: Commit: `Drive the agent example through a conversation`
