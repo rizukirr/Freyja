@@ -273,11 +273,12 @@ async fn a_backend_that_reverses_order_fails() {
 - Create: `src/memory.rs`
 - Modify: `src/lib.rs`
 - Modify: `src/storage.rs`
+- Modify: `src/helper/mod.rs`
 - Modify: `src/agent.rs`
 - Modify: `src/conversation.rs`
 - Modify: `tests/memory.rs`
 
-- [ ] Step 1: Create `src/memory.rs`:
+- [x] Step 1: Create `src/memory.rs`:
 
 ```rust
 //! What the model sees of a conversation, decided apart from where the
@@ -635,11 +636,11 @@ impl Memory for Summarize {
 }
 ```
 
-- [ ] Step 2: `src/helper/mod.rs` already exports `split`, `reassemble`, `cut_by_groups` and `cut_by_tokens` as `pub(crate)`. Update the comment above that line so it names `crate::memory` as the caller, since `crate::builtin::memory` stops calling them in Task 3.
+- [x] Step 2: `src/helper/mod.rs` already exports `split`, `reassemble`, `cut_by_groups` and `cut_by_tokens` as `pub(crate)`. Update the comment above that line so it names `crate::memory` as the caller, since `crate::builtin::memory` stops calling them in Task 3.
 
-- [ ] Step 3: In `src/lib.rs`, add `mod memory;` after `mod helper;` and `pub use memory::{Memory, MemoryError, MemoryFuture, State, Summarize, Window};` after the `pub use helper::...` line. Then, in `src/storage.rs`, turn the plain `Memory` in the `Storage::state` doc into the link [`crate::Memory`], now that it resolves.
+- [x] Step 3: In `src/lib.rs`, add `mod memory;` after `mod helper;` and `pub use memory::{Memory, MemoryError, MemoryFuture, State, Summarize, Window};` after the `pub use helper::...` line. Then, in `src/storage.rs`, turn the plain `Memory` in the `Storage::state` doc into the link [`crate::Memory`], now that it resolves.
 
-- [ ] Step 4: In `src/agent.rs`, add a field `memory: Option<Arc<dyn crate::Memory>>` to `Agent`, set to `None` in `Agent::new`, and add after `max_turns`:
+- [x] Step 4: In `src/agent.rs`, add a field `memory: Option<Arc<dyn crate::Memory>>` to `Agent`, set to `None` in `Agent::new`, and add after `max_turns`:
 
 ```rust
     /// Decides what the model sees of each conversation.
@@ -659,7 +660,7 @@ impl Memory for Summarize {
     }
 ```
 
-- [ ] Step 5: In `src/conversation.rs`, add a field `cache: std::collections::HashMap<String, serde_json::Value>` to `Conversation`, initialised empty in `Conversation::new`. In `clear`, after the backend's clear succeeds, add `self.cache.clear();`. In `run`, replace the `let mut history = self.storage.load()...?;` statement with:
+- [x] Step 5: In `src/conversation.rs`, add a field `cache: std::collections::HashMap<String, serde_json::Value>` to `Conversation`, initialised empty in `Conversation::new`. In `clear`, after the backend's clear succeeds, add `self.cache.clear();`. In `run`, replace the `let mut history = self.storage.load()...?;` statement with:
 
 ```rust
         let stored = self
@@ -680,7 +681,7 @@ impl Memory for Summarize {
         };
 ```
 
-- [ ] Step 6: Append to `tests/memory.rs` (read its existing `use` lines and helpers first, and add any import below that it lacks):
+- [x] Step 6: Append to `tests/memory.rs` (read its existing `use` lines and helpers first, and add any import below that it lacks):
 
 ```rust
 /// A backend written outside Freyja, with no window of its own.
@@ -781,9 +782,9 @@ async fn one_summary_serves_two_sends_over_a_backend_with_no_state() {
 }
 ```
 
-- [ ] Step 7: Run `CHECK`
-- [ ] Step 8: Run `cargo test --test memory`
-- [ ] Step 9: Commit: `Add the Memory trait, Window and Summarize, set on Agent`
+- [x] Step 7: Run `CHECK`
+- [x] Step 8: Run `cargo test --test memory`
+- [x] Step 9: Commit: `Add the Memory trait, Window and Summarize, set on Agent`
 
 ### Task 3: Storage types become pure stores, and tests move to `Agent::memory` → verify: `CHECK` exits 0, and `grep -rn "\.window(\|window_by_tokens(\|\.summarize(" src tests examples` finds no call on `InMemoryStorage` or `JsonlStorage`
 
