@@ -135,7 +135,7 @@ async fn a_reopened_conversation_reuses_the_stored_summary() {
     // and send the plain window, which the assertion below would catch.
     let (base, _requests) = serve(&[reply("- SUMMARY")]);
 
-    let memory = Window::groups(1).summarize(summarizer_for(base));
+    let memory = Window::last(1).summarize(summarizer_for(base));
     let turns = || {
         vec![
             Message::text(Role::User, "one"),
@@ -192,7 +192,7 @@ async fn a_summary_covering_more_than_the_file_holds_is_dropped() {
     .expect("write");
 
     let mut storage = JsonlStorage::open(&path).expect("open");
-    let sent = Window::groups(1)
+    let sent = Window::last(1)
         .summarize(summarizer_for("http://127.0.0.1:9".into()))
         .recall(&[], &mut State::new(&mut storage))
         .await

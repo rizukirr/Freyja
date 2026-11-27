@@ -45,13 +45,13 @@ let run = chat.send("what's the weather?").await?;
 ## `Agent::memory` shapes what is sent
 
 ```rust
-let agent = Agent::new(client).memory(Window::groups(20));
+let agent = Agent::new(client).memory(Window::last(20));
 let mut chat = agent.conversation(InMemoryStorage::new());
 ```
 
 What reaches the model is the job of a `Memory`, set on the agent, and where the conversation lives is the job of a `Storage`. The two are independent, so any memory works with any backend. The backend keeps every turn. On each send the conversation loads the whole stored transcript, hands it to the memory, and sends what `Memory::recall` returns, so a window discards nothing. `InMemoryStorage::messages` still borrows the whole transcript, and `chat.storage().messages().len()` sees it even when a window is set. Without a memory the whole transcript is sent. `Agent::memory` replaces any memory set before it.
 
-A turn group is a message, except that an assistant turn requesting tools and the results answering it are one group, so an exchange without tools costs two groups and one with tools costs three or more. `Window::groups(20)` therefore keeps roughly seven exchanges for a tool-using agent, not twenty. Pinned turns, which are the `System` and `Developer` ones, are always sent. The repair pass described below still runs on whatever the memory returns, so a memory that cuts between a tool call and its result loses only that pair.
+A turn group is a message, except that an assistant turn requesting tools and the results answering it are one group, so an exchange without tools costs two groups and one with tools costs three or more. `Window::last(20)` therefore keeps roughly seven exchanges for a tool-using agent, not twenty. Pinned turns, which are the `System` and `Developer` ones, are always sent. The repair pass described below still runs on whatever the memory returns, so a memory that cuts between a tool call and its result loses only that pair.
 
 A memory keeps nothing in itself. What it needs between sends goes through `State`, the conversation's state slot, which is why one memory value serves every conversation an agent starts. A memory of your own implements `recall`, and its `compact` method defaults to refusing:
 
@@ -82,23 +82,23 @@ impl Memory for LastTen {
 let agent = Agent::new(client).memory(Window::tokens(4_000, HeuristicCounter));
 ```
 
-`Window::tokens(budget, counter)` is the token-aware counterpart to `Window::groups`. `counter` is anything implementing `TokenCounter`, a trait with one method, `count(&self, message: &Message) -> usize`, and a blanket impl covers any `Fn(&Message) -> usize + Send` closure, so a real tokenizer needs no wrapper type. `HeuristicCounter` is the dependency-free estimate Freyja ships: roughly four bytes per token plus a small per-message constant, which undercounts code, JSON, and CJK text, so leave a margin.
+`Window::tokens(budget, counter)` is the token-aware counterpart to `Window::last`. `counter` is anything implementing `TokenCounter`, a trait with one method, `count(&self, message: &Message) -> usize`, and a blanket impl covers any `Fn(&Message) -> usize + Send` closure, so a real tokenizer needs no wrapper type. `HeuristicCounter` is the dependency-free estimate Freyja ships: roughly four bytes per token plus a small per-message constant, which undercounts code, JSON, and CJK text, so leave a margin.
 
 The budget covers the stored transcript only. The agent's system instruction is added after the memory returns, every tool schema lives on the `Agent`, and the model's reply and the provider's own envelope both ride on top again, so none of the four count against the number you pass. Subtract all of them yourself when choosing a budget.
 
-Two guarantees make the budget a target rather than a cap. Every `System` and `Developer` turn survives at any budget, including zero, matching `Window::groups`. And the newest turn group survives even when it alone is over budget, because a request that is too large may still fail on the wire while an empty one certainly does.
+Two guarantees make the budget a target rather than a cap. Every `System` and `Developer` turn survives at any budget, including zero, matching `Window::last`. And the newest turn group survives even when it alone is over budget, because a request that is too large may still fail on the wire while an empty one certainly does.
 
 ## `Window::summarize` sends a summary of what the window drops
 
 ```rust
 let agent = Agent::new(client).memory(
-    Window::groups(20).summarize(Summarizer::new(summarizer_client)),
+    Window::last(20).summarize(Summarizer::new(summarizer_client)),
 );
 ```
 
 `Window::summarize(summarizer)` returns a `Summarize`, a memory that turns what the window drops into one summary instead of losing it. The dropped turns, minus pinned ones, go to the `Summarizer`, and the result is sent as one user message headed "Summary of the earlier conversation:", after the pinned turns and before the turns still in view. It works over either kind of window. The backend still holds every raw turn.
 
-Each summary is one extra model call, so it is made at a deeper cut than the window needs, half the window: half the groups for `Window::groups`, rounded up, and half the budget for `Window::tokens`. That leaves room for the next several turns, and the summary is reused until the window needs to drop more than it covers. A small window has little room to give. `Window::groups(2)` keeps one group after summarizing and one exchange adds two, so it summarizes again on nearly every turn. A new summary is built from the raw turns, never from the previous summary, so detail does not decay, at the price of a longer summarizing input as the conversation grows. The summary rides on top of a token budget rather than inside it.
+Each summary is one extra model call, so it is made at a deeper cut than the window needs, half the window: half the groups for `Window::last`, rounded up, and half the budget for `Window::tokens`. That leaves room for the next several turns, and the summary is reused until the window needs to drop more than it covers. A small window has little room to give. `Window::last(2)` keeps one group after summarizing and one exchange adds two, so it summarizes again on nearly every turn. A new summary is built from the raw turns, never from the previous summary, so detail does not decay, at the price of a longer summarizing input as the conversation grows. The summary rides on top of a token budget rather than inside it.
 
 If the summarizing call fails, the plain window is sent and the conversation carries on.
 

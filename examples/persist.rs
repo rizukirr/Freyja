@@ -58,7 +58,7 @@ async fn main() {
     // carries, and the file keeps every turn regardless.
     let agent = Agent::new(client)
         .system("Answer in one short sentence.")
-        .memory(Window::groups(20));
+        .memory(Window::last(20));
     let mut chat = agent.conversation(storage);
 
     if input == "--reset" {

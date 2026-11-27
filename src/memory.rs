@@ -157,10 +157,7 @@ enum Rule {
 impl std::fmt::Debug for Window {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match &self.rule {
-            Rule::Groups(groups) => formatter
-                .debug_tuple("Window::groups")
-                .field(groups)
-                .finish(),
+            Rule::Groups(groups) => formatter.debug_tuple("Window::last").field(groups).finish(),
             Rule::Tokens { budget, .. } => formatter
                 .debug_struct("Window::tokens")
                 .field("budget", budget)
@@ -170,9 +167,12 @@ impl std::fmt::Debug for Window {
 }
 
 impl Window {
-    /// The most recent `keep` turn groups. The rule is
+    /// The last `n` turns, plus pinned turns.
+    ///
+    /// A turn is one message, except that a tool call and the results
+    /// answering it count as one, so a window never splits them. The rule is
     /// [`crate::window_by_groups`].
-    pub fn groups(keep: usize) -> Self {
+    pub fn last(keep: usize) -> Self {
         Self {
             rule: Rule::Groups(keep),
         }

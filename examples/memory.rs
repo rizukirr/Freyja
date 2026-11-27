@@ -47,7 +47,7 @@ async fn main() {
 
     let base = Agent::new(client.clone()).system("Answer in one short sentence.");
 
-    let agent = base.clone().memory(Window::groups(2));
+    let agent = base.clone().memory(Window::last(2));
     let mut chat = agent.conversation(InMemoryStorage::new());
     if let Err(error) = ask(&mut chat).await {
         eprintln!("{error}");
@@ -74,7 +74,7 @@ async fn main() {
     // back as one summary message, so this time the model can answer the last
     // question. Each summary is one extra model call, and a window of two
     // groups has so little room that it summarizes again on most turns.
-    let summarized_agent = base.memory(Window::groups(2).summarize(Summarizer::new(client)));
+    let summarized_agent = base.memory(Window::last(2).summarize(Summarizer::new(client)));
     let mut summarized_chat = summarized_agent.conversation(InMemoryStorage::new());
     if let Err(error) = ask(&mut summarized_chat).await {
         eprintln!("{error}");

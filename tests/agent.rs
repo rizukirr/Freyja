@@ -788,7 +788,7 @@ async fn separate_conversations_do_not_share_storage() {
 #[tokio::test]
 async fn a_window_sends_less_than_the_whole_conversation() {
     let (base, requests) = serve(&[canned(ANSWER), canned(ANSWER)]);
-    let agent = Agent::new(client(base)).memory(Window::groups(1));
+    let agent = Agent::new(client(base)).memory(Window::last(1));
     let mut chat = agent.conversation(InMemoryStorage::new());
 
     chat.send("turn-one").await.expect("first");

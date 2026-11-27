@@ -94,8 +94,8 @@ async fn a_memory_bounds_a_backend_written_outside_freyja() {
     ]);
     let config = freyja::EndpointConfig::new(freyja::Dialect::OpenAiChat, "local", base)
         .default_model("test-model");
-    let agent = freyja::Agent::new(freyja::Client::new(config, "sk-test"))
-        .memory(freyja::Window::groups(2));
+    let agent =
+        freyja::Agent::new(freyja::Client::new(config, "sk-test")).memory(freyja::Window::last(2));
     let mut chat = agent.conversation(Plain::default());
 
     chat.send("first").await.expect("run");
@@ -140,7 +140,7 @@ async fn one_summary_serves_two_sends_over_a_backend_with_no_state() {
         .default_model("test-model");
     let client = freyja::Client::new(config, "sk-test");
     let agent = freyja::Agent::new(client.clone())
-        .memory(freyja::Window::groups(4).summarize(freyja::Summarizer::new(client)));
+        .memory(freyja::Window::last(4).summarize(freyja::Summarizer::new(client)));
 
     let mut messages: Vec<freyja::Message> = Vec::new();
     let mut chat = agent.conversation(&mut messages);
@@ -178,7 +178,7 @@ async fn a_new_conversation_over_a_backend_with_no_state_starts_with_an_empty_ca
         .default_model("test-model");
     let client = freyja::Client::new(config, "sk-test");
     let agent = freyja::Agent::new(client.clone())
-        .memory(freyja::Window::groups(4).summarize(freyja::Summarizer::new(client)));
+        .memory(freyja::Window::last(4).summarize(freyja::Summarizer::new(client)));
 
     let mut messages: Vec<freyja::Message> = Vec::new();
     {
@@ -261,7 +261,7 @@ async fn a_clear_through_another_handle_is_seen_on_a_backend_that_keeps_state() 
         .default_model("test-model");
     let client = freyja::Client::new(config, "sk-test");
     let agent = freyja::Agent::new(client.clone())
-        .memory(freyja::Window::groups(4).summarize(freyja::Summarizer::new(client)));
+        .memory(freyja::Window::last(4).summarize(freyja::Summarizer::new(client)));
 
     let backend = SharedState::default();
     let mut first = agent.conversation(backend.clone());

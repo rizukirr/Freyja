@@ -182,7 +182,7 @@ async fn a_borrowed_vector_is_extended_in_place() {
 #[tokio::test]
 async fn window_shapes_what_is_sent_while_the_backend_keeps_everything() {
     let (base, requests) = serve(&[ok_response(), ok_response(), ok_response()]);
-    let agent = agent_for(base).memory(Window::groups(1));
+    let agent = agent_for(base).memory(Window::last(1));
     let mut chat = agent.conversation(InMemoryStorage::new());
 
     chat.send("first").await.expect("run");
@@ -228,8 +228,8 @@ async fn the_last_memory_set_replaces_the_earlier_one() {
     // A window of one group, then one large enough for everything: if the
     // first were kept, the last request would carry one stored group.
     let agent = agent_for(base)
-        .memory(Window::groups(1))
-        .memory(Window::groups(100));
+        .memory(Window::last(1))
+        .memory(Window::last(100));
     let mut chat = agent.conversation(InMemoryStorage::new());
 
     chat.send("first").await.expect("run");
@@ -408,7 +408,7 @@ async fn a_boxed_backend_is_forwarded_to() {
 #[tokio::test]
 async fn a_window_survives_a_clear() {
     let (base, requests) = serve(&[ok_response(), ok_response(), ok_response(), ok_response()]);
-    let agent = agent_for(base).memory(Window::groups(1));
+    let agent = agent_for(base).memory(Window::last(1));
     let mut chat = agent.conversation(InMemoryStorage::new());
 
     chat.send("first").await.expect("run");

@@ -103,7 +103,7 @@ pub(crate) fn reassemble(
 
 /// Pinned turns plus the most recent `keep` turn groups.
 ///
-/// The trimming rule [`crate::Window::groups`] uses, published so a
+/// The trimming rule [`crate::Window::last`] uses, published so a
 /// backend of your own can apply the same one inside its
 /// [`load`](crate::Storage::load) rather than reimplementing it. Everything it
 /// reads is public, so a backend can implement the rule itself. This keeps one

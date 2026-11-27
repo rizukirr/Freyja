@@ -104,7 +104,7 @@ async fn dropped_turns_reach_the_model_as_a_summary() {
         EndpointConfig::new(Dialect::OpenAiChat, "local", base).default_model("test-model");
     let client = Client::new(config, "sk-test");
     let summarizer = Summarizer::new(client.clone());
-    let agent = Agent::new(client).memory(Window::groups(1).summarize(summarizer));
+    let agent = Agent::new(client).memory(Window::last(1).summarize(summarizer));
     let mut chat = agent.conversation(InMemoryStorage::new());
 
     chat.send("Plan three days in Bergen.")
@@ -135,7 +135,7 @@ async fn a_summary_is_reused_while_the_cut_stays_and_cleared_with_the_conversati
     // One reply only. A second summarizing call would find no server, fail,
     // and send the plain window, which the loop below would catch.
     let (base, _requests) = serve(&[reply("- SUMMARY", "stop")]);
-    let memory = Window::groups(1).summarize(summarizer_for(base));
+    let memory = Window::last(1).summarize(summarizer_for(base));
     let mut storage = InMemoryStorage::new();
     storage
         .append(vec![
@@ -179,7 +179,7 @@ async fn a_summary_is_reused_while_the_cut_stays_and_cleared_with_the_conversati
 #[tokio::test]
 async fn a_failed_summary_falls_back_to_the_plain_window() {
     let (base, _requests) = serve(&[reply("- cut off", "length")]);
-    let memory = Window::groups(1).summarize(summarizer_for(base));
+    let memory = Window::last(1).summarize(summarizer_for(base));
     let mut storage = InMemoryStorage::new();
     storage
         .append(vec![
@@ -203,7 +203,7 @@ async fn one_summary_serves_several_turns() {
     // One reply only. A second summarizing call would fail and fall back to
     // the plain window, which the second load's length would show.
     let (base, _requests) = serve(&[reply("- SUMMARY", "stop")]);
-    let memory = Window::groups(4).summarize(summarizer_for(base));
+    let memory = Window::last(4).summarize(summarizer_for(base));
     let mut storage = InMemoryStorage::new();
     let exchange = || {
         vec![

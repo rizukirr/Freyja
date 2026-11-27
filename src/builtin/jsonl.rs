@@ -41,7 +41,7 @@ enum Record<'a> {
 /// # async fn run(agent: freyja::Agent) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 /// use freyja::JsonlStorage;
 ///
-/// let mut chat = agent.memory(freyja::Window::groups(20)).conversation(JsonlStorage::open("chat.jsonl")?);
+/// let mut chat = agent.memory(freyja::Window::last(20)).conversation(JsonlStorage::open("chat.jsonl")?);
 /// // A later process opening the same path continues this conversation.
 /// chat.send("Where were we?").await?;
 /// # Ok(())
