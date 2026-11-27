@@ -282,9 +282,9 @@ If a test does not compile because of a detail of the public API (for example `t
 - Modify: `CHANGELOG.md`
 - Modify: `README.md`
 
-- [ ] Step 1: Invoke `lazy` and `plain` before writing.
-- [ ] Step 2: In `docs/extending.md`, add a section `## Testing with a scripted model` after the section `## Checking a storage backend`. It says that `freyja::testing::ScriptedModel` answers from a script with no network, shows a short example that builds `ScriptedModel::new().tool_call("add", json!({"a": 1, "b": 2})).text("3")`, wraps it in `Arc`, runs `Agent::new(model.clone()).tool(add).ask(...)`, and reads `model.requests()`, and says that `respond` adds any other response shape and that a call after the script runs out returns `Error::InvalidResponse`.
-- [ ] Step 3: In `CHANGELOG.md`, under `## Unreleased` then `### Added`, add one bullet in the style of its neighbours: `**`ScriptedModel`, a model that answers from a script, in `freyja::testing`.**` followed by one sentence naming `text`, `tool_call`, `respond` and `requests`, and the ran-out error.
-- [ ] Step 4: In `README.md`, in the Phase 5 roadmap paragraph, after "a mock provider for testing agents without network access", add a sentence saying `freyja::testing::ScriptedModel` ships, a model that answers from a script.
-- [ ] Step 5: Run `RUSTDOCFLAGS='-D warnings' cargo --offline doc --no-deps`.
-- [ ] Step 6: Commit the three files as "Document ScriptedModel".
+- [x] Step 1: Invoke `lazy` and `plain` before writing.
+- [x] Step 2: In `docs/extending.md`, add a section `## Testing with a scripted model` after the section `## Checking a storage backend`. It says that `freyja::testing::ScriptedModel` answers from a script with no network, shows a short example that builds `ScriptedModel::new().tool_call("add", json!({"a": 1, "b": 2})).text("3")`, wraps it in `Arc`, runs `Agent::new(model.clone()).tool(add).ask(...)`, and reads `model.requests()`, and says that `respond` adds any other response shape and that a call after the script runs out returns `Error::InvalidResponse`.
+- [x] Step 3: In `CHANGELOG.md`, under `## Unreleased` then `### Added`, add one bullet in the style of its neighbours: `**`ScriptedModel`, a model that answers from a script, in `freyja::testing`.**` followed by one sentence naming `text`, `tool_call`, `respond` and `requests`, and the ran-out error.
+- [x] Step 4: In `README.md`, in the Phase 5 roadmap paragraph, after "a mock provider for testing agents without network access", add a sentence saying `freyja::testing::ScriptedModel` ships, a model that answers from a script.
+- [x] Step 5: Run `RUSTDOCFLAGS='-D warnings' cargo --offline doc --no-deps`.
+- [x] Step 6: Commit the three files as "Document ScriptedModel".
