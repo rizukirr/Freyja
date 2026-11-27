@@ -225,7 +225,7 @@ Pre-1.0, so this breaks. Update imports and error matching with this rename tabl
 | `Agent::chat()` and `Chat::ask` | `agent.conversation(InMemoryStorage::new())` and `chat.send(..)` |
 | `Memory`, `MemoryError`, `MemoryFuture` | `Filter`, `FilterError`, `FilterFuture` |
 | `Agent::memory(impl Memory)` | a `Storage` implementation trims inside `Storage::load`, supplied to `agent.conversation(..)` |
-| `Agent::filter(Window::last(n))` | `agent.conversation(InMemoryStorage::new().window(n))` |
+| `Agent::filter(Window::groups(n))` | `agent.conversation(InMemoryStorage::new().window(n))` |
 | `Filter`, `FilterError`, `FilterFuture`, `Window` | removed. A backend trims inside `Storage::load`, and may cut anywhere, because the repair pass drops both halves of a pair the cut separated |
 | `Agent::memory(store)` then `agent.message(..)` | `agent.conversation(store)` then `chat.send(..)`, or `agent.conversation(InMemoryStorage::new())` for one held in this process |
 | `Agent::messages(&mut history)` | `agent.conversation(&mut history).send(..)`. The vector is still extended in place |
