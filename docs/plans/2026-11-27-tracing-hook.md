@@ -21,8 +21,8 @@
 - Modify: `src/lib.rs`
 - Create: `tests/tracing.rs`
 
-- [ ] Step 1: Invoke `lazy` before writing any code.
-- [ ] Step 2: In `Cargo.toml`, under `[dependencies]` after the `serde_json` line, add:
+- [x] Step 1: Invoke `lazy` before writing any code.
+- [x] Step 2: In `Cargo.toml`, under `[dependencies]` after the `serde_json` line, add:
 
 ```toml
 # Only with the `tracing` feature. It is already in the tree through hyper, so
@@ -39,7 +39,7 @@ and after the `[dev-dependencies]` block, add:
 tracing = ["dep:tracing"]
 ```
 
-- [ ] Step 3: Create `src/tracing_hook.rs`:
+- [x] Step 3: Create `src/tracing_hook.rs`:
 
 ```rust
 //! A ready-made hook that reports every call as a `tracing` event.
@@ -155,9 +155,9 @@ impl Hook for Tracing {
 
 If `Option<u64>` fields or `usize` for `output_bytes` do not compile with `tracing` 0.1.44, convert them (for example `output.len() as u64`) without dropping any field.
 
-- [ ] Step 4: In `src/lib.rs`, after the line `mod summarize;` add `#[cfg(feature = "tracing")]` and `mod tracing_hook;` on two lines. After the line `pub use summarize::Summarizer;` add `#[cfg(feature = "tracing")]` and `pub use tracing_hook::Tracing;` on two lines.
+- [x] Step 4: In `src/lib.rs`, after the line `mod summarize;` add `#[cfg(feature = "tracing")]` and `mod tracing_hook;` on two lines. After the line `pub use summarize::Summarizer;` add `#[cfg(feature = "tracing")]` and `pub use tracing_hook::Tracing;` on two lines.
 
-- [ ] Step 5: Create `tests/tracing.rs`:
+- [x] Step 5: Create `tests/tracing.rs`:
 
 ```rust
 //! The `Tracing` hook, under a subscriber that records every event.
@@ -345,8 +345,8 @@ async fn a_refused_tool_call_is_still_an_event() {
 
 If a detail of the public API differs (for example `Usage` not exported at the crate root, or `StopReason` comparison), adjust the test to the real API while keeping every assertion's intent.
 
-- [ ] Step 6: Run `cargo --offline test --features tracing --test tracing`, `cargo --offline clippy --all-targets --all-features -- -D warnings`, `cargo --offline clippy --all-targets -- -D warnings` and `cargo --offline tree -e normal --depth 1`.
-- [ ] Step 7: Commit the five files as "Add Tracing, a hook that reports every call as a tracing event".
+- [x] Step 6: Run `cargo --offline test --features tracing --test tracing`, `cargo --offline clippy --all-targets --all-features -- -D warnings`, `cargo --offline clippy --all-targets -- -D warnings` and `cargo --offline tree -e normal --depth 1`.
+- [x] Step 7: Commit the five files as "Add Tracing, a hook that reports every call as a tracing event".
 
 ### Task 2: Document Tracing → verify: `RUSTDOCFLAGS='-D warnings' cargo --offline doc --no-deps --all-features` exits 0 and `grep -l 'Tracing' docs/building-an-agent.md CHANGELOG.md README.md | wc -l` prints a number at least 3
 
