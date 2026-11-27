@@ -798,6 +798,7 @@ async fn one_summary_serves_two_sends_over_a_backend_with_no_state() {
 - Modify: `tests/jsonl.rs`
 - Modify: `examples/memory.rs`
 - Modify: `examples/persist.rs`
+- Modify: `src/conversation.rs`
 - Modify: any `src/` doc comment that links a removed item, found by the `cargo doc` run in `CHECK`
 
 - [ ] Step 1: In `src/builtin/memory.rs`, delete the `Window` enum and its `Debug` impl, the `Summary` struct, `SUMMARY_PREFIX`, the fields `window`, `summarizer` and `summary`, the methods `window`, `window_by_tokens`, `summarize`, `summary`, `cached` and `windowed`, and the imports they alone used. `InMemoryStorage` keeps `messages` and `state`. Its `load` becomes `Box::pin(async move { Ok(self.messages.clone()) })`, and its `clear` clears both fields. Replace `restore` with:
