@@ -31,7 +31,7 @@
     /// The value stored under `key` in this conversation's state slot, if
     /// this backend keeps state.
     ///
-    /// State is what a [`crate::Memory`] keeps between sends, such as a cached
+    /// State is what a `Memory` keeps between sends, such as a cached
     /// summary, so a backend that persists it saves a model call after a
     /// restart. The default keeps nothing and returns `None`, which is always
     /// correct: a memory that finds no state rebuilds it.
@@ -636,7 +636,7 @@ impl Memory for Summarize {
 
 - [ ] Step 2: `src/helper/mod.rs` already exports `split`, `reassemble`, `cut_by_groups` and `cut_by_tokens` as `pub(crate)`. Update the comment above that line so it names `crate::memory` as the caller, since `crate::builtin::memory` stops calling them in Task 3.
 
-- [ ] Step 3: In `src/lib.rs`, add `mod memory;` after `mod helper;` and `pub use memory::{Memory, MemoryError, MemoryFuture, State, Summarize, Window};` after the `pub use helper::...` line.
+- [ ] Step 3: In `src/lib.rs`, add `mod memory;` after `mod helper;` and `pub use memory::{Memory, MemoryError, MemoryFuture, State, Summarize, Window};` after the `pub use helper::...` line. Then, in `src/storage.rs`, turn the plain `Memory` in the `Storage::state` doc into the link [`crate::Memory`], now that it resolves.
 
 - [ ] Step 4: In `src/agent.rs`, add a field `memory: Option<Arc<dyn crate::Memory>>` to `Agent`, set to `None` in `Agent::new`, and add after `max_turns`:
 
