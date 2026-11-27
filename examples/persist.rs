@@ -11,7 +11,7 @@
 //! cargo run --example persist -- --reset
 //! ```
 
-use freyja::{Agent, Client, EndpointPreset, JsonlStorage};
+use freyja::{Agent, Client, EndpointPreset, JsonlStorage, Window};
 
 #[tokio::main]
 async fn main() {
@@ -50,11 +50,13 @@ async fn main() {
 
     // The system instruction belongs to the agent and is never written to the
     // file, so changing it between runs changes it for the stored turns too.
-    let agent = Agent::new(client).system("Answer in one short sentence.");
-
-    // The same window `InMemoryStorage` has. It bounds what one request
+    //
+    // The window belongs to the agent's memory. It bounds what one request
     // carries, and the file keeps every turn regardless.
-    let mut chat = agent.conversation(storage.window(20));
+    let agent = Agent::new(client)
+        .system("Answer in one short sentence.")
+        .memory(Window::groups(20));
+    let mut chat = agent.conversation(storage);
 
     if input == "--reset" {
         // Empties the file as well as the transcript. Dropping the

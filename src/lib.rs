@@ -117,24 +117,27 @@ pub mod error;
 #[cfg(test)]
 mod fixtures;
 mod helper;
+mod memory;
 pub mod model;
 mod repair;
 mod storage;
 /// Types and utilities for consuming streaming provider responses.
 pub mod stream;
 mod summarize;
+pub mod testing;
 mod transport;
 
 pub use agent::{Agent, AgentEvent, Decision, Run, StopReason};
 pub use builtin::{HeuristicCounter, InMemoryStorage, JsonlStorage};
 pub use client::Client;
-pub use conversation::Conversation;
+pub use conversation::{Compact, Conversation};
 pub use counter::TokenCounter;
 pub use dialect::Dialect;
 pub use endpoint::{Auth, EndpointConfig, EndpointPreset, TokenLimitField};
 pub use error::{BODY_IN_MESSAGE, Error, MAX_RETRY_AFTER, TransportError};
 pub use freyja_macros::tool;
 pub use helper::{window_by_groups, window_by_tokens};
+pub use memory::{Memory, MemoryError, MemoryFuture, State, Summarize, Window};
 pub use model::{
     Context, GenerateRequest, GenerateResponse, InputContent, Message, OutputContent,
     ReasoningEffort, ResponseFormat, ResponseStatus, Role, Tool, ToolChoice, ToolDefinition,

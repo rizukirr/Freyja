@@ -6,21 +6,27 @@ Notable changes per release. Freyja is pre-1.0, so a minor version may break.
 
 ### Added
 
+- **`Memory`, a trait set with `Agent::memory` that decides what the model sees.** `Memory::recall` takes the whole stored conversation and returns what to send, and it works with any `Storage`. A memory keeps nothing in itself and uses `State`, so one value serves every conversation. `MemoryError` and `MemoryFuture` are its error and boxed future types.
+- **`Window` and `Summarize`, the built-in memories.** `Window::groups(n)` and `Window::tokens(budget, counter)` bound by turn group or by estimated token budget, and `Window::summarize(summarizer)` returns a `Summarize` that sends a summary of what the window drops.
+- **`State`, a memory's handle on the conversation's state slot.** Reads fall back from an in-process cache to `Storage::state`, and writes go to both.
+- **`Storage::state` and `Storage::set_state`, a state slot with defaults that keep nothing.** A backend that keeps state returns the latest value for a key and removes all of it in `clear`.
+- **`Conversation::summary` and `Conversation::compact`.** `summary` returns the text of the summary last made. `compact().keep(n).await` summarizes the older part of the conversation now, and returns an error from a memory that does not summarize.
+- **`freyja::testing::storage_conformance`, a check a backend crate runs from its own tests.** It covers order, `clear` on an empty conversation, and `clear` removing state.
+
 - **`window_by_tokens`, a token-budget window beside `window_by_groups`.**
   `TokenCounter` is a sync, per-message trait, `fn count(&self, message:
   &Message) -> usize`, with a blanket impl so a closure is a counter.
   `HeuristicCounter` estimates by byte length with no dependency, and
-  undercounts code, JSON and CJK. `InMemoryStorage::window_by_tokens(budget,
-  counter)` is the builder beside `window`, and `window_by_tokens` is the
-  public function beside `window_by_groups`.
+  undercounts code, JSON and CJK. `window_by_tokens` is the public function
+  beside `window_by_groups`, and `Window::tokens(budget, counter)` applies it
+  as a `Memory`.
 
   The budget covers only the history: the agent's system instruction, the
   tool schemas and the reply are excluded. It is a target rather than a cap
   on two counts, a pinned turn is always kept, and the newest group is kept
-  even alone over budget. `window_by_tokens` and `window` share one field on
-  `InMemoryStorage`, so the last one called applies.
+  even alone over budget.
 
-- **`Summarizer` and `InMemoryStorage::summarize`, so turns a window drops are
+- **`Summarizer`, so turns a window drops are
   summarized instead of lost.** `Summarizer::new(client)` owns its own
   `Client` and makes one request per summary, with optional `model`, `prompt`
   and `max_tokens`. It sends the dropped turns as one block of text under its
@@ -28,23 +34,22 @@ Notable changes per release. Freyja is pre-1.0, so a minor version may break.
   turn order apply, and it leaves reasoning parts out. A reply cut short or
   empty is an `Error::InvalidResponse`, never half a summary.
 
-  `InMemoryStorage::new().window(n).summarize(summarizer)` sends the summary
-  in place of the dropped turns, as one user message after the pinned turns.
-  It is made at half the window, so one summary serves several turns, and
-  rebuilt from the raw turns once the window needs to drop more than it
-  covers. `InMemoryStorage::summary` returns it, and `messages` still holds
-  every raw turn. If the summarizing call fails, `load` sends the plain
-  window.
+  `Window::groups(n).summarize(summarizer)` sends the summary in place of
+  the dropped turns, as one user message after the pinned turns. It is made
+  at half the window, so one summary serves several turns, and rebuilt from
+  the raw turns once the window needs to drop more than it covers. The
+  backend still holds every raw turn. If the summarizing call fails, the plain
+  window is sent.
 
 - **`JsonlStorage`, a conversation kept in a file.** `JsonlStorage::open(path)`
   reads the transcript at `path`, creating the file if it is missing, and
   writes every append through to it, so a later process opening the same path
-  continues the conversation. It holds an `InMemoryStorage`, so `window`,
-  `window_by_tokens`, `summarize`, `messages` and `summary` are the same rules,
+  continues the conversation. It holds an `InMemoryStorage`, so `messages` reads the whole transcript,
   and it adds no dependency.
 
-  The file is JSON Lines: a version header, one line per turn, and the summary
-  as a line of its own, so a reopened conversation does not summarize again.
+  The file is JSON Lines: a version header, one line per turn, and each state
+  value as a line of its own, so a reopened conversation does not summarize
+  again.
   One append is one write, and a final line the process died inside is cut off
   at `open`. A file from a newer format, or a bad line anywhere but the tail,
   is an error. File access is blocking `std::fs`, and nothing locks the file
@@ -56,6 +61,7 @@ Notable changes per release. Freyja is pre-1.0, so a minor version may break.
 
 ### Changed
 
+- **`InMemoryStorage` and `JsonlStorage` are pure stores.** Their `window`, `window_by_tokens`, `summarize` and `summary` methods are removed in favour of `Agent::memory` with `Window` and `Summarize`, and `Conversation::summary` replaces `summary`. `JsonlStorage` writes a `state` record in place of its `summary` record.
 - **An error response keeps only the first 64 KiB of its body.** It was read under the 64 MiB success cap and held whole inside the `Error`. `Error::body` returns the kept part.
 - **A request body is sent with `Content-Type: application/json` unless an endpoint header names one**, the rule `RequestBuilder::json` followed, so an endpoint's own `Content-Type` replaces it rather than going out twice.
 - **Less copying per request and per stream.** Request bodies borrow the transcript instead of cloning it, and serialize straight from the wire struct when there are no extra body fields. A valid UTF-8 response is no longer copied to become a `String`. The SSE buffer parses frames in place and drops consumed bytes once per chunk.

@@ -1,8 +1,6 @@
 //! The conversation in a file, one JSON record per line.
 
-use crate::{
-    InMemoryStorage, Message, Storage, StorageError, StorageFuture, Summarizer, TokenCounter,
-};
+use crate::{InMemoryStorage, Message, Storage, StorageError, StorageFuture};
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::fs::{File, OpenOptions};
@@ -24,25 +22,26 @@ enum Record<'a> {
         version: u32,
     },
     Message(Cow<'a, Message>),
-    /// The summary cache. The last one in the file wins.
-    Summary {
-        covers: usize,
-        text: String,
+    /// A state slot value. The last one per key wins.
+    State {
+        key: String,
+        value: serde_json::Value,
     },
 }
 
 /// The conversation in a file, which survives the process.
 ///
 /// One file is one conversation. The whole transcript is read at
-/// [`JsonlStorage::open`] and held in an [`InMemoryStorage`], so windows and
-/// summaries behave exactly as they do there, and every append is written
-/// through before it is held.
+/// [`JsonlStorage::open`] and held in an [`InMemoryStorage`], and
+/// every append is written through before it is held. Windows and summaries
+/// belong to [`crate::Agent::memory`], and a summary is kept in the file as
+/// state.
 ///
 /// ```no_run
 /// # async fn run(agent: freyja::Agent) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 /// use freyja::JsonlStorage;
 ///
-/// let mut chat = agent.conversation(JsonlStorage::open("chat.jsonl")?.window(20));
+/// let mut chat = agent.memory(freyja::Window::groups(20)).conversation(JsonlStorage::open("chat.jsonl")?);
 /// // A later process opening the same path continues this conversation.
 /// chat.send("Where were we?").await?;
 /// # Ok(())
@@ -92,7 +91,7 @@ impl JsonlStorage {
         }
 
         let mut messages = Vec::new();
-        let mut summary = None;
+        let mut state = std::collections::HashMap::new();
         for line in bytes[..complete]
             .split(|&byte| byte == b'\n')
             .filter(|line| !line.is_empty())
@@ -104,7 +103,9 @@ impl JsonlStorage {
                     return Err(format!("unsupported transcript version {version}").into());
                 }
                 Record::Message(message) => messages.push(message.into_owned()),
-                Record::Summary { covers, text } => summary = Some((covers, text)),
+                Record::State { key, value } => {
+                    state.insert(key, value);
+                }
             }
         }
 
@@ -114,46 +115,13 @@ impl JsonlStorage {
 
         Ok(Self {
             file,
-            inner: InMemoryStorage::restore(messages, summary),
+            inner: InMemoryStorage::restore(messages, state),
         })
     }
 
-    /// Send only the most recent `groups` turn groups, plus pinned turns.
-    ///
-    /// The rule is [`InMemoryStorage::window`]. The file keeps every turn.
-    pub fn window(mut self, groups: usize) -> Self {
-        self.inner = self.inner.window(groups);
-        self
-    }
-
-    /// Send only the most recent turn groups fitting an estimated token
-    /// budget, plus pinned turns.
-    ///
-    /// The rule is [`InMemoryStorage::window_by_tokens`]. The file keeps
-    /// every turn.
-    pub fn window_by_tokens(mut self, budget: usize, counter: impl TokenCounter + 'static) -> Self {
-        self.inner = self.inner.window_by_tokens(budget, counter);
-        self
-    }
-
-    /// Summarize the turns the window drops, instead of losing them.
-    ///
-    /// The rule is [`InMemoryStorage::summarize`]. The summary is stored in
-    /// the file, so a process that reopens the conversation does not pay for
-    /// it again.
-    pub fn summarize(mut self, summarizer: Summarizer) -> Self {
-        self.inner = self.inner.summarize(summarizer);
-        self
-    }
-
-    /// Everything held, which a window never shrinks.
+    /// Everything held.
     pub fn messages(&self) -> &[Message] {
         self.inner.messages()
-    }
-
-    /// The summary last sent in place of the dropped turns, if there is one.
-    pub fn summary(&self) -> Option<&str> {
-        self.inner.summary()
     }
 }
 
@@ -174,23 +142,7 @@ fn write(file: &mut File, records: &[Record<'_>]) -> std::io::Result<()> {
 
 impl Storage for JsonlStorage {
     fn load(&mut self) -> StorageFuture<'_, Vec<Message>> {
-        Box::pin(async move {
-            let before = self.inner.cached().map(|(covers, _)| covers);
-            let messages = self.inner.load().await?;
-
-            if let Some((covers, text)) = self.inner.cached()
-                && Some(covers) != before
-            {
-                let record = Record::Summary {
-                    covers,
-                    text: text.to_string(),
-                };
-                // A summary that fails to store is made again by the next
-                // process, which costs a model call and loses nothing.
-                let _ = write(&mut self.file, &[record]);
-            }
-            Ok(messages)
-        })
+        self.inner.load()
     }
 
     fn append(&mut self, messages: Vec<Message>) -> StorageFuture<'_, ()> {
@@ -212,6 +164,28 @@ impl Storage for JsonlStorage {
             self.file.set_len(0)?;
             write(&mut self.file, &[Record::Header { version: VERSION }])?;
             self.inner.clear().await
+        })
+    }
+
+    fn state<'a>(&'a mut self, key: &'a str) -> StorageFuture<'a, Option<serde_json::Value>> {
+        self.inner.state(key)
+    }
+
+    fn set_state<'a>(
+        &'a mut self,
+        key: &'a str,
+        value: serde_json::Value,
+    ) -> StorageFuture<'a, ()> {
+        Box::pin(async move {
+            // The file first, so memory never holds state the disk lacks.
+            write(
+                &mut self.file,
+                &[Record::State {
+                    key: key.to_string(),
+                    value: value.clone(),
+                }],
+            )?;
+            self.inner.set_state(key, value).await
         })
     }
 }

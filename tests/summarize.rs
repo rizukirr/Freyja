@@ -4,8 +4,8 @@
 mod common;
 use common::serve;
 use freyja::{
-    Agent, Client, Dialect, EndpointConfig, Error, InMemoryStorage, InputContent, Message, Role,
-    Storage, Summarizer,
+    Agent, Client, Dialect, EndpointConfig, Error, InMemoryStorage, InputContent, Memory, Message,
+    Role, State, Storage, Summarizer, Window,
 };
 
 /// A Chat Completions reply carrying `content`, ended for `finish_reason`.
@@ -103,10 +103,9 @@ async fn dropped_turns_reach_the_model_as_a_summary() {
     let config =
         EndpointConfig::new(Dialect::OpenAiChat, "local", base).default_model("test-model");
     let client = Client::new(config, "sk-test");
-    let storage = InMemoryStorage::new()
-        .window(1)
-        .summarize(Summarizer::new(client.clone()));
-    let mut chat = Agent::new(client).conversation(storage);
+    let summarizer = Summarizer::new(client.clone());
+    let agent = Agent::new(client).memory(Window::groups(1).summarize(summarizer));
+    let mut chat = agent.conversation(InMemoryStorage::new());
 
     chat.send("Plan three days in Bergen.")
         .await
@@ -125,8 +124,8 @@ async fn dropped_turns_reach_the_model_as_a_summary() {
     assert!(!body.contains("Plan three days in Bergen."));
 
     assert_eq!(
-        chat.storage().summary(),
-        Some("- The user is planning three days in Bergen")
+        chat.summary().await.expect("summary"),
+        Some("- The user is planning three days in Bergen".to_string())
     );
     assert_eq!(chat.storage().messages().len(), 4);
 }
@@ -136,9 +135,8 @@ async fn a_summary_is_reused_while_the_cut_stays_and_cleared_with_the_conversati
     // One reply only. A second summarizing call would find no server, fail,
     // and send the plain window, which the loop below would catch.
     let (base, _requests) = serve(&[reply("- SUMMARY", "stop")]);
-    let mut storage = InMemoryStorage::new()
-        .window(1)
-        .summarize(summarizer_for(base));
+    let memory = Window::groups(1).summarize(summarizer_for(base));
+    let mut storage = InMemoryStorage::new();
     storage
         .append(vec![
             Message::text(Role::User, "one"),
@@ -148,7 +146,11 @@ async fn a_summary_is_reused_while_the_cut_stays_and_cleared_with_the_conversati
         .expect("append");
 
     for _ in 0..2 {
-        let sent = storage.load().await.expect("load");
+        let held = storage.load().await.expect("load");
+        let sent = memory
+            .recall(&held, &mut State::new(&mut storage))
+            .await
+            .expect("recall");
         assert_eq!(sent.len(), 2);
         assert!(matches!(
             &sent[0].content[0],
@@ -157,15 +159,28 @@ async fn a_summary_is_reused_while_the_cut_stays_and_cleared_with_the_conversati
     }
 
     storage.clear().await.expect("clear");
-    assert_eq!(storage.summary(), None);
+    storage
+        .append(vec![
+            Message::text(Role::User, "one"),
+            Message::text(Role::Assistant, "two"),
+        ])
+        .await
+        .expect("append");
+    // The server held one reply, so a summary that survived the clear would be
+    // reused, and one that did not is made again, fails, and falls back.
+    let held = storage.load().await.expect("load");
+    let sent = memory
+        .recall(&held, &mut State::new(&mut storage))
+        .await
+        .expect("recall");
+    assert_eq!(sent, vec![Message::text(Role::Assistant, "two")]);
 }
 
 #[tokio::test]
 async fn a_failed_summary_falls_back_to_the_plain_window() {
     let (base, _requests) = serve(&[reply("- cut off", "length")]);
-    let mut storage = InMemoryStorage::new()
-        .window(1)
-        .summarize(summarizer_for(base));
+    let memory = Window::groups(1).summarize(summarizer_for(base));
+    let mut storage = InMemoryStorage::new();
     storage
         .append(vec![
             Message::text(Role::User, "one"),
@@ -174,12 +189,13 @@ async fn a_failed_summary_falls_back_to_the_plain_window() {
         .await
         .expect("append");
 
-    let sent = storage
-        .load()
+    let held = storage.load().await.expect("load");
+    let sent = memory
+        .recall(&held, &mut State::new(&mut storage))
         .await
-        .expect("a failed summary never fails the load");
+        .expect("a failed summary never fails the recall");
     assert_eq!(sent, vec![Message::text(Role::Assistant, "two")]);
-    assert_eq!(storage.summary(), None);
+    assert_eq!(storage.state("freyja.summary").await.expect("state"), None);
 }
 
 #[tokio::test]
@@ -187,9 +203,8 @@ async fn one_summary_serves_several_turns() {
     // One reply only. A second summarizing call would fail and fall back to
     // the plain window, which the second load's length would show.
     let (base, _requests) = serve(&[reply("- SUMMARY", "stop")]);
-    let mut storage = InMemoryStorage::new()
-        .window(4)
-        .summarize(summarizer_for(base));
+    let memory = Window::groups(4).summarize(summarizer_for(base));
+    let mut storage = InMemoryStorage::new();
     let exchange = || {
         vec![
             Message::text(Role::User, "question"),
@@ -202,14 +217,25 @@ async fn one_summary_serves_several_turns() {
     for _ in 0..3 {
         storage.append(exchange()).await.expect("append");
     }
-    let sent = storage.load().await.expect("load");
+    let held = storage.load().await.expect("load");
+    let sent = memory
+        .recall(&held, &mut State::new(&mut storage))
+        .await
+        .expect("recall");
     assert_eq!(sent.len(), 3);
-    assert_eq!(storage.summary(), Some("- SUMMARY"));
+    assert!(matches!(
+        &sent[0].content[0],
+        InputContent::Text(text) if text.contains("- SUMMARY")
+    ));
 
     // Eight groups: the window needs four dropped and the summary already
     // covers four, so it is reused and the window is full again.
     storage.append(exchange()).await.expect("append");
-    let sent = storage.load().await.expect("load");
+    let held = storage.load().await.expect("load");
+    let sent = memory
+        .recall(&held, &mut State::new(&mut storage))
+        .await
+        .expect("recall");
     assert_eq!(sent.len(), 5);
     assert!(matches!(
         &sent[0].content[0],

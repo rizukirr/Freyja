@@ -57,3 +57,16 @@ fn public_types_are_available_from_flat_and_categorized_paths() {
 
     let _ = StreamEvent::TextDelta(String::new());
 }
+
+#[test]
+fn the_extension_traits_are_public() {
+    fn storage<T: freyja::Storage>() {}
+    fn memory<T: freyja::Memory>() {}
+    storage::<freyja::InMemoryStorage>();
+    storage::<freyja::JsonlStorage>();
+    memory::<freyja::Window>();
+    memory::<freyja::Summarize>();
+    let _: fn(&dyn freyja::TokenCounter) = |_| {};
+    let _: Option<&dyn freyja::Tool> = None;
+    let _: Option<freyja::State<'static>> = None;
+}

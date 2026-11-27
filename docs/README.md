@@ -15,6 +15,7 @@ Read these in order the first time. About twenty minutes end to end.
 | [Getting started](getting-started.md) | Install, set a key, make a call |
 | [Concepts](concepts.md) | The five ideas everything else follows from |
 | [Building an agent](building-an-agent.md) | Tools, the loop, and what will bite you |
+| [Extending Freyja](extending.md) | Writing a `Tool`, `Storage`, `Memory` or `TokenCounter` in a crate of your own |
 
 ## Providers
 
@@ -37,7 +38,7 @@ Look these up rather than reading them through. Generated rustdoc is on [docs.rs
 | [Requests](reference/requests.md) | `GenerateRequest` and every builder method |
 | [Messages](reference/messages.md) | `Message`, `Role`, `InputContent` |
 | [Tools](reference/tools.md) | `#[tool]`, `Tool`, `ToolDefinition`, dispatch, and the full round trip |
-| [Storage](reference/storage.md) | `Storage`, `Conversation`, and where a conversation lives between calls, in memory or in a file |
+| [Storage](reference/storage.md) | `Storage`, `Memory`, `Conversation`, and where a conversation lives between calls, in memory or in a file |
 | [Responses](reference/responses.md) | `GenerateResponse`, `OutputContent`, `ResponseStatus`, `Usage` |
 | [Streaming](reference/streaming.md) | `Client::stream`, `EventStream`, `StreamEvent`, `into_response` |
 | [Errors](reference/errors.md) | `Error` and how to handle each variant |
@@ -66,4 +67,4 @@ Samples that make a network call are written as if inside an `async fn` returnin
 
 ## Status
 
-Phases 0 through 2 are complete and Phase 3 has started. Typed tools, the provider-neutral round trip, streaming, and a conversation held between calls through `Storage`, with windowing on the backend rather than on `Conversation`, by turn group or by token budget, with a summary of what the window drops, and in a file that survives the process, are implemented. Multi-agent orchestration is not, and retries remain deliberately caller-owned. [Features](features.md) has the honest boundary, and the [roadmap](../README.md#roadmap) has what is planned.
+Phases 0 through 2 are complete and Phase 3 has started. Typed tools, the provider-neutral round trip, streaming, and a conversation held between calls through `Storage`, with what the model sees chosen by a `Memory` on the agent, by turn group or by token budget, with a summary of what the window drops, and in a file that survives the process, are implemented. Multi-agent orchestration is not, and retries remain deliberately caller-owned. [Features](features.md) has the honest boundary, and the [roadmap](../README.md#roadmap) has what is planned.

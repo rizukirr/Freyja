@@ -6,7 +6,7 @@ mod common;
 use common::{ok_response, serve};
 use freyja::{
     Agent, Client, Dialect, EndpointConfig, HeuristicCounter, InMemoryStorage, InputContent,
-    Message, Role, Storage, StorageFuture, TokenCounter, tool, window_by_groups,
+    Message, Role, Storage, StorageFuture, TokenCounter, Window, tool, window_by_groups,
 };
 
 #[tool(description = "adds two numbers together")]
@@ -182,8 +182,8 @@ async fn a_borrowed_vector_is_extended_in_place() {
 #[tokio::test]
 async fn window_shapes_what_is_sent_while_the_backend_keeps_everything() {
     let (base, requests) = serve(&[ok_response(), ok_response(), ok_response()]);
-    let agent = agent_for(base);
-    let mut chat = agent.conversation(InMemoryStorage::new().window(1));
+    let agent = agent_for(base).memory(Window::groups(1));
+    let mut chat = agent.conversation(InMemoryStorage::new());
 
     chat.send("first").await.expect("run");
     chat.send("second").await.expect("run");
@@ -203,10 +203,9 @@ async fn window_shapes_what_is_sent_while_the_backend_keeps_everything() {
 #[tokio::test]
 async fn a_token_window_shapes_what_is_sent_while_the_backend_keeps_everything() {
     let (base, requests) = serve(&[ok_response(), ok_response(), ok_response()]);
-    let agent = agent_for(base);
     let budget = HeuristicCounter.count(&Message::text(Role::User, "first"));
-    let mut chat =
-        agent.conversation(InMemoryStorage::new().window_by_tokens(budget, HeuristicCounter));
+    let agent = agent_for(base).memory(Window::tokens(budget, HeuristicCounter));
+    let mut chat = agent.conversation(InMemoryStorage::new());
 
     chat.send("first").await.expect("run");
     chat.send("second").await.expect("run");
@@ -223,22 +222,27 @@ async fn a_token_window_shapes_what_is_sent_while_the_backend_keeps_everything()
     assert!(sent_len < chat.storage().messages().len());
 }
 
-#[test]
-fn the_last_window_builder_called_replaces_the_earlier_one() {
-    let groups_then_tokens = format!(
-        "{:?}",
-        InMemoryStorage::new()
-            .window(1)
-            .window_by_tokens(64, HeuristicCounter)
-    );
-    let tokens_then_groups = format!(
-        "{:?}",
-        InMemoryStorage::new()
-            .window_by_tokens(64, HeuristicCounter)
-            .window(1)
-    );
+#[tokio::test]
+async fn the_last_memory_set_replaces_the_earlier_one() {
+    let (base, requests) = serve(&[ok_response(), ok_response(), ok_response()]);
+    // A window of one group, then one large enough for everything: if the
+    // first were kept, the last request would carry one stored group.
+    let agent = agent_for(base)
+        .memory(Window::groups(1))
+        .memory(Window::groups(100));
+    let mut chat = agent.conversation(InMemoryStorage::new());
 
-    assert_ne!(groups_then_tokens, tokens_then_groups);
+    chat.send("first").await.expect("run");
+    chat.send("second").await.expect("run");
+    chat.send("third").await.expect("run");
+
+    requests.recv().expect("first request");
+    requests.recv().expect("second request");
+    let last = requests.recv().expect("third request");
+    let split_at = last.rfind("\r\n").expect("a header line") + 2;
+    let sent: serde_json::Value = serde_json::from_str(&last[split_at..]).expect("json body");
+    let sent_len = sent["messages"].as_array().expect("messages array").len();
+    assert_eq!(sent_len, chat.storage().messages().len() - 1);
 }
 
 #[tokio::test]
@@ -404,8 +408,8 @@ async fn a_boxed_backend_is_forwarded_to() {
 #[tokio::test]
 async fn a_window_survives_a_clear() {
     let (base, requests) = serve(&[ok_response(), ok_response(), ok_response(), ok_response()]);
-    let agent = agent_for(base);
-    let mut chat = agent.conversation(InMemoryStorage::new().window(1));
+    let agent = agent_for(base).memory(Window::groups(1));
+    let mut chat = agent.conversation(InMemoryStorage::new());
 
     chat.send("first").await.expect("run");
     chat.send("second").await.expect("run");
