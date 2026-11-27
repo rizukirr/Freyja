@@ -155,3 +155,41 @@ async fn one_summary_serves_two_sends_over_a_backend_with_no_state() {
     let last = &raw[5];
     assert!(last.contains("- SUMMARY"), "{last}");
 }
+
+#[tokio::test]
+async fn a_new_conversation_over_a_backend_with_no_state_starts_with_an_empty_cache() {
+    let body = r#"{"id":"x","model":"test-model","choices":[{"message":{"role":"assistant","content":"- SUMMARY"},"finish_reason":"stop"}]}"#;
+    let summary: &'static str = Box::leak(
+        format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{}",
+            body.len(),
+            body
+        )
+        .into_boxed_str(),
+    );
+    let (base, _requests) = common::serve(&[
+        common::ok_response(),
+        common::ok_response(),
+        common::ok_response(),
+        summary,
+        common::ok_response(),
+    ]);
+    let config = freyja::EndpointConfig::new(freyja::Dialect::OpenAiChat, "local", base)
+        .default_model("test-model");
+    let client = freyja::Client::new(config, "sk-test");
+    let agent = freyja::Agent::new(client.clone())
+        .memory(freyja::Window::groups(4).summarize(freyja::Summarizer::new(client)));
+
+    let mut messages: Vec<freyja::Message> = Vec::new();
+    {
+        let mut chat = agent.conversation(&mut messages);
+        for turn in ["one", "two", "three", "four"] {
+            chat.send(turn).await.expect("run");
+        }
+        assert!(chat.summary().await.expect("summary").is_some());
+    }
+
+    // A Vec keeps no state, so a new conversation over it starts with no summary.
+    let mut chat = agent.conversation(&mut messages);
+    assert!(chat.summary().await.expect("summary").is_none());
+}
