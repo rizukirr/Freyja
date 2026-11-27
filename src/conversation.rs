@@ -19,6 +19,33 @@ pub struct Conversation<S: Storage> {
     cache: std::collections::HashMap<String, serde_json::Value>,
 }
 
+/// A summary made now rather than when the window needs one. Built by
+/// [`Conversation::compact`], and run by awaiting it.
+#[must_use = "a compaction does nothing until it is awaited"]
+pub struct Compact<'c, S: Storage> {
+    chat: &'c mut Conversation<S>,
+    keep: Option<usize>,
+}
+
+impl<S: Storage> Compact<'_, S> {
+    /// Keep the newest `groups` turn groups as they are, and summarize the
+    /// rest. Unset, the memory keeps what its own automatic summary would.
+    pub fn keep(mut self, groups: usize) -> Self {
+        self.keep = Some(groups);
+        self
+    }
+}
+
+impl<'c, S: Storage + 'c> std::future::IntoFuture for Compact<'c, S> {
+    type Output = Result<(), Error>;
+    type IntoFuture =
+        std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), Error>> + Send + 'c>>;
+
+    fn into_future(self) -> Self::IntoFuture {
+        Box::pin(async move { self.chat.compact_now(self.keep).await })
+    }
+}
+
 impl<S: Storage> Conversation<S> {
     pub(crate) fn new(agent: Agent, storage: S) -> Self {
         Self {
@@ -47,6 +74,45 @@ impl<S: Storage> Conversation<S> {
             .await
             .map_err(|error| self.agent.storage_error(format!("storage state: {error}")))?;
         Ok(value.and_then(|value| value.get("text")?.as_str().map(str::to_owned)))
+    }
+
+    /// Summarizes the older part of the conversation now.
+    ///
+    /// The next [`Conversation::send`] sends the summary in place of the
+    /// summarized turns, even when the window would not have needed to drop
+    /// them. Every turn stays in storage. Needs a memory that summarizes,
+    /// built with [`crate::Window::summarize`]: any other memory, or none,
+    /// returns an error and makes no request.
+    ///
+    /// ```no_run
+    /// # async fn run(mut chat: freyja::Conversation<freyja::InMemoryStorage>) -> Result<(), freyja::Error> {
+    /// chat.compact().keep(4).await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn compact(&mut self) -> Compact<'_, S> {
+        Compact {
+            chat: self,
+            keep: None,
+        }
+    }
+
+    async fn compact_now(&mut self, keep: Option<usize>) -> Result<(), Error> {
+        let Some(memory) = self.agent.memory_handle() else {
+            return Err(self.agent.storage_error(
+                "compact: this agent has no memory; set one with Agent::memory".into(),
+            ));
+        };
+        let stored = self
+            .storage
+            .load()
+            .await
+            .map_err(|error| self.agent.storage_error(format!("storage load: {error}")))?;
+        let mut state = crate::State::cached(&mut self.storage, &mut self.cache);
+        memory
+            .compact(&stored, &mut state, keep)
+            .await
+            .map_err(|error| self.agent.storage_error(format!("compact: {error}")))
     }
 
     /// Empties the conversation, in the backend as well as in this handle.
