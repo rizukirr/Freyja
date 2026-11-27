@@ -11,6 +11,8 @@ Notable changes per release. Freyja is pre-1.0, so a minor version may break.
 - **`State`, a memory's handle on the conversation's state slot.** Reads fall back from an in-process cache to `Storage::state`, and writes go to both.
 - **`Storage::state` and `Storage::set_state`, a state slot with defaults that keep nothing.** A backend that keeps state returns the latest value for a key and removes all of it in `clear`.
 - **`Conversation::summary` and `Conversation::compact`.** `summary` returns the text of the summary last made. `compact().keep(n).await` summarizes the older part of the conversation now, and returns an error from a memory that does not summarize.
+- **`Model` and `ModelFuture`, the trait an agent asks to answer a request.** `Client` implements it, and so do `Arc<T>` and `Box<T>` of any model. `stream` defaults to replaying `generate`, so a model that cannot stream still serves a streaming caller.
+- **`EventStream::from_response`, which replays a finished response as a stream.** It is what the default `Model::stream` uses.
 - **`freyja::testing::storage_conformance`, a check a backend crate runs from its own tests.** It covers order, `clear` on an empty conversation, and `clear` removing state.
 
 - **`window_by_tokens`, a token-budget window beside `window_by_groups`.**
@@ -61,6 +63,7 @@ Notable changes per release. Freyja is pre-1.0, so a minor version may break.
 
 ### Changed
 
+- **`Agent::new` and `Summarizer::new` take any `impl Model`.** Existing calls that pass a `Client` compile unchanged.
 - **`InMemoryStorage` and `JsonlStorage` are pure stores.** Their `window`, `window_by_tokens`, `summarize` and `summary` methods are removed in favour of `Agent::memory` with `Window` and `Summarize`, and `Conversation::summary` replaces `summary`. `JsonlStorage` writes a `state` record in place of its `summary` record.
 - **An error response keeps only the first 64 KiB of its body.** It was read under the 64 MiB success cap and held whole inside the `Error`. `Error::body` returns the kept part.
 - **A request body is sent with `Content-Type: application/json` unless an endpoint header names one**, the rule `RequestBuilder::json` followed, so an endpoint's own `Content-Type` replaces it rather than going out twice.

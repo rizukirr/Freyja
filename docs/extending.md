@@ -1,6 +1,6 @@
 # Extending Freyja
 
-Freyja ships four traits a crate outside it can implement, each with a contract written in its doc comment. This page collects the rules so a crate can honour them and check itself.
+Freyja ships five traits a crate outside it can implement, each with a contract written in its doc comment. This page collects the rules so a crate can honour them and check itself.
 
 ## What a crate can extend
 
@@ -10,6 +10,7 @@ Freyja ships four traits a crate outside it can implement, each with a contract 
 | `Storage` | Holds one conversation between sends | A Postgres, SQLite or Redis backend |
 | `Memory` | Chooses what the model sees of the stored conversation | Retrieval over embeddings, or a rolling summary with its own rules |
 | `TokenCounter` | Estimates the tokens in one message | A wrapper over a real tokenizer |
+| `Model` | Answers a request | A provider Freyja has no dialect for, or a cache in front of a `Client` |
 
 ## The rules each implementation honours
 
@@ -18,6 +19,8 @@ A `Storage` returns messages oldest first from `load`. Order is the backend's co
 A `Memory` keeps nothing in itself. What it needs between sends goes in the conversation's state slot through `State`, so one memory value serves every conversation an agent starts. `recall` receives the whole stored conversation, oldest first, and returns what to send. The default `compact` refuses, so only a memory that summarizes overrides it.
 
 A `TokenCounter` is synchronous and counts one message at a time. A closure `Fn(&Message) -> usize + Send` already is one.
+
+A `Model` is `Send + Sync` and is shared through `Arc`, which a forwarding impl for `Arc<T>` and `Box<T>` makes transparent. `name` is what errors carry. `generate` returns `freyja::Error`. `stream` may be left to its default, which awaits `generate` and replays the finished response, so a model that cannot stream still serves a streaming caller, all at once. A server that speaks the OpenAI wire format, such as Ollama or vLLM, needs no `Model` at all, only a `Client` with an `EndpointConfig`. A `Model` is for an in-process model such as llama.cpp bindings or candle, a provider with its own wire format or auth, a wrapper such as a cache, fallback or router, or a fake model for tests.
 
 A `Tool` reports failure as text. A failure the model can recover from is returned as the error text of the call, and it reaches the model as a result rather than ending the run.
 
@@ -38,4 +41,4 @@ A backend that needs a resource per instance, such as a file or a schema, builds
 
 ## Stability
 
-Every trait returns boxed futures, so each stays usable as `dyn`: an agent holds its tools as `Arc<dyn Tool>` and its memory as `Arc<dyn Memory>`, and a backend can be erased behind `Box<dyn Storage>`. A method added to a trait later arrives with a default, so an implementation written today keeps compiling. Enums and error types that may grow are `#[non_exhaustive]`, so a match on one needs a trailing `_` arm.
+Every trait returns boxed futures, so each stays usable as `dyn`: an agent holds its tools as `Arc<dyn Tool>`, its memory as `Arc<dyn Memory>` and its model as `Arc<dyn Model>`, and a backend can be erased behind `Box<dyn Storage>`. A method added to a trait later arrives with a default, so an implementation written today keeps compiling. Enums and error types that may grow are `#[non_exhaustive]`, so a match on one needs a trailing `_` arm.
