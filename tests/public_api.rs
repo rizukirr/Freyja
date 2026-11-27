@@ -72,5 +72,9 @@ fn the_extension_traits_are_public() {
     model::<Box<dyn freyja::Model>>();
     let _: fn(&dyn freyja::TokenCounter) = |_| {};
     let _: Option<&dyn freyja::Tool> = None;
+    struct Quiet;
+    impl freyja::Hook for Quiet {}
+    let _ = |client: freyja::Client| freyja::Agent::new(client).hook(Quiet);
+    let _: freyja::Flow = freyja::Flow::Continue;
     let _: Option<freyja::State<'static>> = None;
 }
