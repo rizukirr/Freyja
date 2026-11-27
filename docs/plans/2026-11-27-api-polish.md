@@ -30,7 +30,7 @@
 - Modify: `CHANGELOG.md`
 - Modify: `docs/concepts.md`, `docs/getting-started.md`, `docs/internals/adding-a-dialect.md`, `docs/introduction.md`, `docs/providers/anthropic.md`, `docs/providers/custom.md`, `docs/providers/gemini.md`, `docs/providers/openai.md`, `docs/providers/README.md`, `docs/reference/client.md`, `docs/reference/errors.md`
 
-- [ ] Step 1: In `src/error.rs`, add a variant to `enum Error`, after `InvalidRequest`:
+- [x] Step 1: In `src/error.rs`, add a variant to `enum Error`, after `InvalidRequest`:
 
 ```rust
     /// [`crate::Client::from_env`] found no API key: the variable the
@@ -43,7 +43,7 @@
 
   Add `Self::MissingApiKey { endpoint, .. }` to the arms of `Error::endpoint`. In `impl fmt::Display for Error`, add an arm following the existing ones' form (read them first) that writes `{endpoint}: {variable} is unset or empty` when `variable` is `Some`, and `{endpoint}: no API key variable is configured` when it is `None`. Leave `is_retryable` as it is (its `_ => false` arm covers it). Fix any other exhaustive `match` on `Error` the compiler reports.
 
-- [ ] Step 2: In `src/client.rs`, replace `from_env` with:
+- [x] Step 2: In `src/client.rs`, replace `from_env` with:
 
 ```rust
     /// Reads the API key from the endpoint's [`EndpointConfig::api_key_env`].
@@ -78,9 +78,9 @@
 
   Read the type of `api_key_env` first and adapt `.clone()` and `.to_string()` to it.
 
-- [ ] Step 3: In the `#[cfg(test)]` module of `src/client.rs`, add tests: `from_env_names_the_missing_variable` (a config with `api_key_env("FREYJA_TEST_UNSET_KEY_6F2A")`, assert `Err(Error::MissingApiKey { variable: Some(v), .. })` with `v == "FREYJA_TEST_UNSET_KEY_6F2A"` and that `to_string()` contains it), and `from_env_needs_no_key_without_auth` (a config with `Auth::None`, assert `Ok`). Read how `EndpointConfig` sets auth and the key variable before writing them.
+- [x] Step 3: In the `#[cfg(test)]` module of `src/client.rs`, add tests: `from_env_names_the_missing_variable` (a config with `api_key_env("FREYJA_TEST_UNSET_KEY_6F2A")`, assert `Err(Error::MissingApiKey { variable: Some(v), .. })` with `v == "FREYJA_TEST_UNSET_KEY_6F2A"` and that `to_string()` contains it), and `from_env_needs_no_key_without_auth` (a config with `Auth::None`, assert `Ok`). Read how `EndpointConfig` sets auth and the key variable before writing them.
 
-- [ ] Step 4: Update every caller. In each example, replace `let Some(client) = Client::from_env(provider) else { eprintln!(...); return; };` (and any `.expect(...)` form) with a `match` that prints the error and returns, for example:
+- [x] Step 4: Update every caller. In each example, replace `let Some(client) = Client::from_env(provider) else { eprintln!(...); return; };` (and any `.expect(...)` form) with a `match` that prints the error and returns, for example:
 
 ```rust
     let client = match Client::from_env(provider) {
@@ -94,11 +94,11 @@
 
   or `?` where the function returns a `Result` whose error converts from `freyja::Error`. In `src/lib.rs`, `README.md` and every listed doc, write `Client::from_env(...)?` in place of `.expect(...)`, adjusting surrounding prose that says it returns `None`. Find every site with `grep -rn "from_env" src examples docs README.md`. In `docs/reference/errors.md`, add `MissingApiKey` beside the other variants in the file's existing form.
 
-- [ ] Step 5: In `CHANGELOG.md` under `## Unreleased`, add `Error::MissingApiKey` under `### Added` and, under `### Changed`, that `Client::from_env` returns `Result<Client, Error>` in place of `Option<Client>`. Follow the file's entry style.
+- [x] Step 5: In `CHANGELOG.md` under `## Unreleased`, add `Error::MissingApiKey` under `### Added` and, under `### Changed`, that `Client::from_env` returns `Result<Client, Error>` in place of `Option<Client>`. Follow the file's entry style.
 
-- [ ] Step 6: Run `CHECK`
-- [ ] Step 7: Run the grep in this task's verify clause
-- [ ] Step 8: Commit: `Return an error naming the variable from Client::from_env`
+- [x] Step 6: Run `CHECK`
+- [x] Step 7: Run the grep in this task's verify clause
+- [x] Step 8: Commit: `Return an error naming the variable from Client::from_env`
 
 ### Task 2: `Agent::ask` → verify: `CHECK` exits 0, and `cargo test --test model ask` exits 0, and `cargo test --test model -- --list | grep -c ask` prints at least 1
 
