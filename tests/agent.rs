@@ -10,7 +10,7 @@ use common::serve;
 use freyja::{
     Agent, AgentEvent, Client, Context, Decision, Dialect, EndpointConfig, GenerateRequest,
     InMemoryStorage, Message, ReasoningEffort, Role, StopReason, Storage, StorageFuture,
-    StreamEvent, Tool, ToolChoice, ToolDefinition, ToolError, ToolFuture, tool,
+    StreamEvent, Tool, ToolChoice, ToolDefinition, ToolError, ToolFuture, Window, tool,
 };
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -788,8 +788,8 @@ async fn separate_conversations_do_not_share_storage() {
 #[tokio::test]
 async fn a_window_sends_less_than_the_whole_conversation() {
     let (base, requests) = serve(&[canned(ANSWER), canned(ANSWER)]);
-    let agent = Agent::new(client(base));
-    let mut chat = agent.conversation(InMemoryStorage::new().window(1));
+    let agent = Agent::new(client(base)).memory(Window::groups(1));
+    let mut chat = agent.conversation(InMemoryStorage::new());
 
     chat.send("turn-one").await.expect("first");
     chat.send("turn-two").await.expect("second");

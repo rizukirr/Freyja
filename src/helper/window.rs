@@ -103,7 +103,7 @@ pub(crate) fn reassemble(
 
 /// Pinned turns plus the most recent `keep` turn groups.
 ///
-/// The trimming rule [`crate::InMemoryStorage::window`] uses, published so a
+/// The trimming rule [`crate::Window::groups`] uses, published so a
 /// backend of your own can apply the same one inside its
 /// [`load`](crate::Storage::load) rather than reimplementing it. Everything it
 /// reads is public, so a backend can implement the rule itself. This keeps one
@@ -168,7 +168,7 @@ pub fn window_by_groups(history: &[Message], keep: usize) -> Vec<Message> {
 /// budget.
 ///
 /// The token counterpart to [`window_by_groups`], and the rule
-/// [`crate::InMemoryStorage::window_by_tokens`] uses. Published for the same
+/// [`crate::Window::tokens`] uses. Published for the same
 /// reason: a backend of your own applies it inside its own
 /// [`load`](crate::Storage::load) rather than reimplementing it.
 ///

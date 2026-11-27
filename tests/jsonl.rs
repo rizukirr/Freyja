@@ -3,7 +3,8 @@
 mod common;
 use common::serve;
 use freyja::{
-    Client, Dialect, EndpointConfig, InputContent, JsonlStorage, Message, Role, Storage, Summarizer,
+    Client, Dialect, EndpointConfig, InputContent, JsonlStorage, Memory, Message, Role, State,
+    Storage, Summarizer, Window,
 };
 use std::io::Write;
 use std::path::PathBuf;
@@ -134,28 +135,34 @@ async fn a_reopened_conversation_reuses_the_stored_summary() {
     // and send the plain window, which the assertion below would catch.
     let (base, _requests) = serve(&[reply("- SUMMARY")]);
 
-    let mut storage = JsonlStorage::open(&path)
-        .expect("open")
-        .window(1)
-        .summarize(summarizer_for(base.clone()));
-    storage
-        .append(vec![
+    let memory = Window::groups(1).summarize(summarizer_for(base));
+    let turns = || {
+        vec![
             Message::text(Role::User, "one"),
             Message::text(Role::Assistant, "two"),
-        ])
+        ]
+    };
+
+    let mut storage = JsonlStorage::open(&path).expect("open");
+    storage.append(turns()).await.expect("append");
+    let held = storage.load().await.expect("load");
+    let sent = memory
+        .recall(&held, &mut State::new(&mut storage))
         .await
-        .expect("append");
-    storage.load().await.expect("load");
-    assert_eq!(storage.summary(), Some("- SUMMARY"));
+        .expect("recall");
+    assert_eq!(sent.len(), 2);
+    assert!(matches!(
+        &sent[0].content[0],
+        InputContent::Text(text) if text.contains("- SUMMARY")
+    ));
     drop(storage);
 
-    let mut storage = JsonlStorage::open(&path)
-        .expect("reopen")
-        .window(1)
-        .summarize(summarizer_for(base));
-    assert_eq!(storage.summary(), Some("- SUMMARY"));
-
-    let sent = storage.load().await.expect("load");
+    let mut storage = JsonlStorage::open(&path).expect("reopen");
+    let held = storage.load().await.expect("load");
+    let sent = memory
+        .recall(&held, &mut State::new(&mut storage))
+        .await
+        .expect("recall");
     assert_eq!(sent.len(), 2);
     assert!(matches!(
         &sent[0].content[0],
@@ -165,19 +172,32 @@ async fn a_reopened_conversation_reuses_the_stored_summary() {
     // A cleared conversation must not open its next one with the old summary.
     storage.clear().await.expect("clear");
     drop(storage);
-    assert_eq!(JsonlStorage::open(&path).expect("reopen").summary(), None);
+    let mut storage = JsonlStorage::open(&path).expect("reopen");
+    storage.append(turns()).await.expect("append");
+    let held = storage.load().await.expect("load");
+    let sent = memory
+        .recall(&held, &mut State::new(&mut storage))
+        .await
+        .expect("recall");
+    assert_eq!(sent, vec![Message::text(Role::Assistant, "two")]);
 }
 
-#[test]
-fn a_summary_covering_more_than_the_file_holds_is_dropped() {
+#[tokio::test]
+async fn a_summary_covering_more_than_the_file_holds_is_dropped() {
     let path = path("stale");
     std::fs::write(
         &path,
-        "{\"header\":{\"version\":1}}\n{\"summary\":{\"covers\":9,\"text\":\"stale\"}}\n",
+        "{\"header\":{\"version\":1}}\n{\"state\":{\"key\":\"freyja.summary\",\"value\":{\"covers\":9,\"text\":\"stale\"}}}\n",
     )
     .expect("write");
 
-    assert_eq!(JsonlStorage::open(&path).expect("open").summary(), None);
+    let mut storage = JsonlStorage::open(&path).expect("open");
+    let sent = Window::groups(1)
+        .summarize(summarizer_for("http://127.0.0.1:9".into()))
+        .recall(&[], &mut State::new(&mut storage))
+        .await
+        .expect("recall");
+    assert!(sent.is_empty());
 }
 
 #[test]

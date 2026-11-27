@@ -36,6 +36,19 @@ impl<S: Storage> Conversation<S> {
         &self.storage
     }
 
+    /// The summary the agent's memory made last for this conversation, if
+    /// there is one.
+    ///
+    /// `None` when the memory does not summarize, or has not needed to yet.
+    pub async fn summary(&mut self) -> Result<Option<String>, Error> {
+        let mut state = crate::State::cached(&mut self.storage, &mut self.cache);
+        let value = state
+            .get(crate::memory::SUMMARY_KEY)
+            .await
+            .map_err(|error| self.agent.storage_error(format!("storage state: {error}")))?;
+        Ok(value.and_then(|value| value.get("text")?.as_str().map(str::to_owned)))
+    }
+
     /// Empties the conversation, in the backend as well as in this handle.
     ///
     /// The conversation stays usable: the next [`Conversation::send`] loads an

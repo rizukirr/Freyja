@@ -2,9 +2,9 @@
 //!
 //! `agent` keeps the whole conversation and sends all of it, which is fine
 //! until it is not: a transcript grows until the provider rejects it, and the
-//! error says nothing about length. `InMemoryStorage::window` decides what
-//! goes on the wire each turn, and the transcript itself is never shortened.
-//! `InMemoryStorage::summarize` sends a summary of what the window drops, so
+//! error says nothing about length. `Agent::memory` with a `Window`
+//! decides what goes on the wire each turn, and the transcript itself is never
+//! shortened. `Window::summarize` sends a summary of what the window drops, so
 //! the model keeps the gist of it.
 //!
 //! ```sh
@@ -13,7 +13,7 @@
 
 use freyja::{
     Agent, Client, Conversation, EndpointPreset, Error, HeuristicCounter, InMemoryStorage, Storage,
-    Summarizer,
+    Summarizer, Window,
 };
 
 const QUESTIONS: [&str; 4] = [
@@ -42,9 +42,10 @@ async fn main() {
         return;
     };
 
-    let agent = Agent::new(client.clone()).system("Answer in one short sentence.");
+    let base = Agent::new(client.clone()).system("Answer in one short sentence.");
 
-    let mut chat = agent.conversation(InMemoryStorage::new().window(2));
+    let agent = base.clone().memory(Window::groups(2));
+    let mut chat = agent.conversation(InMemoryStorage::new());
     if let Err(error) = ask(&mut chat).await {
         eprintln!("{error}");
         return;
@@ -55,11 +56,11 @@ async fn main() {
     // model could not answer the last question.
     println!("{} messages held", chat.storage().messages().len());
 
-    // Same agent, same four questions, a token budget instead of a group
-    // count. 200 is small enough that the four short exchanges do not all
-    // fit, which is what makes this window trim anything at all.
-    let mut token_chat =
-        agent.conversation(InMemoryStorage::new().window_by_tokens(200, HeuristicCounter));
+    // Same four questions, a token budget instead of a group count. 200 is
+    // small enough that the four short exchanges do not all fit, which is what
+    // makes this window trim anything at all.
+    let token_agent = base.clone().memory(Window::tokens(200, HeuristicCounter));
+    let mut token_chat = token_agent.conversation(InMemoryStorage::new());
     if let Err(error) = ask(&mut token_chat).await {
         eprintln!("{error}");
         return;
@@ -70,16 +71,15 @@ async fn main() {
     // back as one summary message, so this time the model can answer the last
     // question. Each summary is one extra model call, and a window of two
     // groups has so little room that it summarizes again on most turns.
-    let mut summarized_chat = agent.conversation(
-        InMemoryStorage::new()
-            .window(2)
-            .summarize(Summarizer::new(client)),
-    );
+    let summarized_agent = base.memory(Window::groups(2).summarize(Summarizer::new(client)));
+    let mut summarized_chat = summarized_agent.conversation(InMemoryStorage::new());
     if let Err(error) = ask(&mut summarized_chat).await {
         eprintln!("{error}");
         return;
     }
-    if let Some(summary) = summarized_chat.storage().summary() {
-        println!("Sent in place of the dropped turns:\n{summary}");
+    match summarized_chat.summary().await {
+        Ok(Some(summary)) => println!("Sent in place of the dropped turns:\n{summary}"),
+        Ok(None) => {}
+        Err(error) => eprintln!("{error}"),
     }
 }
