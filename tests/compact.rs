@@ -39,7 +39,7 @@ async fn compact_takes_effect_before_the_window_needs_it() {
     ]);
     let client = client(base);
     let agent =
-        Agent::new(client.clone()).memory(Window::groups(10).summarize(Summarizer::new(client)));
+        Agent::new(client.clone()).memory(Window::last(10).summarize(Summarizer::new(client)));
     let mut chat = agent.conversation(InMemoryStorage::new());
 
     chat.send("first").await.expect("run");
@@ -79,7 +79,7 @@ async fn compact_without_keep_keeps_what_the_automatic_summary_would() {
     ]);
     let client = client(base);
     let agent =
-        Agent::new(client.clone()).memory(Window::groups(4).summarize(Summarizer::new(client)));
+        Agent::new(client.clone()).memory(Window::last(4).summarize(Summarizer::new(client)));
     let mut chat = agent.conversation(InMemoryStorage::new());
 
     chat.send("first").await.expect("run");
@@ -99,7 +99,7 @@ async fn compact_without_keep_keeps_what_the_automatic_summary_would() {
 async fn compact_needs_a_memory_that_summarizes() {
     // A spare reply, so a request compact wrongly made would be recorded.
     let (base, requests) = serve(&[ok_response(), ok_response()]);
-    let plain = Agent::new(client(base.clone())).memory(Window::groups(4));
+    let plain = Agent::new(client(base.clone())).memory(Window::last(4));
     let mut chat = plain.conversation(InMemoryStorage::new());
     chat.send("first").await.expect("run");
     assert!(chat.compact().keep(0).await.is_err());

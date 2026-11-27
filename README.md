@@ -10,7 +10,7 @@ A provider-neutral LLM client for Rust, and the foundation for building agents o
 You write one request. Freyja translates it into whatever wire format the model you picked actually speaks, sends it, and translates the answer back. Changing vendor is changing one line.
 
 ```rust
-let client = Client::from_env(EndpointPreset::OpenAi).expect("OPENAI_API_KEY");
+let client = Client::from_env(EndpointPreset::OpenAi)?;
 // or Anthropic, or Gemini, or any compatible endpoint. Nothing else changes.
 ```
 
@@ -46,7 +46,7 @@ fn add(a: i64, b: i64) -> i64 {
 
 #[tokio::main]
 async fn main() -> Result<(), freyja::Error> {
-    let client = Client::from_env(EndpointPreset::OpenAi).expect("OPENAI_API_KEY");
+    let client = Client::from_env(EndpointPreset::OpenAi)?;
 
     let agent = Agent::new(client)
         .tool(add)
@@ -59,7 +59,7 @@ async fn main() -> Result<(), freyja::Error> {
 }
 ```
 
-`#[tool]` turns an ordinary Rust function into a tool: its parameters become the argument schema, and the model's JSON is checked against the Rust types before the function runs. `Agent` runs the loop, so when the model asks for `add`, Freyja calls it, sends the result back, and repeats until the model answers. `InMemoryStorage` holds the conversation, so the second question can refer to the first. Once conversations get long, `Agent::memory(Window::groups(20))` bounds what is sent each turn and keeps the transcript whole. For a conversation that survives a restart, pass a `JsonlStorage` instead, which keeps it in a file. See [Building an agent](docs/building-an-agent.md) and [Storage](docs/reference/storage.md).
+`#[tool]` turns an ordinary Rust function into a tool: its parameters become the argument schema, and the model's JSON is checked against the Rust types before the function runs. `Agent` runs the loop, so when the model asks for `add`, Freyja calls it, sends the result back, and repeats until the model answers. `InMemoryStorage` holds the conversation, so the second question can refer to the first. Once conversations get long, `Agent::memory(Window::last(20))` bounds what is sent each turn and keeps the transcript whole. For a conversation that survives a restart, pass a `JsonlStorage` instead, which keeps it in a file. See [Building an agent](docs/building-an-agent.md) and [Storage](docs/reference/storage.md).
 
 `Agent` is built on two calls you can use directly: `Client::generate` sends one request and returns one response, and `Client::stream` delivers the same answer as it arrives, with tool-call arguments assembled for you. See [Requests](docs/reference/requests.md) and [Streaming](docs/reference/streaming.md).
 
@@ -109,7 +109,7 @@ Phases 0 through 2 are complete, and Phase 3 has started: the neutral core is st
 | Dependencies | `reqwest`, `serde`, `serde_json`, `schemars`, and the companion macro crate |
 | Errors | Classified by cause, with `is_retryable()` and `Retry-After` |
 | Untrusted endpoints | Same-origin redirects only, and ceilings on body, stream, frame, retry delay and tool fan-out |
-| Group-aware trimming | `Window::groups`, with `window_by_groups` public for a `Memory` of your own |
+| Group-aware trimming | `Window::last`, with `window_by_groups` public for a `Memory` of your own |
 | Token-budget trimming | `Window::tokens`, with `window_by_tokens` public for a `Memory` of your own |
 | Summarizing dropped turns | `Window::summarize`, with `Conversation::summary` and `Conversation::compact`, and a `Summarizer` that is public for a `Memory` of your own |
 | Persistent storage | `JsonlStorage`, one conversation per file, with its state slot in the file and no new dependency |
@@ -129,7 +129,7 @@ The goal: everything you need to build an AI agent in Rust, with no vendor lock-
 
 **Phase 2, the agent.** Complete. `Tool` and `#[tool]` derive schemas from sync or async function signatures and provide typed execution, and `Agent` drives the tool-calling loop automatically, dispatching parallel tool calls concurrently, eight at a time. `Tool` is now a trait, so a tool can hold state in its fields, be built at runtime, and report failure as text the model recovers from; `Context` carries per-run data to every call without exposing it to the model. `Agent::guard` vets every requested call before dispatch, so a policy can refuse one and the model reads why. The model is a `Model` trait, so a provider, a cache or a fake model for tests can stand in for `Client`.
 
-**Phase 3, memory and context.** Started. `Storage` is the backend a conversation reads and writes, and it keeps every turn. What reaches the model is decided by a `Memory` set with `Agent::memory`, which works with any `Storage`, so a backend of your own gets windows and summaries without implementing them. `Window::groups` bounds a conversation by turn group, and `window_by_groups` is public, so a memory of your own applies the same group-aware rule rather than cutting mid-pair. `Window::tokens` bounds it by an estimated budget instead, given a caller-supplied `TokenCounter`, and the budget covers the transcript only. `Window::summarize` sends a summary of what either window drops, with one extra model call per summary, kept in the storage state slot, and `Conversation::compact` makes one on demand. `JsonlStorage` keeps a conversation in a file, one JSON record per line, so a later process continues it, with its state beside the turns. A backend can be checked with `freyja::testing`, and [extending Freyja](docs/extending.md) lists the rules. A database backend, and retrieval with embeddings and a vector store, are not built.
+**Phase 3, memory and context.** Started. `Storage` is the backend a conversation reads and writes, and it keeps every turn. What reaches the model is decided by a `Memory` set with `Agent::memory`, which works with any `Storage`, so a backend of your own gets windows and summaries without implementing them. `Window::last` bounds a conversation by turn group, and `window_by_groups` is public, so a memory of your own applies the same group-aware rule rather than cutting mid-pair. `Window::tokens` bounds it by an estimated budget instead, given a caller-supplied `TokenCounter`, and the budget covers the transcript only. `Window::summarize` sends a summary of what either window drops, with one extra model call per summary, kept in the storage state slot, and `Conversation::compact` makes one on demand. `JsonlStorage` keeps a conversation in a file, one JSON record per line, so a later process continues it, with its state beside the turns. A backend can be checked with `freyja::testing`, and [extending Freyja](docs/extending.md) lists the rules. A database backend, and retrieval with embeddings and a vector store, are not built.
 
 **Phase 4, orchestration.** The namesake. Multi-agent handoff, workflow primitives for chains and fan-out, shared state, propagated cancellation and budgets, and human-in-the-loop pause and resume.
 

@@ -179,9 +179,9 @@ fn build_client() -> Option<Client> {
 
     let provider = EndpointPreset::OpenAi;
     match Client::from_env(provider) {
-        Some(client) => Some(client),
-        None => {
-            eprintln!("{} is missing or empty", provider.api_key_env());
+        Ok(client) => Some(client),
+        Err(error) => {
+            eprintln!("{error}");
             None
         }
     }

@@ -11,9 +11,12 @@ async fn main() {
     dotenvy::dotenv().ok();
 
     let provider = EndpointPreset::OpenAi;
-    let Some(client) = Client::from_env(provider) else {
-        eprintln!("{} is missing or empty", provider.api_key_env());
-        return;
+    let client = match Client::from_env(provider) {
+        Ok(client) => client,
+        Err(error) => {
+            eprintln!("{error}");
+            return;
+        }
     };
 
     // No model, no max_tokens, no temperature. Every unset field means "the

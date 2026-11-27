@@ -18,11 +18,18 @@ fn add(a: i64, b: i64) -> i64 {
 }
 
 /// Hands out its responses in order and never touches a network.
-struct Scripted(Mutex<VecDeque<GenerateResponse>>);
+struct Scripted {
+    responses: Mutex<VecDeque<GenerateResponse>>,
+    /// The roles of the messages in each request received, in order.
+    seen: Mutex<Vec<Vec<Role>>>,
+}
 
 impl Scripted {
     fn new(responses: Vec<GenerateResponse>) -> Self {
-        Self(Mutex::new(responses.into()))
+        Self {
+            responses: Mutex::new(responses.into()),
+            seen: Mutex::new(Vec::new()),
+        }
     }
 }
 
@@ -31,9 +38,13 @@ impl Model for Scripted {
         "scripted"
     }
 
-    fn generate<'a>(&'a self, _request: &'a GenerateRequest) -> ModelFuture<'a, GenerateResponse> {
+    fn generate<'a>(&'a self, request: &'a GenerateRequest) -> ModelFuture<'a, GenerateResponse> {
         Box::pin(async move {
-            self.0
+            self.seen
+                .lock()
+                .expect("not poisoned")
+                .push(request.messages.iter().map(|m| m.role).collect());
+            self.responses
                 .lock()
                 .expect("not poisoned")
                 .pop_front()
@@ -179,4 +190,25 @@ async fn a_storage_failure_names_the_model() {
         matches!(&error, Error::InvalidRequest { endpoint, .. } if &**endpoint == "scripted"),
         "{error:?}"
     );
+}
+
+#[tokio::test]
+async fn ask_keeps_no_history() {
+    let text = |t: &str| {
+        response(
+            ResponseStatus::Completed,
+            vec![OutputContent::Text(t.into())],
+        )
+    };
+    let model = Arc::new(Scripted::new(vec![text("one"), text("two")]));
+    let agent = Agent::new(model.clone());
+
+    let first = agent.ask("a").await.expect("first");
+    let second = agent.ask("b").await.expect("second");
+
+    assert_eq!(first.answer, "one");
+    assert_eq!(second.answer, "two");
+    let seen = model.seen.lock().expect("not poisoned");
+    let user_turns = seen[1].iter().filter(|role| **role != Role::System).count();
+    assert_eq!(user_turns, 1);
 }

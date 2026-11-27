@@ -9,7 +9,7 @@ use std::io::Write;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     dotenvy::dotenv().ok();
 
-    let client = Client::from_env(EndpointPreset::OpenAi).ok_or("OPENAI_API_KEY is unset")?;
+    let client = Client::from_env(EndpointPreset::OpenAi)?;
     let request = GenerateRequest::new()
         .message(Message::text(Role::User, "Name three primary colors."))
         .max_tokens(128);

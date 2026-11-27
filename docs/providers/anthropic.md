@@ -12,7 +12,7 @@ Implemented against the Messages API.
 | Source | `src/dialect/anthropic/` |
 
 ```rust
-let client = Client::from_env(EndpointPreset::Anthropic).expect("ANTHROPIC_API_KEY");
+let client = Client::from_env(EndpointPreset::Anthropic)?;
 ```
 
 Verified against the live endpoint: a full tool round trip completes, prompt to tool call to result to answer. See [Verification status](#verification-status) for what that does and does not cover.

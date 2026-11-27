@@ -6,8 +6,10 @@ Notable changes per release. Freyja is pre-1.0, so a minor version may break.
 
 ### Added
 
+- **`Agent::ask`, which answers one message with no history.** It runs the tool loop over a conversation on an empty `Vec` and keeps nothing, so a second call knows nothing of the first.
+- **`Error::MissingApiKey`, which `Client::from_env` returns when it finds no key.** It carries the endpoint and the name of the variable that was unset or empty, or `None` when the endpoint names no variable.
 - **`Memory`, a trait set with `Agent::memory` that decides what the model sees.** `Memory::recall` takes the whole stored conversation and returns what to send, and it works with any `Storage`. A memory keeps nothing in itself and uses `State`, so one value serves every conversation. `MemoryError` and `MemoryFuture` are its error and boxed future types.
-- **`Window` and `Summarize`, the built-in memories.** `Window::groups(n)` and `Window::tokens(budget, counter)` bound by turn group or by estimated token budget, and `Window::summarize(summarizer)` returns a `Summarize` that sends a summary of what the window drops.
+- **`Window` and `Summarize`, the built-in memories.** `Window::last(n)` and `Window::tokens(budget, counter)` bound by turn group or by estimated token budget, and `Window::summarize(summarizer)` returns a `Summarize` that sends a summary of what the window drops.
 - **`State`, a memory's handle on the conversation's state slot.** Reads fall back from an in-process cache to `Storage::state`, and writes go to both.
 - **`Storage::state` and `Storage::set_state`, a state slot with defaults that keep nothing.** A backend that keeps state returns the latest value for a key and removes all of it in `clear`.
 - **`Conversation::summary` and `Conversation::compact`.** `summary` returns the text of the summary last made. `compact().keep(n).await` summarizes the older part of the conversation now, and returns an error from a memory that does not summarize.
@@ -36,7 +38,7 @@ Notable changes per release. Freyja is pre-1.0, so a minor version may break.
   turn order apply, and it leaves reasoning parts out. A reply cut short or
   empty is an `Error::InvalidResponse`, never half a summary.
 
-  `Window::groups(n).summarize(summarizer)` sends the summary in place of
+  `Window::last(n).summarize(summarizer)` sends the summary in place of
   the dropped turns, as one user message after the pinned turns. It is made
   at half the window, so one summary serves several turns, and rebuilt from
   the raw turns once the window needs to drop more than it covers. The
@@ -63,6 +65,7 @@ Notable changes per release. Freyja is pre-1.0, so a minor version may break.
 
 ### Changed
 
+- **`Client::from_env` returns `Result<Client, Error>` in place of `Option<Client>`.** A missing key is an `Error::MissingApiKey` that names the variable, so `?` works and the message says what to set.
 - **`Agent::new` and `Summarizer::new` take any `impl Model`.** Existing calls that pass a `Client` compile unchanged.
 - **`InMemoryStorage` and `JsonlStorage` are pure stores.** Their `window`, `window_by_tokens`, `summarize` and `summary` methods are removed in favour of `Agent::memory` with `Window` and `Summarize`, and `Conversation::summary` replaces `summary`. `JsonlStorage` writes a `state` record in place of its `summary` record.
 - **An error response keeps only the first 64 KiB of its body.** It was read under the 64 MiB success cap and held whole inside the `Error`. `Error::body` returns the kept part.

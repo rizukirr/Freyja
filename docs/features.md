@@ -34,7 +34,7 @@ Streaming delivers the same answer incrementally, and a drained stream converts 
 | The full tool round trip | **Yes, verified against live APIs**, not just tested offline |
 | Multi-turn conversations | Yes, transcripts are plain data you own |
 | Reasoning state replay | Handled for you, see [Concepts](concepts.md#opaque-state) |
-| Group-aware trimming | `window_by_groups` is public, so a `Memory` of your own applies the same rule `Window::groups` does |
+| Group-aware trimming | `window_by_groups` is public, so a `Memory` of your own applies the same rule `Window::last` does |
 | Token-budget trimming | `window_by_tokens` is public, so a `Memory` of your own applies the same rule `Window::tokens` does, given a `TokenCounter` |
 | Summarizing dropped turns | `Summarizer` is public, so a `Memory` of your own can summarize what it trims inside its own `recall`, the way `Window::summarize` does |
 | Token estimation | `HeuristicCounter`, a dependency-free byte-length estimate, or any `Fn(&Message) -> usize + Send` closure wrapping a real tokenizer |
@@ -44,7 +44,7 @@ Streaming delivers the same answer incrementally, and a drained stream converts 
 | Per-run data in a tool | `Context` is handed to every call and never sent to the model |
 | Tools defined at runtime | `name` and `definition` are values, so an MCP-shaped tool needs no compile-time type |
 | Tools that fail | A `Result` return reaches the model as error text it can recover from |
-| Choosing what the model sees | `Agent::memory` takes a `Memory`, which works with any `Storage` and leaves every stored turn in place. `Window::groups` keeps pinned turns and the most recent turn groups |
+| Choosing what the model sees | `Agent::memory` takes a `Memory`, which works with any `Storage` and leaves every stored turn in place. `Window::last` keeps pinned turns and the most recent turns |
 | Bounding a transcript by token budget | `Window::tokens` keeps pinned turns and the most recent turn groups fitting an estimated budget |
 | Summarizing what a window drops | `Window::summarize` sends one summary message in place of the turns its window drops, made by a `Summarizer` at half the window and reused until the window needs to drop more. `Conversation::summary` reads it and `Conversation::compact` makes one now |
 | A conversation that survives a restart | `JsonlStorage::open(path)` keeps one conversation in a file, one JSON record per line, as a pure store, and keeps the state slot, so a summary survives the restart too |

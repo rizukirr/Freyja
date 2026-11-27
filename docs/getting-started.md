@@ -48,9 +48,12 @@ use freyja::{Client, GenerateRequest, Message, EndpointPreset, Role};
 #[tokio::main]
 async fn main() {
     let provider = EndpointPreset::OpenAi;
-    let Some(client) = Client::from_env(provider) else {
-        eprintln!("{} is missing or empty", provider.api_key_env());
-        return;
+    let client = match Client::from_env(provider) {
+        Ok(client) => client,
+        Err(error) => {
+            eprintln!("{error}");
+            return;
+        }
     };
 
     let request = GenerateRequest::new()
@@ -63,7 +66,7 @@ async fn main() {
 }
 ```
 
-`from_env` returns `None` rather than panicking when the variable is missing, so a misconfigured deployment tells you what is wrong instead of sending an unauthenticated request.
+`from_env` returns an `Error::MissingApiKey` that names the variable rather than panicking when the variable is missing, so a misconfigured deployment tells you what is wrong instead of sending an unauthenticated request.
 
 Note what the request does *not* set: no model, no temperature, no token cap. Every unset field means "the provider decides", which is what makes this same request valid on all three providers. See [Concepts](concepts.md#3-unset-means-the-vendor-decides).
 

@@ -18,9 +18,12 @@ async fn main() {
     dotenvy::dotenv().ok();
 
     let provider = EndpointPreset::OpenAi;
-    let Some(client) = Client::from_env(provider) else {
-        eprintln!("{} is missing or empty", provider.api_key_env());
-        return;
+    let client = match Client::from_env(provider) {
+        Ok(client) => client,
+        Err(error) => {
+            eprintln!("{error}");
+            return;
+        }
     };
 
     let Some(input) = std::env::args().nth(1) else {
@@ -55,7 +58,7 @@ async fn main() {
     // carries, and the file keeps every turn regardless.
     let agent = Agent::new(client)
         .system("Answer in one short sentence.")
-        .memory(Window::groups(20));
+        .memory(Window::last(20));
     let mut chat = agent.conversation(storage);
 
     if input == "--reset" {

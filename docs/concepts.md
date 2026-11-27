@@ -100,10 +100,8 @@ That is the whole rule. You do not need to know what is inside.
 
 ```rust
 // 1. Pick an endpoint. A preset, or your own.
-//    `from_env` returns None when the key variable is unset.
-let Some(client) = Client::from_env(EndpointPreset::Anthropic) else {
-    return Ok(());
-};
+//    `from_env` returns an error naming the key variable when it is unset.
+let client = Client::from_env(EndpointPreset::Anthropic)?;
 
 // 2. Describe what you want, in neutral terms.
 let request = GenerateRequest::new()

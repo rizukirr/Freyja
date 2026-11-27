@@ -486,6 +486,22 @@ impl Agent {
         Conversation::new(self.clone(), storage)
     }
 
+    /// Answers one message with no history.
+    ///
+    /// Sends the agent's configuration and `message`, runs the tool loop, and
+    /// keeps nothing, so a second call knows nothing of the first. For a
+    /// chat, start a [`Agent::conversation`].
+    ///
+    /// ```no_run
+    /// # async fn run(agent: freyja::Agent) -> Result<(), freyja::Error> {
+    /// println!("{}", agent.ask("What is 20 + 22?").await?.answer);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn ask(&self, message: impl Into<Message>) -> Result<Run, Error> {
+        self.conversation(Vec::new()).send(message).await
+    }
+
     /// Wraps a backend failure, which has no endpoint of its own.
     pub(crate) fn storage_error(&self, message: String) -> Error {
         Error::InvalidRequest {
