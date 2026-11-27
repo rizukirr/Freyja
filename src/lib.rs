@@ -127,6 +127,8 @@ mod storage;
 pub mod stream;
 mod summarize;
 pub mod testing;
+#[cfg(feature = "tracing")]
+mod tracing_hook;
 mod transport;
 
 pub use agent::{Agent, AgentEvent, Decision, Run, StopReason};
@@ -150,6 +152,8 @@ pub use provider::{Model, ModelFuture};
 pub use storage::{Storage, StorageError, StorageFuture};
 pub use stream::{EventStream, StreamEvent};
 pub use summarize::Summarizer;
+#[cfg(feature = "tracing")]
+pub use tracing_hook::Tracing;
 
 /// Private dependencies used by generated code.
 #[doc(hidden)]
