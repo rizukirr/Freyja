@@ -206,7 +206,52 @@ let agent = Agent::new(client)
     .max_turns(5);
 ```
 
-`run.stop` tells you why the loop ended, `Answered`, `MaxTurns`, `Refused`, `Incomplete`, or `Failed`, and `Conversation::send`, reached through `Agent::conversation`, wraps the same loop with the transcript held in a `Storage` backend instead of a vector you own, for a multi-turn conversation. See `examples/agent.rs`.
+A hook goes on the same builder. `.hook(...)` takes a `Hook`, which sees every model call and tool call and can end the run by returning `Flow::Stop(reason)`, after which `run.stop` is `StopReason::Stopped(reason)`. Every method has a default that returns `Flow::Continue`, so a hook implements only what it needs. Methods are synchronous, so a hook that must do I/O hands the work to a channel or a task. This one prints each tool call's name and elapsed time:
+
+```rust
+struct Timing;
+
+impl Hook for Timing {
+    fn after_tool(
+        &self,
+        name: &str,
+        _arguments: &str,
+        _output: &str,
+        elapsed: Duration,
+        _cx: &Context,
+    ) -> Flow {
+        println!("{name} took {elapsed:?}");
+        Flow::Continue
+    }
+}
+```
+
+This one stops once the tokens it has seen pass a budget. The hook is shared by every run of the agent, so the count covers all of them:
+
+```rust
+struct Budget {
+    limit: u64,
+    used: AtomicU64,
+}
+
+impl Hook for Budget {
+    fn after_model(&self, response: &GenerateResponse, _elapsed: Duration, _cx: &Context) -> Flow {
+        let tokens = response.usage.as_ref().map_or(0, |usage| usage.total_tokens);
+        if self.used.fetch_add(tokens, Ordering::Relaxed) + tokens > self.limit {
+            return Flow::Stop("token budget spent".to_string());
+        }
+        Flow::Continue
+    }
+}
+
+let agent = Agent::new(client)
+    .tool(add)
+    .hook(Timing)
+    .hook(Budget { limit: 50_000, used: AtomicU64::new(0) })
+    .max_turns(5);
+```
+
+`run.stop` tells you why the loop ended, `Answered`, `MaxTurns`, `Refused`, `Incomplete`, `Failed`, or `Stopped` by a hook, and `Conversation::send`, reached through `Agent::conversation`, wraps the same loop with the transcript held in a `Storage` backend instead of a vector you own, for a multi-turn conversation. See `examples/agent.rs`.
 
 ### Streaming the loop
 

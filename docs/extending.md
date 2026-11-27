@@ -1,6 +1,6 @@
 # Extending Freyja
 
-Freyja ships five traits a crate outside it can implement, each with a contract written in its doc comment. This page collects the rules so a crate can honour them and check itself.
+Freyja ships six traits a crate outside it can implement, each with a contract written in its doc comment. This page collects the rules so a crate can honour them and check itself.
 
 ## What a crate can extend
 
@@ -11,6 +11,7 @@ Freyja ships five traits a crate outside it can implement, each with a contract 
 | `Memory` | Chooses what the model sees of the stored conversation | Retrieval over embeddings, or a rolling summary with its own rules |
 | `TokenCounter` | Estimates the tokens in one message | A wrapper over a real tokenizer |
 | `Model` | Answers a request | A provider Freyja has no dialect for, or a cache in front of a `Client` |
+| `Hook` | Runs around every model and tool call and can stop a run | An OpenTelemetry exporter, or a per-user token budget |
 
 ## The rules each implementation honours
 
@@ -23,6 +24,10 @@ A `TokenCounter` is synchronous and counts one message at a time. A closure `Fn(
 A `Model` is `Send + Sync` and is shared through `Arc`, which a forwarding impl for `Arc<T>` and `Box<T>` makes transparent. `name` is what errors carry. `generate` returns `freyja::Error`. `stream` may be left to its default, which awaits `generate` and replays the finished response, so a model that cannot stream still serves a streaming caller, all at once. A server that speaks the OpenAI wire format, such as Ollama or vLLM, needs no `Model` at all, only a `Client` with an `EndpointConfig`. A `Model` is for an in-process model such as llama.cpp bindings or candle, a provider with its own wire format or auth, a wrapper such as a cache, fallback or router, or a fake model for tests.
 
 A `Tool` reports failure as text. A failure the model can recover from is returned as the error text of the call, and it reaches the model as a result rather than ending the run.
+
+A `Hook` has four methods, `before_model`, `after_model`, `before_tool` and `after_tool`, and they are synchronous, so none may block. A hook that must do I/O hands the work to a channel or a task. Every method defaults to `Flow::Continue`, so a hook implements only what it needs. Every hook is called at each point, and when several return `Flow::Stop` the first one wins. A hook sees requests and responses but does not change them.
+
+A hook sees all conversation content and the run's `Context`, and never an API key, because keys stay inside `Client`. A third-party hook crate is trusted like any dependency. The model controls the text it writes, so escape it before a hook writes it to a log. `after_tool` also reports a call the guard refused, with the output `denied: <reason>` and a zero duration, so an audit sees every request. A hook that panics ends the run as a panicking tool does.
 
 ## Checking a storage backend
 
