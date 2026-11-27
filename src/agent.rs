@@ -43,6 +43,7 @@ pub struct Agent {
     template: GenerateRequest,
     max_turns: usize,
     guard: Option<Arc<GuardFn>>,
+    hooks: Vec<Arc<dyn crate::Hook>>,
     system: Option<String>,
     memory: Option<Arc<dyn crate::Memory>>,
 }
@@ -92,7 +93,8 @@ pub enum AgentEvent {
 pub(crate) type EventSink<'a> = &'a mut (dyn FnMut(AgentEvent) + Send);
 
 /// Why a [`Conversation`] turn stopped.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum StopReason {
     /// The model answered without requesting more tools.
     Answered,
@@ -104,6 +106,8 @@ pub enum StopReason {
     Incomplete,
     /// The provider reported a failed or unmodelled status.
     Failed,
+    /// A [`crate::Hook`] ended the run, for the reason it gave.
+    Stopped(String),
 }
 
 /// What a guard decided about one requested tool call.
@@ -131,6 +135,7 @@ impl Agent {
             template: GenerateRequest::new(),
             max_turns: 5,
             guard: None,
+            hooks: Vec::new(),
             system: None,
             memory: None,
         }
@@ -281,6 +286,13 @@ impl Agent {
         self
     }
 
+    /// Adds a hook that runs around every model call and tool call, in every
+    /// conversation. Hooks run in the order they were added.
+    pub fn hook(mut self, hook: impl crate::Hook + 'static) -> Self {
+        self.hooks.push(Arc::new(hook));
+        self
+    }
+
     /// Runs the tool loop over `messages`, extending it in place.
     ///
     /// Crate-private: the public way in is [`crate::Conversation::send`],
@@ -334,6 +346,17 @@ impl Agent {
                     .insert(0, Message::text(crate::Role::System, system.clone()));
             }
 
+            if let Some(reason) =
+                crate::hook::first_stop(&self.hooks, |hook| hook.before_model(&request, cx))
+            {
+                if self.system.is_some() {
+                    request.messages.remove(0);
+                }
+                stop = StopReason::Stopped(reason);
+                break;
+            }
+            let started = std::time::Instant::now();
+
             let response = match sink.as_deref_mut() {
                 Some(sink) => self.stream_turn(&request, sink).await,
                 None => self.model.generate(&request).await,
@@ -365,6 +388,15 @@ impl Agent {
             });
 
             request.messages.push(response.to_message());
+
+            let elapsed = started.elapsed();
+            if let Some(reason) = crate::hook::first_stop(&self.hooks, |hook| {
+                hook.after_model(&response, elapsed, cx)
+            }) {
+                answer = response.output_text();
+                stop = StopReason::Stopped(reason);
+                break;
+            }
 
             if let Some(text) = refusal {
                 answer = text;
@@ -418,13 +450,17 @@ impl Agent {
                 .iter()
                 .map(|(_, name, arguments)| self.dispatch(name, arguments, cx))
                 .collect();
-            let outputs: Vec<String> = futures_util::stream::iter(pending)
+            let outputs: Vec<(String, Option<String>)> = futures_util::stream::iter(pending)
                 .buffered(MAX_CONCURRENT_TOOL_CALLS)
                 .collect()
                 .await;
 
             request.messages.reserve(outputs.len());
-            for ((id, name, _), output) in calls.into_iter().zip(outputs) {
+            let mut tool_stop = None;
+            for ((id, name, _), (output, stopped)) in calls.into_iter().zip(outputs) {
+                if tool_stop.is_none() {
+                    tool_stop = stopped;
+                }
                 if let Some(sink) = sink.as_deref_mut() {
                     sink(AgentEvent::ToolResult {
                         id: id.clone(),
@@ -433,6 +469,10 @@ impl Agent {
                     });
                 }
                 request.messages.push(Message::tool_result(id, output));
+            }
+            if let Some(reason) = tool_stop {
+                stop = StopReason::Stopped(reason);
+                break;
             }
         }
 
@@ -515,19 +555,39 @@ impl Agent {
     ///
     /// The guard runs before the lookup, so no name reaches a tool without
     /// passing it.
-    async fn dispatch(&self, name: &str, arguments: &str, cx: &Context) -> String {
+    async fn dispatch(
+        &self,
+        name: &str,
+        arguments: &str,
+        cx: &Context,
+    ) -> (String, Option<String>) {
         if let Some(guard) = &self.guard
             && let Decision::Deny(reason) = guard(name, arguments, cx)
         {
-            return format!("denied: {reason}");
+            let output = format!("denied: {reason}");
+            let stop = crate::hook::first_stop(&self.hooks, |hook| {
+                hook.after_tool(name, arguments, &output, std::time::Duration::ZERO, cx)
+            });
+            return (output, stop);
         }
-        match self.tools.iter().find(|tool| tool.name() == name) {
+        if let Some(reason) =
+            crate::hook::first_stop(&self.hooks, |hook| hook.before_tool(name, arguments, cx))
+        {
+            return (format!("stopped: {reason}"), Some(reason));
+        }
+        let started = std::time::Instant::now();
+        let output = match self.tools.iter().find(|tool| tool.name() == name) {
             Some(tool) => tool
                 .call(arguments, cx)
                 .await
                 .unwrap_or_else(|error| format!("error: {error}")),
             None => format!("error: unknown tool '{name}'"),
-        }
+        };
+        let elapsed = started.elapsed();
+        let stop = crate::hook::first_stop(&self.hooks, |hook| {
+            hook.after_tool(name, arguments, &output, elapsed, cx)
+        });
+        (output, stop)
     }
 }
 

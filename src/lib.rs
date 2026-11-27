@@ -117,6 +117,7 @@ pub mod error;
 #[cfg(test)]
 mod fixtures;
 mod helper;
+mod hook;
 mod memory;
 pub mod model;
 mod provider;
@@ -138,6 +139,7 @@ pub use endpoint::{Auth, EndpointConfig, EndpointPreset, TokenLimitField};
 pub use error::{BODY_IN_MESSAGE, Error, MAX_RETRY_AFTER, TransportError};
 pub use freyja_macros::tool;
 pub use helper::{window_by_groups, window_by_tokens};
+pub use hook::{Flow, Hook};
 pub use memory::{Memory, MemoryError, MemoryFuture, State, Summarize, Window};
 pub use model::{
     Context, GenerateRequest, GenerateResponse, InputContent, Message, OutputContent,
