@@ -59,7 +59,7 @@ pub trait Storage: Send {
     /// The value stored under `key` in this conversation's state slot, if
     /// this backend keeps state.
     ///
-    /// State is what a `Memory` keeps between sends, such as a cached
+    /// State is what a [`crate::Memory`] keeps between sends, such as a cached
     /// summary, so a backend that persists it saves a model call after a
     /// restart. The default keeps nothing and returns `None`, which is always
     /// correct: a memory that finds no state rebuilds it.

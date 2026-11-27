@@ -16,11 +16,16 @@ use crate::{Agent, AgentEvent, Context, Error, InputContent, Message, Run, Stora
 pub struct Conversation<S: Storage> {
     agent: Agent,
     storage: S,
+    cache: std::collections::HashMap<String, serde_json::Value>,
 }
 
 impl<S: Storage> Conversation<S> {
     pub(crate) fn new(agent: Agent, storage: S) -> Self {
-        Self { agent, storage }
+        Self {
+            agent,
+            storage,
+            cache: std::collections::HashMap::new(),
+        }
     }
 
     /// The backend holding this conversation.
@@ -61,7 +66,9 @@ impl<S: Storage> Conversation<S> {
         self.storage
             .clear()
             .await
-            .map_err(|error| self.agent.storage_error(format!("storage clear: {error}")))
+            .map_err(|error| self.agent.storage_error(format!("storage clear: {error}")))?;
+        self.cache.clear();
+        Ok(())
     }
 
     /// Two overlapping sends on one conversation do not compile. Both would
@@ -178,11 +185,22 @@ impl<S: Storage> Conversation<S> {
         // `turn` is held rather than pushed and forgotten: the append boundary
         // below cannot be an index into `history`, because `repair` may remove
         // messages before it and shift everything after.
-        let mut history = self
+        let stored = self
             .storage
             .load()
             .await
             .map_err(|error| self.agent.storage_error(format!("storage load: {error}")))?;
+
+        let mut history = match self.agent.memory_handle() {
+            Some(memory) => {
+                let mut state = crate::State::cached(&mut self.storage, &mut self.cache);
+                memory
+                    .recall(&stored, &mut state)
+                    .await
+                    .map_err(|error| self.agent.storage_error(format!("memory: {error}")))?
+            }
+            None => stored,
+        };
 
         history.push(turn.clone());
 

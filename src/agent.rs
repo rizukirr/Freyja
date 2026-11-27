@@ -44,6 +44,7 @@ pub struct Agent {
     max_turns: usize,
     guard: Option<Arc<GuardFn>>,
     system: Option<String>,
+    memory: Option<Arc<dyn crate::Memory>>,
 }
 
 /// What one turn of a [`Conversation`] produced.
@@ -129,6 +130,7 @@ impl Agent {
             max_turns: 5,
             guard: None,
             system: None,
+            memory: None,
         }
     }
 
@@ -240,6 +242,22 @@ impl Agent {
     pub fn max_turns(mut self, turns: usize) -> Self {
         self.max_turns = turns;
         self
+    }
+
+    /// Decides what the model sees of each conversation.
+    ///
+    /// Unset, every stored turn is sent. Pass a [`crate::Window`] to bound
+    /// it, or [`crate::Window::summarize`] to send a summary of what the
+    /// window drops. Any [`crate::Memory`] works with any
+    /// [`crate::Storage`]. The last memory set is the one used.
+    pub fn memory(mut self, memory: impl crate::Memory + 'static) -> Self {
+        self.memory = Some(Arc::new(memory));
+        self
+    }
+
+    /// The memory this agent's conversations use, if one is set.
+    pub(crate) fn memory_handle(&self) -> Option<Arc<dyn crate::Memory>> {
+        self.memory.clone()
     }
 
     /// Sets a guard consulted before every tool call.
