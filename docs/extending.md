@@ -44,6 +44,37 @@ async fn my_backend_conforms() {
 
 A backend that needs a resource per instance, such as a file or a schema, builds a fresh one in the closure it passes.
 
+## Testing with a scripted model
+
+`freyja::testing::ScriptedModel` answers from a script with no network, so an agent test runs without a key. Each call to the model takes the next response in the script, and `requests()` returns every request it received, in order:
+
+```rust
+use freyja::testing::ScriptedModel;
+use freyja::{Agent, tool};
+use serde_json::json;
+use std::sync::Arc;
+
+#[tool(description = "adds two numbers together")]
+fn add(a: i64, b: i64) -> i64 {
+    a + b
+}
+
+#[tokio::test]
+async fn the_agent_adds() {
+    let model = Arc::new(
+        ScriptedModel::new()
+            .tool_call("add", json!({"a": 1, "b": 2}))
+            .text("3"),
+    );
+    let run = Agent::new(model.clone()).tool(add).ask("add 1 and 2").await.unwrap();
+
+    assert_eq!(run.answer, "3");
+    assert_eq!(model.requests().len(), 2);
+}
+```
+
+`respond` adds any other response shape from a `GenerateResponse`. A call after the script runs out returns `Error::InvalidResponse`.
+
 ## Stability
 
 Every trait returns boxed futures, so each stays usable as `dyn`: an agent holds its tools as `Arc<dyn Tool>`, its memory as `Arc<dyn Memory>` and its model as `Arc<dyn Model>`, and a backend can be erased behind `Box<dyn Storage>`. A method added to a trait later arrives with a default, so an implementation written today keeps compiling. Enums and error types that may grow are `#[non_exhaustive]`, so a match on one needs a trailing `_` arm.

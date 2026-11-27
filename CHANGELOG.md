@@ -17,6 +17,7 @@ Notable changes per release. Freyja is pre-1.0, so a minor version may break.
 - **`Model` and `ModelFuture`, the trait an agent asks to answer a request.** `Client` implements it, and so do `Arc<T>` and `Box<T>` of any model. `stream` defaults to replaying `generate`, so a model that cannot stream still serves a streaming caller.
 - **`EventStream::from_response`, which replays a finished response as a stream.** It is what the default `Model::stream` uses.
 - **`freyja::testing::storage_conformance`, a check a backend crate runs from its own tests.** It covers order, `clear` on an empty conversation, and `clear` removing state.
+- **`ScriptedModel`, a model that answers from a script, in `freyja::testing`.** `text`, `tool_call` and `respond` add the next response, `requests` returns every request received, and a call after the script runs out returns `Error::InvalidResponse`.
 
 - **`window_by_tokens`, a token-budget window beside `window_by_groups`.**
   `TokenCounter` is a sync, per-message trait, `fn count(&self, message:

@@ -133,7 +133,7 @@ The goal: everything you need to build an AI agent in Rust, with no vendor lock-
 
 **Phase 4, orchestration.** The namesake. Multi-agent handoff, workflow primitives for chains and fan-out, shared state, propagated cancellation and budgets, and human-in-the-loop pause and resume.
 
-**Phase 5, observability and release.** `tracing` instrumentation, cost accounting, record and replay for deterministic tests, and a mock provider for testing agents without network access.
+**Phase 5, observability and release.** Started. `freyja::testing::ScriptedModel` answers from a script, so an agent is tested without network access. `tracing` instrumentation, cost accounting, and record and replay for deterministic tests are not built.
 
 Out of scope: prompt-template DSLs, a built-in vector database, a web UI or server, and fine-tuning orchestration. Freyja is a library, not a platform.
 
