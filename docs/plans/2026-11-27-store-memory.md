@@ -926,7 +926,7 @@ async fn the_last_memory_set_replaces_the_earlier_one() {
 - Modify: `src/lib.rs`
 - Create: `tests/compact.rs`
 
-- [ ] Step 1: In `src/conversation.rs`, add the builder and the method:
+- [x] Step 1: In `src/conversation.rs`, add the builder and the method:
 
 ```rust
 /// A summary made now rather than when the window needs one. Built by
@@ -1000,9 +1000,9 @@ and inside `impl<S: Storage> Conversation<S>`:
     }
 ```
 
-- [ ] Step 2: In `src/lib.rs`, change `pub use conversation::Conversation;` to `pub use conversation::{Compact, Conversation};`.
+- [x] Step 2: In `src/lib.rs`, change `pub use conversation::Conversation;` to `pub use conversation::{Compact, Conversation};`.
 
-- [ ] Step 3: Create `tests/compact.rs`:
+- [x] Step 3: Create `tests/compact.rs`:
 
 ```rust
 //! Summarizing on demand with `Conversation::compact`.
@@ -1104,9 +1104,9 @@ async fn compact_needs_a_memory_that_summarizes() {
 }
 ```
 
-- [ ] Step 4: Run `CHECK`
-- [ ] Step 5: Run `cargo test --test compact`
-- [ ] Step 6: Commit: `Add Conversation::compact`
+- [x] Step 4: Run `CHECK`
+- [x] Step 5: Run `cargo test --test compact`
+- [x] Step 6: Commit: `Add Conversation::compact`
 
 ### Task 5: Contract page and docs → verify: `CHECK` exits 0, `test -f docs/extending.md` exits 0, and `grep -c "extending.md" docs/README.md` prints at least 1
 
