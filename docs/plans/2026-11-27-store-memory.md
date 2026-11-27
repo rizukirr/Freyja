@@ -798,10 +798,11 @@ async fn one_summary_serves_two_sends_over_a_backend_with_no_state() {
 - Modify: `tests/jsonl.rs`
 - Modify: `examples/memory.rs`
 - Modify: `examples/persist.rs`
+- Modify: `tests/agent.rs`
 - Modify: `src/conversation.rs`
 - Modify: any `src/` doc comment that links a removed item, found by the `cargo doc` run in `CHECK`
 
-- [ ] Step 1: In `src/builtin/memory.rs`, delete the `Window` enum and its `Debug` impl, the `Summary` struct, `SUMMARY_PREFIX`, the fields `window`, `summarizer` and `summary`, the methods `window`, `window_by_tokens`, `summarize`, `summary`, `cached` and `windowed`, and the imports they alone used. `InMemoryStorage` keeps `messages` and `state`. Its `load` becomes `Box::pin(async move { Ok(self.messages.clone()) })`, and its `clear` clears both fields. Replace `restore` with:
+- [x] Step 1: In `src/builtin/memory.rs`, delete the `Window` enum and its `Debug` impl, the `Summary` struct, `SUMMARY_PREFIX`, the fields `window`, `summarizer` and `summary`, the methods `window`, `window_by_tokens`, `summarize`, `summary`, `cached` and `windowed`, and the imports they alone used. `InMemoryStorage` keeps `messages` and `state`. Its `load` becomes `Box::pin(async move { Ok(self.messages.clone()) })`, and its `clear` clears both fields. Replace `restore` with:
 
 ```rust
     /// A conversation read back from somewhere that outlived the process.
@@ -815,7 +816,7 @@ async fn one_summary_serves_two_sends_over_a_backend_with_no_state() {
 
 Rewrite the type's doc comment to describe a pure store: every turn held in this process, lost when dropped, state kept for a memory, and a pointer to `crate::Agent::memory` for windows and summaries.
 
-- [ ] Step 2: In `src/builtin/jsonl.rs`, replace the record variant `Summary { covers: usize, text: String }` with `State { key: String, value: serde_json::Value }` and its doc line with "A state slot value. The last one per key wins." In `open`, collect `Record::State { key, value }` into a `HashMap` (insert, so the last wins) and pass it to `InMemoryStorage::restore(messages, state)`. Delete `window`, `window_by_tokens`, `summarize` and `summary`. In `impl Storage for JsonlStorage`, `load` becomes `self.inner.load()`, and add:
+- [x] Step 2: In `src/builtin/jsonl.rs`, replace the record variant `Summary { covers: usize, text: String }` with `State { key: String, value: serde_json::Value }` and its doc line with "A state slot value. The last one per key wins." In `open`, collect `Record::State { key, value }` into a `HashMap` (insert, so the last wins) and pass it to `InMemoryStorage::restore(messages, state)`. Delete `window`, `window_by_tokens`, `summarize` and `summary`. In `impl Storage for JsonlStorage`, `load` becomes `self.inner.load()`, and add:
 
 ```rust
     fn state<'a>(&'a mut self, key: &'a str) -> StorageFuture<'a, Option<serde_json::Value>> {
@@ -843,7 +844,7 @@ Rewrite the type's doc comment to describe a pure store: every turn held in this
 
 Remove `Summarizer` and `TokenCounter` from its imports if unused, and update the type's doc example to `agent.memory(freyja::Window::groups(20)).conversation(JsonlStorage::open("chat.jsonl")?)`.
 
-- [ ] Step 3: Migrate `tests/storage.rs`:
+- [x] Step 3: Migrate `tests/storage.rs`:
   - `window_shapes_what_is_sent_while_the_backend_keeps_everything` and `a_window_survives_a_clear`: build the agent as `agent_for(base).memory(Window::groups(1))` and the conversation over `InMemoryStorage::new()`.
   - `a_token_window_shapes_what_is_sent_while_the_backend_keeps_everything`: `agent_for(base).memory(Window::tokens(budget, HeuristicCounter))` over `InMemoryStorage::new()`.
   - Replace `the_last_window_builder_called_replaces_the_earlier_one` with this test, which asserts the same rule on the new builder:
@@ -875,7 +876,7 @@ async fn the_last_memory_set_replaces_the_earlier_one() {
 
   Read `agent_for` first: if it does not return an `Agent` that `.memory` can chain onto, call `.memory` on its result the same way. Add `Window` to the `use freyja::{...}` list.
 
-- [ ] Step 4: Migrate `tests/summarize.rs`. Add `State`, `Window`, `Memory` to its imports.
+- [x] Step 4: Migrate `tests/summarize.rs`. Add `State`, `Window`, `Memory` to its imports.
   - `dropped_turns_reach_the_model_as_a_summary`: the agent is `Agent::new(client.clone()).memory(Window::groups(1).summarize(Summarizer::new(client)))` (build `Summarizer` before moving `client`, or clone as needed), the conversation is over `InMemoryStorage::new()`, and `chat.storage().summary()` becomes `chat.summary().await.expect("summary")` compared with `Some("- The user is planning three days in Bergen".to_string())`. Keep every other assertion.
   - The three tests that call `storage.load()` directly (`a_summary_is_reused_while_the_cut_stays_and_cleared_with_the_conversation`, `a_failed_summary_falls_back_to_the_plain_window`, `one_summary_serves_several_turns`): build `let memory = Window::groups(N).summarize(summarizer_for(base));` with the window size each test used, keep `let mut storage = InMemoryStorage::new();` and its `append` calls, and replace each `storage.load().await.expect(...)` with:
 
@@ -889,13 +890,13 @@ async fn the_last_memory_set_replaces_the_earlier_one() {
 
   Replace each `storage.summary()` assertion: an expected `Some("- SUMMARY")` is already shown by the summary message in `sent`, so drop that line only where the test already asserts the summary text in `sent`, and otherwise assert `sent` contains the summary message. For the clear check in `a_summary_is_reused_while_the_cut_stays_and_cleared_with_the_conversation`, after `storage.clear()`, append the same two messages again and assert that a recall returns the plain window (`sent == vec![Message::text(Role::Assistant, "two")]`): the server holds one reply, so a summary that survived `clear` would be reused, and one that did not must be made again, fail, and fall back.
 
-- [ ] Step 5: Migrate `tests/jsonl.rs`. Add `State`, `Window`, `Memory` to its imports.
+- [x] Step 5: Migrate `tests/jsonl.rs`. Add `State`, `Window`, `Memory` to its imports.
   - `a_reopened_conversation_reuses_the_stored_summary`: open plain `JsonlStorage`, use `let memory = Window::groups(1).summarize(summarizer_for(base));` for both opens (one summarizer is enough, since only the first recall reaches the server), and replace each `storage.load()` with the recall form from Task 3 Step 4. Replace `storage.summary()` checks by asserting the first recall's `sent[0]` carries `- SUMMARY`. After `clear`, reopen, append the two messages, and assert a recall returns the plain window, as in Step 4.
   - `a_summary_covering_more_than_the_file_holds_is_dropped`: write the file as `{"header":{"version":1}}\n{"state":{"key":"freyja.summary","value":{"covers":9,"text":"stale"}}}\n`, open it, and assert that `Window::groups(1).summarize(summarizer_for("http://127.0.0.1:9".into())).recall(&[], &mut State::new(&mut storage))` returns an empty `Vec`.
 
-- [ ] Step 6: In `examples/memory.rs`, build each agent with `.memory(...)` (`Window::groups(2)`, `Window::tokens(200, HeuristicCounter)`, `Window::groups(2).summarize(Summarizer::new(client))`) and each conversation over `InMemoryStorage::new()`, and replace `summarized_chat.storage().summary()` with `summarized_chat.summary().await` handled as a `Result<Option<String>, Error>`. In `examples/persist.rs`, set `.memory(Window::groups(20))` on the agent and pass `storage` without `.window(20)`. Update the comments that described the storage window.
+- [x] Step 6: In `examples/memory.rs`, build each agent with `.memory(...)` (`Window::groups(2)`, `Window::tokens(200, HeuristicCounter)`, `Window::groups(2).summarize(Summarizer::new(client))`) and each conversation over `InMemoryStorage::new()`, and replace `summarized_chat.storage().summary()` with `summarized_chat.summary().await` handled as a `Result<Option<String>, Error>`. In `examples/persist.rs`, set `.memory(Window::groups(20))` on the agent and pass `storage` without `.window(20)`. Update the comments that described the storage window.
 
-- [ ] Step 7: Add `Conversation::summary` in `src/conversation.rs`, needed by Steps 4 and 6:
+- [x] Step 7: Add `Conversation::summary` in `src/conversation.rs`, needed by Steps 4 and 6:
 
 ```rust
     /// The summary the agent's memory made last for this conversation, if
@@ -912,9 +913,9 @@ async fn the_last_memory_set_replaces_the_earlier_one() {
     }
 ```
 
-- [ ] Step 8: Run `CHECK`, and fix every broken intra-doc link it reports in `src/` by pointing it at `crate::Agent::memory`, `crate::Window` or `crate::Summarize`.
-- [ ] Step 9: Run `grep -rn "\.window(\|window_by_tokens(\|\.summarize(" src tests examples` and confirm no match is a call on `InMemoryStorage` or `JsonlStorage`.
-- [ ] Step 10: Commit: `Make InMemoryStorage and JsonlStorage pure stores`
+- [x] Step 8: Run `CHECK`, and fix every broken intra-doc link it reports in `src/` by pointing it at `crate::Agent::memory`, `crate::Window` or `crate::Summarize`.
+- [x] Step 9: Run `grep -rn "\.window(\|window_by_tokens(\|\.summarize(" src tests examples` and confirm no match is a call on `InMemoryStorage` or `JsonlStorage`.
+- [x] Step 10: Commit: `Make InMemoryStorage and JsonlStorage pure stores`
 
 ### Task 4: `Conversation::compact` → verify: `CHECK` exits 0, and `cargo test --test compact` exits 0
 
