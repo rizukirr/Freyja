@@ -18,8 +18,8 @@
 - Modify: `src/testing.rs`
 - Create: `tests/scripted.rs`
 
-- [ ] Step 1: Invoke `lazy` before writing any code.
-- [ ] Step 2: In `src/testing.rs`, change the `use` line to `use crate::{Error, GenerateRequest, GenerateResponse, Message, Model, ModelFuture, OutputContent, ResponseStatus, Role, Storage};` and add `use std::collections::VecDeque;` and `use std::sync::Mutex;`. Then append:
+- [x] Step 1: Invoke `lazy` before writing any code.
+- [x] Step 2: In `src/testing.rs`, change the `use` line to `use crate::{Error, GenerateRequest, GenerateResponse, Message, Model, ModelFuture, OutputContent, ResponseStatus, Role, Storage};` and add `use std::collections::VecDeque;` and `use std::sync::Mutex;`. Then append:
 
 ```rust
 /// A [`Model`] that answers from a script, for testing an agent with no
@@ -132,7 +132,7 @@ impl Model for ScriptedModel {
 
 If a name in the `use` line is already imported or turns out unused, adjust the line so it compiles with no warning.
 
-- [ ] Step 3: Create `tests/scripted.rs`:
+- [x] Step 3: Create `tests/scripted.rs`:
 
 ```rust
 //! `ScriptedModel` from outside the crate, with no network.
@@ -270,8 +270,8 @@ async fn an_empty_script_returns_invalid_response() {
 
 If a test does not compile because of a detail of the public API (for example `tool_calls()` yielding a different tuple shape, `GenerateResponse` lacking `PartialEq`, or `InputContent` not exported at the root), adjust the test to the real API while keeping what it asserts.
 
-- [ ] Step 4: Run `cargo --offline test --test scripted` and `cargo --offline clippy --all-targets -- -D warnings`.
-- [ ] Step 5: Commit `src/testing.rs` and `tests/scripted.rs` as "Add ScriptedModel, a model that answers from a script".
+- [x] Step 4: Run `cargo --offline test --test scripted` and `cargo --offline clippy --all-targets -- -D warnings`.
+- [x] Step 5: Commit `src/testing.rs` and `tests/scripted.rs` as "Add ScriptedModel, a model that answers from a script".
 
 ### Task 2: Document ScriptedModel → verify: `RUSTDOCFLAGS='-D warnings' cargo --offline doc --no-deps` exits 0 and `grep -l ScriptedModel docs/extending.md CHANGELOG.md README.md | wc -l` prints a number at least 3
 
