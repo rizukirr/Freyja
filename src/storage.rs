@@ -1,6 +1,7 @@
 //! The contract a conversation's memory implements.
 
 use crate::Message;
+use serde_json::Value;
 use std::future::Future;
 use std::pin::Pin;
 
@@ -51,7 +52,31 @@ pub trait Storage: Send {
     /// Freyja does not promise this on a backend's behalf. It is stated here
     /// because [`crate::Conversation::clear`] tells callers a retry is safe,
     /// and that sentence is only true of backends that honour this.
+    ///
+    /// It must also remove everything stored with [`Storage::set_state`].
     fn clear(&mut self) -> StorageFuture<'_, ()>;
+
+    /// The value stored under `key` in this conversation's state slot, if
+    /// this backend keeps state.
+    ///
+    /// State is what a `Memory` keeps between sends, such as a cached
+    /// summary, so a backend that persists it saves a model call after a
+    /// restart. The default keeps nothing and returns `None`, which is always
+    /// correct: a memory that finds no state rebuilds it.
+    fn state<'a>(&'a mut self, key: &'a str) -> StorageFuture<'a, Option<Value>> {
+        let _ = key;
+        Box::pin(async { Ok(None) })
+    }
+
+    /// Stores `value` under `key`, replacing what was there.
+    ///
+    /// The default discards it. A backend that keeps state returns the
+    /// latest value from [`Storage::state`] and removes all of it on
+    /// [`Storage::clear`].
+    fn set_state<'a>(&'a mut self, key: &'a str, value: Value) -> StorageFuture<'a, ()> {
+        let _ = (key, value);
+        Box::pin(async { Ok(()) })
+    }
 }
 
 /// Forwards through a borrow, so a caller can keep their own transcript and
@@ -66,6 +91,12 @@ impl<T: Storage + ?Sized> Storage for &mut T {
     fn clear(&mut self) -> StorageFuture<'_, ()> {
         (**self).clear()
     }
+    fn state<'a>(&'a mut self, key: &'a str) -> StorageFuture<'a, Option<Value>> {
+        (**self).state(key)
+    }
+    fn set_state<'a>(&'a mut self, key: &'a str, value: Value) -> StorageFuture<'a, ()> {
+        (**self).set_state(key, value)
+    }
 }
 
 /// Forwards through a box, so the backend can be chosen at run time.
@@ -78,5 +109,11 @@ impl<T: Storage + ?Sized> Storage for Box<T> {
     }
     fn clear(&mut self) -> StorageFuture<'_, ()> {
         (**self).clear()
+    }
+    fn state<'a>(&'a mut self, key: &'a str) -> StorageFuture<'a, Option<Value>> {
+        (**self).state(key)
+    }
+    fn set_state<'a>(&'a mut self, key: &'a str, value: Value) -> StorageFuture<'a, ()> {
+        (**self).set_state(key, value)
     }
 }

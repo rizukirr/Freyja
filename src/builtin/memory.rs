@@ -78,6 +78,7 @@ pub struct InMemoryStorage {
     window: Option<Window>,
     summarizer: Option<Summarizer>,
     summary: Option<Summary>,
+    state: std::collections::HashMap<String, serde_json::Value>,
 }
 
 /// The cached summary, and how many leading turn groups it stands for.
@@ -337,6 +338,22 @@ impl Storage for InMemoryStorage {
             // A summary of a conversation that no longer exists would
             // otherwise open the next one.
             self.summary = None;
+            self.state.clear();
+            Ok(())
+        })
+    }
+
+    fn state<'a>(&'a mut self, key: &'a str) -> StorageFuture<'a, Option<serde_json::Value>> {
+        Box::pin(async move { Ok(self.state.get(key).cloned()) })
+    }
+
+    fn set_state<'a>(
+        &'a mut self,
+        key: &'a str,
+        value: serde_json::Value,
+    ) -> StorageFuture<'a, ()> {
+        Box::pin(async move {
+            self.state.insert(key.to_string(), value);
             Ok(())
         })
     }

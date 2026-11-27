@@ -123,6 +123,7 @@ mod storage;
 /// Types and utilities for consuming streaming provider responses.
 pub mod stream;
 mod summarize;
+pub mod testing;
 mod transport;
 
 pub use agent::{Agent, AgentEvent, Decision, Run, StopReason};
