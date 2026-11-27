@@ -253,6 +253,12 @@ let agent = Agent::new(client)
 
 `run.stop` tells you why the loop ended, `Answered`, `MaxTurns`, `Refused`, `Incomplete`, `Failed`, or `Stopped` by a hook, and `Conversation::send`, reached through `Agent::conversation`, wraps the same loop with the transcript held in a `Storage` backend instead of a vector you own, for a multi-turn conversation. See `examples/agent.rs`.
 
+Freyja ships one hook, `Tracing`, behind the `tracing` feature (`freyja = { version = "0.5", features = ["tracing"] }`). It emits one `INFO` event with target `freyja` per model call and per tool call, with durations and token counts, and with no message content unless `.with_content()` is set. Its source, `src/tracing_hook.rs`, is a complete hook to read before writing one.
+
+```rust
+let agent = Agent::new(client).hook(freyja::Tracing::new());
+```
+
 ### Streaming the loop
 
 `send_streaming` runs the same loop with every request streamed, and hands each event to a callback as it arrives. Text, reasoning and tool calls come through as `AgentEvent::Model(StreamEvent)`, exactly as `Client::stream` yields them. Each tool's output comes through as `AgentEvent::ToolResult` once the turn's calls have finished, before it goes back to the model.
