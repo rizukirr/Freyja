@@ -1,6 +1,8 @@
 //! Condensing turns a window drops into a summary the model still sees.
 
-use crate::{Client, Error, GenerateRequest, InputContent, Message, ResponseStatus, Role};
+use std::sync::Arc;
+
+use crate::{Error, GenerateRequest, InputContent, Message, ResponseStatus, Role};
 
 /// The instruction sent when no prompt is given.
 ///
@@ -14,7 +16,7 @@ a later turn replaced. Reply with the list only.";
 
 /// Turns conversation turns into a summary, with one model call.
 ///
-/// Holds its own [`Client`] and builds its own request, so nothing from the
+/// Holds its own model and builds its own request, so nothing from the
 /// conversation it serves carries over: not the agent's system instruction,
 /// not its tools, not its token cap. That also means it can summarize with a
 /// cheaper model than the conversation uses.
@@ -29,21 +31,34 @@ a later turn replaced. Reply with the list only.";
 /// # Ok(())
 /// # }
 /// ```
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct Summarizer {
-    client: Client,
-    model: Option<String>,
+    model: Arc<dyn crate::Model>,
+    model_id: Option<String>,
     prompt: String,
     max_tokens: Option<u32>,
 }
 
+impl std::fmt::Debug for Summarizer {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("Summarizer")
+            .field("model", &self.model.name())
+            .field("model_id", &self.model_id)
+            .field("max_tokens", &self.max_tokens)
+            .finish_non_exhaustive()
+    }
+}
+
 impl Summarizer {
-    /// A summarizer calling `client`, with the default prompt and the
+    /// A summarizer calling `model`, with the default prompt and the
     /// endpoint's default model.
-    pub fn new(client: Client) -> Self {
+    ///
+    /// Takes any [`crate::Model`], such as a [`Client`](crate::Client).
+    pub fn new(model: impl crate::Model + 'static) -> Self {
         Self {
-            client,
-            model: None,
+            model: Arc::new(model),
+            model_id: None,
             prompt: DEFAULT_PROMPT.into(),
             max_tokens: None,
         }
@@ -51,7 +66,7 @@ impl Summarizer {
 
     /// The model to summarize with. Unset, the endpoint's default is used.
     pub fn model(mut self, model: impl Into<String>) -> Self {
-        self.model = Some(model.into());
+        self.model_id = Some(model.into());
         self
     }
 
@@ -85,20 +100,20 @@ impl Summarizer {
     ///
     /// # Errors
     ///
-    /// Whatever [`Client::generate`] returns, and [`Error::InvalidResponse`]
+    /// Whatever [`Model::generate`](crate::Model::generate) returns, and [`Error::InvalidResponse`]
     /// when the model stops before finishing or finishes with no text.
     pub async fn summarize(&self, messages: &[Message]) -> Result<String, Error> {
         let mut request = GenerateRequest::new()
             .message(Message::text(Role::System, self.prompt.as_str()))
             .message(Message::text(Role::User, render(messages)));
-        if let Some(model) = &self.model {
+        if let Some(model) = &self.model_id {
             request = request.model(model);
         }
         if let Some(limit) = self.max_tokens {
             request = request.max_tokens(limit);
         }
 
-        let response = self.client.generate(&request).await?;
+        let response = self.model.generate(&request).await?;
         if response.status != ResponseStatus::Completed {
             return Err(self.unusable(format!("summary unfinished: {:?}", response.status)));
         }
@@ -113,7 +128,7 @@ impl Summarizer {
     /// The error for a reply that arrived but cannot serve as a summary.
     fn unusable(&self, message: String) -> Error {
         Error::InvalidResponse {
-            endpoint: self.client.config().name.clone(),
+            endpoint: self.model.name().into(),
             message,
         }
     }

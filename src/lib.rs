@@ -119,6 +119,7 @@ mod fixtures;
 mod helper;
 mod memory;
 pub mod model;
+mod provider;
 mod repair;
 mod storage;
 /// Types and utilities for consuming streaming provider responses.
@@ -143,6 +144,7 @@ pub use model::{
     ReasoningEffort, ResponseFormat, ResponseStatus, Role, Tool, ToolChoice, ToolDefinition,
     ToolError, ToolFuture, Usage, strict_schema,
 };
+pub use provider::{Model, ModelFuture};
 pub use storage::{Storage, StorageError, StorageFuture};
 pub use stream::{EventStream, StreamEvent};
 pub use summarize::Summarizer;

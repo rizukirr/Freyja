@@ -66,6 +66,10 @@ fn the_extension_traits_are_public() {
     storage::<freyja::JsonlStorage>();
     memory::<freyja::Window>();
     memory::<freyja::Summarize>();
+    fn model<T: freyja::Model>() {}
+    model::<freyja::Client>();
+    model::<std::sync::Arc<freyja::Client>>();
+    model::<Box<dyn freyja::Model>>();
     let _: fn(&dyn freyja::TokenCounter) = |_| {};
     let _: Option<&dyn freyja::Tool> = None;
     let _: Option<freyja::State<'static>> = None;

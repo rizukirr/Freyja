@@ -1,7 +1,7 @@
 use super::assembler::{Assembler, StreamDecoder};
 use super::sse::SseBuffer;
 use crate::error::Error;
-use crate::model::{GenerateResponse, ResponseStatus, Usage};
+use crate::model::{GenerateResponse, OutputContent, ResponseStatus, Usage};
 use serde_json::Value;
 use std::sync::Arc;
 
@@ -74,6 +74,8 @@ pub(super) const MAX_STREAM_BYTES: usize = crate::transport::MAX_BODY_BYTES;
 /// from recorded bytes, and streaming is far too stateful to leave untested.
 enum Body {
     Live(reqwest::Response),
+    /// A stream with no body left to read, such as one replaying a finished response.
+    Done,
     #[cfg(test)]
     Recorded(std::collections::VecDeque<Vec<u8>>),
 }
@@ -103,12 +105,14 @@ pub struct EventStream {
     endpoint: Arc<str>,
     body: Body,
     buffer: SseBuffer,
-    decoder: Box<dyn StreamDecoder>,
+    decoder: Option<Box<dyn StreamDecoder>>,
     assembler: Assembler,
     queued: std::collections::VecDeque<StreamEvent>,
     closed: bool,
     /// Body bytes taken from the socket so far, across every frame.
     read: usize,
+    /// The finished response a replaying stream hands back unchanged.
+    replayed: Option<GenerateResponse>,
 }
 
 impl EventStream {
@@ -122,11 +126,56 @@ impl EventStream {
             endpoint: endpoint.clone(),
             body: Body::Live(response),
             buffer: SseBuffer::default(),
-            decoder,
+            decoder: Some(decoder),
             assembler: Assembler::new(endpoint, normalize_arguments),
             queued: std::collections::VecDeque::new(),
             closed: false,
             read: 0,
+            replayed: None,
+        }
+    }
+
+    /// A stream that replays a finished response: its content in order,
+    /// text and refusal each as one delta, then [`StreamEvent::Done`].
+    ///
+    /// What [`crate::Model::stream`] returns by default, so a model that
+    /// cannot stream still serves a streaming caller. [`EventStream::into_response`]
+    /// returns `response` unchanged.
+    pub fn from_response(response: GenerateResponse) -> Self {
+        let mut queued = std::collections::VecDeque::with_capacity(response.content.len() + 1);
+        for part in &response.content {
+            queued.push_back(match part {
+                OutputContent::Text(text) => StreamEvent::TextDelta(text.clone()),
+                OutputContent::Refusal(text) => StreamEvent::RefusalDelta(text.clone()),
+                OutputContent::ToolCall {
+                    id,
+                    name,
+                    arguments,
+                } => StreamEvent::ToolCall {
+                    id: id.clone(),
+                    name: name.clone(),
+                    arguments: arguments.clone(),
+                },
+                OutputContent::Reasoning { data } => StreamEvent::Reasoning { data: data.clone() },
+            });
+        }
+        queued.push_back(StreamEvent::Done {
+            id: response.id.clone(),
+            model: response.model.clone(),
+            status: response.status.clone(),
+            usage: response.usage,
+        });
+        let endpoint: Arc<str> = Arc::from(response.model.as_str());
+        Self {
+            endpoint: endpoint.clone(),
+            body: Body::Done,
+            buffer: SseBuffer::default(),
+            decoder: None,
+            assembler: Assembler::new(endpoint, false),
+            queued,
+            closed: true,
+            read: 0,
+            replayed: Some(response),
         }
     }
 
@@ -165,6 +214,9 @@ impl EventStream {
     /// whole. Every field a tool loop depends on, id, model, status, content,
     /// usage, does match, and `to_message()` produces the same assistant turn.
     pub fn into_response(self) -> Result<GenerateResponse, Error> {
+        if let Some(response) = self.replayed {
+            return Ok(response);
+        }
         self.assembler.into_response()
     }
 
@@ -177,7 +229,10 @@ impl EventStream {
         // Cloned first: passing `&self.endpoint` would borrow `self` while
         // `self.decoder` is borrowed mutably.
         let endpoint = self.endpoint.clone();
-        self.decoder.decode(&frame, &endpoint, &mut deltas)?;
+        let Some(decoder) = self.decoder.as_mut() else {
+            return Ok(false);
+        };
+        decoder.decode(&frame, &endpoint, &mut deltas)?;
 
         let mut events = Vec::new();
         for delta in deltas {
@@ -203,6 +258,7 @@ impl EventStream {
                     None => Ok(false),
                 }
             }
+            Body::Done => Ok(false),
             #[cfg(test)]
             Body::Recorded(chunks) => match chunks.pop_front() {
                 Some(bytes) => {
@@ -256,11 +312,12 @@ impl EventStream {
             endpoint: endpoint.clone(),
             body: Body::Recorded(chunks.into()),
             buffer: SseBuffer::default(),
-            decoder,
+            decoder: Some(decoder),
             assembler: Assembler::new(endpoint, normalize_arguments),
             queued: std::collections::VecDeque::new(),
             closed: false,
             read: 0,
+            replayed: None,
         }
     }
 
@@ -280,5 +337,53 @@ impl EventStream {
             Poll::Ready(result) => result,
             Poll::Pending => panic!("a recorded body never pends"),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn from_response_replays_the_content_then_done() {
+        let response = GenerateResponse {
+            id: "r1".into(),
+            model: "m".into(),
+            status: ResponseStatus::Completed,
+            content: vec![
+                OutputContent::Text("hi".into()),
+                OutputContent::ToolCall {
+                    id: "c1".into(),
+                    name: "add".into(),
+                    arguments: "{}".into(),
+                },
+            ],
+            usage: None,
+            provider_metadata: None,
+        };
+        let mut stream = EventStream::from_response(response.clone());
+        assert_eq!(
+            stream.next().await.unwrap(),
+            Some(StreamEvent::TextDelta("hi".into()))
+        );
+        assert_eq!(
+            stream.next().await.unwrap(),
+            Some(StreamEvent::ToolCall {
+                id: "c1".into(),
+                name: "add".into(),
+                arguments: "{}".into()
+            })
+        );
+        assert_eq!(
+            stream.next().await.unwrap(),
+            Some(StreamEvent::Done {
+                id: "r1".into(),
+                model: "m".into(),
+                status: ResponseStatus::Completed,
+                usage: None
+            })
+        );
+        assert_eq!(stream.next().await.unwrap(), None);
+        assert_eq!(stream.into_response().unwrap(), response);
     }
 }

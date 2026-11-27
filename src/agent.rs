@@ -1,7 +1,7 @@
 //! Driving the tool-calling loop.
 
 use crate::{
-    Client, Context, Conversation, Dialect, Error, GenerateRequest, GenerateResponse, Message,
+    Context, Conversation, Dialect, Error, GenerateRequest, GenerateResponse, Message,
     OutputContent, ReasoningEffort, ResponseStatus, Storage, StreamEvent, Tool, ToolChoice,
     ToolDefinition, Usage,
 };
@@ -37,7 +37,7 @@ type GuardFn = dyn Fn(&str, &str, &Context) -> Decision + Send + Sync;
 /// either later breaks nothing.
 #[derive(Clone)]
 pub struct Agent {
-    client: Client,
+    model: Arc<dyn crate::Model>,
     tools: Vec<Arc<dyn Tool>>,
     definitions: Vec<ToolDefinition>,
     template: GenerateRequest,
@@ -70,7 +70,7 @@ pub struct Run {
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq)]
 pub enum AgentEvent {
-    /// Something the model streamed, exactly as [`Client::stream`] yields it.
+    /// Something the model streamed, exactly as [`Model::stream`](crate::Model::stream) yields it.
     /// A tool call arrives here as [`StreamEvent::ToolCall`], before it runs.
     Model(StreamEvent),
     /// A tool finished, and its output is about to go back to the model.
@@ -121,9 +121,11 @@ pub enum Decision {
 
 impl Agent {
     /// Creates an agent with no tools and a turn bound of five.
-    pub fn new(client: Client) -> Self {
+    ///
+    /// Takes any [`crate::Model`], such as a [`Client`](crate::Client).
+    pub fn new(model: impl crate::Model + 'static) -> Self {
         Self {
-            client,
+            model: Arc::new(model),
             tools: Vec::new(),
             definitions: Vec::new(),
             template: GenerateRequest::new(),
@@ -334,7 +336,7 @@ impl Agent {
 
             let response = match sink.as_deref_mut() {
                 Some(sink) => self.stream_turn(&request, sink).await,
-                None => self.client.generate(&request).await,
+                None => self.model.generate(&request).await,
             };
 
             if self.system.is_some() {
@@ -451,7 +453,7 @@ impl Agent {
         request: &GenerateRequest,
         sink: &mut (dyn FnMut(AgentEvent) + Send),
     ) -> Result<GenerateResponse, Error> {
-        let mut stream = self.client.stream(request).await?;
+        let mut stream = self.model.stream(request).await?;
         while let Some(event) = stream.next().await? {
             sink(AgentEvent::Model(event));
         }
@@ -487,7 +489,7 @@ impl Agent {
     /// Wraps a backend failure, which has no endpoint of its own.
     pub(crate) fn storage_error(&self, message: String) -> Error {
         Error::InvalidRequest {
-            endpoint: self.client.config().name.clone(),
+            endpoint: self.model.name().into(),
             message,
         }
     }
