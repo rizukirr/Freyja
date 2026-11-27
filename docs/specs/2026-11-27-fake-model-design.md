@@ -12,7 +12,7 @@ Testing an agent, a tool, a hook or a memory against a real `Agent` loop needs a
 
 ## Goals
 
-1. `freyja::testing::ScriptedModel` implements `Model` and hands out scripted responses in the order they were added. Criterion: a test in `tests/scripted.rs` drives `Agent::ask` through a tool call and a final answer with it, and the run's final text and tool result are the scripted ones.
+1. `freyja::testing::ScriptedModel` implements `Model` and hands out scripted responses in the order they were added. Criterion: a test in `tests/scripted.rs` drives `Agent::ask` through a tool call and a final answer with it, and the run's answer is the scripted final text.
 2. Builders cover the common shapes. `ScriptedModel::new()` starts an empty script, `.text(s)` adds a completed response holding the text `s`, `.tool_call(name, arguments)` adds a `RequiresAction` response holding one tool call with arguments given as a `serde_json::Value` and an id unique within the script, and `.respond(response)` adds any `GenerateResponse` as given. Criterion: a test per builder checks the response the model returns for it.
 3. Every request is recorded. `ScriptedModel::requests()` returns a clone of each `GenerateRequest` received, oldest first. Criterion: a test, reading through an `Arc<ScriptedModel>` after the agent run, sees one request per model call, and the second request carries the tool result.
 4. A script that runs out returns `Error::InvalidResponse` whose message says the script ran out. Criterion: a test calls `generate` on an empty script and matches that error.
