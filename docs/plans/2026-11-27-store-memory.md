@@ -25,7 +25,7 @@
 - Modify: `src/lib.rs`
 - Create: `tests/conformance.rs`
 
-- [ ] Step 1: In `src/storage.rs`, add `use serde_json::Value;` and two defaulted methods at the end of `trait Storage`. Extend the `clear` doc with one sentence: "It must also remove everything stored with [`Storage::set_state`]."
+- [x] Step 1: In `src/storage.rs`, add `use serde_json::Value;` and two defaulted methods at the end of `trait Storage`. Extend the `clear` doc with one sentence: "It must also remove everything stored with [`Storage::set_state`]."
 
 ```rust
     /// The value stored under `key` in this conversation's state slot, if
@@ -51,7 +51,7 @@
     }
 ```
 
-- [ ] Step 2: In both forwarding impls (`&mut T` and `Box<T>`) in `src/storage.rs`, forward the two methods:
+- [x] Step 2: In both forwarding impls (`&mut T` and `Box<T>`) in `src/storage.rs`, forward the two methods:
 
 ```rust
     fn state<'a>(&'a mut self, key: &'a str) -> StorageFuture<'a, Option<Value>> {
@@ -62,7 +62,7 @@
     }
 ```
 
-- [ ] Step 3: In `src/builtin/memory.rs`, add a field `state: std::collections::HashMap<String, serde_json::Value>` to `InMemoryStorage` (it derives `Default`, so no constructor changes). In `impl Storage for InMemoryStorage`, add `self.state.clear();` inside `clear`, and add:
+- [x] Step 3: In `src/builtin/memory.rs`, add a field `state: std::collections::HashMap<String, serde_json::Value>` to `InMemoryStorage` (it derives `Default`, so no constructor changes). In `impl Storage for InMemoryStorage`, add `self.state.clear();` inside `clear`, and add:
 
 ```rust
     fn state<'a>(&'a mut self, key: &'a str) -> StorageFuture<'a, Option<serde_json::Value>> {
@@ -81,7 +81,7 @@
     }
 ```
 
-- [ ] Step 4: Create `src/testing.rs`:
+- [x] Step 4: Create `src/testing.rs`:
 
 ```rust
 //! Checks a crate outside Freyja runs against its own implementations.
@@ -168,9 +168,9 @@ pub async fn storage_conformance<S: Storage>(mut make: impl FnMut() -> S) {
 }
 ```
 
-- [ ] Step 5: In `src/lib.rs`, add `pub mod testing;` after `mod summarize;`.
+- [x] Step 5: In `src/lib.rs`, add `pub mod testing;` after `mod summarize;`.
 
-- [ ] Step 6: Create `tests/conformance.rs`:
+- [x] Step 6: Create `tests/conformance.rs`:
 
 ```rust
 //! Every backend Freyja ships, and one written outside it, against the
@@ -261,9 +261,9 @@ async fn a_backend_that_reverses_order_fails() {
 }
 ```
 
-- [ ] Step 7: Run `CHECK`
-- [ ] Step 8: Run `cargo test --test conformance`
-- [ ] Step 9: Commit: `Add a state slot to Storage and a published conformance check`
+- [x] Step 7: Run `CHECK`
+- [x] Step 8: Run `cargo test --test conformance`
+- [x] Step 9: Commit: `Add a state slot to Storage and a published conformance check`
 
 ### Task 2: The `Memory` trait, `Window`, `Summarize`, and `Agent::memory` → verify: `CHECK` exits 0, and `cargo test --test memory` exits 0
 
