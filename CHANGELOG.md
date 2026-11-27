@@ -6,6 +6,7 @@ Notable changes per release. Freyja is pre-1.0, so a minor version may break.
 
 ### Added
 
+- **`Agent::ask`, which answers one message with no history.** It runs the tool loop over a conversation on an empty `Vec` and keeps nothing, so a second call knows nothing of the first.
 - **`Error::MissingApiKey`, which `Client::from_env` returns when it finds no key.** It carries the endpoint and the name of the variable that was unset or empty, or `None` when the endpoint names no variable.
 - **`Memory`, a trait set with `Agent::memory` that decides what the model sees.** `Memory::recall` takes the whole stored conversation and returns what to send, and it works with any `Storage`. A memory keeps nothing in itself and uses `State`, so one value serves every conversation. `MemoryError` and `MemoryFuture` are its error and boxed future types.
 - **`Window` and `Summarize`, the built-in memories.** `Window::groups(n)` and `Window::tokens(budget, counter)` bound by turn group or by estimated token budget, and `Window::summarize(summarizer)` returns a `Summarize` that sends a summary of what the window drops.
