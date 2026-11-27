@@ -78,7 +78,7 @@ fn survey(request: &GenerateRequest) {
     println!("\n== which of them could carry it, asked rather than tried ==");
 
     for provider in PROVIDERS {
-        let Some(client) = Client::from_env(provider) else {
+        let Ok(client) = Client::from_env(provider) else {
             continue;
         };
         let name = client.config().name.clone();
@@ -98,7 +98,7 @@ async fn run_on_all(request: &GenerateRequest) {
 
     for provider in PROVIDERS {
         // The one line that changes. Everything below it is vendor-agnostic.
-        let Some(client) = Client::from_env(provider) else {
+        let Ok(client) = Client::from_env(provider) else {
             println!("\n{:>9}  skipped, {} unset", "-", provider.api_key_env());
             continue;
         };

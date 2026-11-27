@@ -14,7 +14,7 @@ let config = EndpointConfig::new(
 .api_key_env("GATEWAY_API_KEY")
 .default_model("claude-opus-5");
 
-let client = Client::from_env(config).expect("GATEWAY_API_KEY");
+let client = Client::from_env(config)?;
 ```
 
 See [Custom endpoints](../providers/custom.md) for the supported configuration

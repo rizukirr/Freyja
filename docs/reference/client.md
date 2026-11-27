@@ -81,16 +81,13 @@ let client = Client::without_key(config);
 ### `Client::from_env`
 
 ```rust
-pub fn from_env(config: impl Into<EndpointConfig>) -> Option<Self>
+pub fn from_env(config: impl Into<EndpointConfig>) -> Result<Self, Error>
 ```
 
-Reads the key from the variable named by the endpoint's `api_key_env`. Returns `None` when the variable is unset or set to an empty string, which lets you report a missing key rather than sending an unauthenticated request. An endpoint whose auth is `Auth::None` needs no key and always succeeds.
+Reads the key from the variable named by the endpoint's `api_key_env`. Returns `Error::MissingApiKey` when the variable is unset or set to an empty string, or when the endpoint names none, which lets you report a missing key rather than sending an unauthenticated request. An endpoint whose auth is `Auth::None` needs no key and always succeeds.
 
 ```rust
-let Some(client) = Client::from_env(EndpointPreset::OpenAi) else {
-    eprintln!("{} is missing or empty", EndpointPreset::OpenAi.api_key_env());
-    return;
-};
+let client = Client::from_env(EndpointPreset::OpenAi)?;
 ```
 
 ### `Client::with_http_client`
@@ -248,7 +245,7 @@ Because the answer depends on the request rather than on a fixed table, comparin
 ```rust
 let usable: Vec<_> = [EndpointPreset::OpenAi, EndpointPreset::Gemini]
     .into_iter()
-    .filter_map(Client::from_env)
+    .filter_map(|kind| Client::from_env(kind).ok())
     .filter(|client| client.check(&request).is_ok())
     .collect();
 ```
@@ -324,7 +321,7 @@ One `reqwest::Client` is built per `Client` and reused for every request, so TLS
 ```rust
 use std::sync::Arc;
 
-let client = Arc::new(Client::from_env(EndpointPreset::OpenAi).unwrap());
+let client = Arc::new(Client::from_env(EndpointPreset::OpenAi)?);
 
 for question in questions {
     let client = Arc::clone(&client);

@@ -18,7 +18,7 @@ Three presets, for the three first-party vendors whose endpoints Freyja is willi
 | [Anthropic](anthropic.md) | `ANTHROPIC_API_KEY` | `claude-opus-5` | Requires `max_tokens`, defaulted for you |
 
 ```rust
-let client = Client::from_env(EndpointPreset::Anthropic).expect("ANTHROPIC_API_KEY");
+let client = Client::from_env(EndpointPreset::Anthropic)?;
 ```
 
 All three complete a live tool round trip. Read the provider page before relying on a capability; coverage is not uniform, and each page has a table saying exactly what is refused.

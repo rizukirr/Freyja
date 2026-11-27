@@ -11,7 +11,7 @@ Implemented against the Responses API.
 | Source | `src/dialect/openai_responses/` |
 
 ```rust
-let client = Client::from_env(EndpointPreset::OpenAi).expect("OPENAI_API_KEY");
+let client = Client::from_env(EndpointPreset::OpenAi)?;
 ```
 
 This is the most complete of the four dialect mappings. It is not the only one exercised end to end any more: Anthropic and Chat Completions both record live tool round trips too. See [Verification status](#verification-status).

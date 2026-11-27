@@ -11,7 +11,7 @@
 //! # async fn run() -> Result<(), freyja::Error> {
 //! use freyja::{Client, GenerateRequest, Message, EndpointPreset, Role};
 //!
-//! let client = Client::from_env(EndpointPreset::OpenAi).expect("OPENAI_API_KEY");
+//! let client = Client::from_env(EndpointPreset::OpenAi)?;
 //! let response = client
 //!     .generate(&GenerateRequest::new().message(Message::text(Role::User, "Hello")))
 //!     .await?;

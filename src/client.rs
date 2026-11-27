@@ -18,7 +18,7 @@ use std::time::Duration;
 /// # async fn run() -> Result<(), freyja::Error> {
 /// use freyja::{Client, GenerateRequest, Message, EndpointPreset, Role};
 ///
-/// let client = Client::from_env(EndpointPreset::OpenAi).unwrap();
+/// let client = Client::from_env(EndpointPreset::OpenAi)?;
 /// let response = client
 ///     .generate(&GenerateRequest::new().message(Message::text(Role::User, "Hi")))
 ///     .await?;
@@ -130,20 +130,30 @@ impl Client {
 
     /// Reads the API key from the endpoint's [`EndpointConfig::api_key_env`].
     ///
-    /// Returns `None` when the endpoint names a variable that is unset or empty.
-    /// An endpoint with [`Auth::None`] needs no key and always succeeds.
-    pub fn from_env(config: impl Into<EndpointConfig>) -> Option<Self> {
+    /// Fails with [`Error::MissingApiKey`] when that variable is unset or
+    /// empty, or when the endpoint names none. An endpoint with
+    /// [`Auth::None`] needs no key and always succeeds.
+    pub fn from_env(config: impl Into<EndpointConfig>) -> Result<Self, Error> {
         let config = config.into();
         if config.auth == Auth::None {
-            return Some(Self::build(config, None, crate::transport::default_http()));
+            return Ok(Self::build(config, None, crate::transport::default_http()));
         }
-        match std::env::var(config.api_key_env?) {
-            Ok(key) if !key.is_empty() => Some(Self::build(
+        let Some(variable) = config.api_key_env else {
+            return Err(Error::MissingApiKey {
+                endpoint: config.name.clone(),
+                variable: None,
+            });
+        };
+        match std::env::var(variable) {
+            Ok(key) if !key.is_empty() => Ok(Self::build(
                 config,
                 Some(key),
                 crate::transport::default_http(),
             )),
-            _ => None,
+            _ => Err(Error::MissingApiKey {
+                endpoint: config.name.clone(),
+                variable: Some(variable.to_string()),
+            }),
         }
     }
 
@@ -226,7 +236,7 @@ impl Client {
     /// #     .tool_choice(ToolChoice::Required);
     /// let usable: Vec<_> = [EndpointPreset::OpenAi, EndpointPreset::Gemini]
     ///     .into_iter()
-    ///     .filter_map(|kind| Client::from_env(kind))
+    ///     .filter_map(|kind| Client::from_env(kind).ok())
     ///     .filter(|client| client.check(&request).is_ok())
     ///     .collect();
     /// ```
@@ -329,7 +339,7 @@ impl Client {
     /// # async fn run() -> Result<(), freyja::Error> {
     /// use freyja::{Client, GenerateRequest, Message, EndpointPreset, Role, StreamEvent};
     ///
-    /// let client = Client::from_env(EndpointPreset::OpenAi).unwrap();
+    /// let client = Client::from_env(EndpointPreset::OpenAi)?;
     /// let request = GenerateRequest::new().message(Message::text(Role::User, "Hi"));
     ///
     /// let mut stream = client.stream(&request).await?;
@@ -553,13 +563,37 @@ mod tests {
         // `Auth::None` is the only variant that builds without one.
         let open =
             EndpointConfig::new(Dialect::OpenAiChat, "local", "https://x.test").auth(Auth::None);
-        assert!(Client::from_env(open).is_some());
+        assert!(Client::from_env(open).is_ok());
 
         // A query credential is a credential: with no variable named, there is
         // nothing to load and no client to build.
         let pinned =
             EndpointConfig::new(Dialect::Gemini, "g", "https://x.test").auth(Auth::Query("key"));
-        assert!(Client::from_env(pinned).is_none());
+        assert!(matches!(
+            Client::from_env(pinned),
+            Err(Error::MissingApiKey { variable: None, .. })
+        ));
+    }
+
+    #[test]
+    fn from_env_names_the_missing_variable() {
+        let config = EndpointConfig::new(Dialect::OpenAiChat, "x", "https://x.test")
+            .api_key_env("FREYJA_TEST_UNSET_KEY_6F2A");
+        let Err(error) = Client::from_env(config) else {
+            panic!("no key is set");
+        };
+        assert!(matches!(
+            &error,
+            Error::MissingApiKey { variable: Some(v), .. } if v == "FREYJA_TEST_UNSET_KEY_6F2A"
+        ));
+        assert!(error.to_string().contains("FREYJA_TEST_UNSET_KEY_6F2A"));
+    }
+
+    #[test]
+    fn from_env_needs_no_key_without_auth() {
+        let config =
+            EndpointConfig::new(Dialect::OpenAiChat, "x", "https://x.test").auth(Auth::None);
+        assert!(Client::from_env(config).is_ok());
     }
 
     #[test]

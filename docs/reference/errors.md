@@ -8,6 +8,7 @@ pub enum Error {
     // Refused here, before the request left the process.
     UnsupportedCapability { endpoint: Arc<str>, capability: &'static str },
     InvalidRequest { endpoint: Arc<str>, message: String },
+    MissingApiKey { endpoint: Arc<str>, variable: Option<String> },
 
     // The request never completed.
     Http { endpoint: Arc<str>, kind: TransportError, message: String },
@@ -110,6 +111,16 @@ This is a bug in your code, not a provider limitation, and switching providers w
 | No model on the request and none on the endpoint | all |
 
 Distinct from [`BadRequest`](#badrequest), which is the endpoint rejecting a request Freyja was willing to send. See [Messages and content](../reference/messages.md).
+
+### MissingApiKey
+
+`Client::from_env` found no key. The variable the endpoint names is unset or empty, or the endpoint names none.
+
+```
+OpenAI: OPENAI_API_KEY is unset or empty
+```
+
+`variable` holds the name, or `None` when the endpoint has no `api_key_env`. Set the variable, or build the client with `Client::new` or `Client::without_key`. An endpoint whose auth is `Auth::None` never raises it.
 
 ### Http
 

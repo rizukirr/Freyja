@@ -12,7 +12,7 @@ Implemented against the Interactions API.
 | Source | `src/dialect/gemini/` |
 
 ```rust
-let client = Client::from_env(EndpointPreset::Gemini).expect("GEMINI_API_KEY");
+let client = Client::from_env(EndpointPreset::Gemini)?;
 ```
 
 This backend is less complete than OpenAI. Read the gaps below before relying on it.

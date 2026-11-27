@@ -46,9 +46,12 @@ async fn main() {
     dotenvy::dotenv().ok();
 
     let provider = EndpointPreset::OpenAi;
-    let Some(client) = Client::from_env(provider) else {
-        eprintln!("{} is missing or empty", provider.api_key_env());
-        return;
+    let client = match Client::from_env(provider) {
+        Ok(client) => client,
+        Err(error) => {
+            eprintln!("{error}");
+            return;
+        }
     };
 
     let tools: Vec<Arc<dyn Tool>> = vec![Arc::new(add), Arc::new(wait)];

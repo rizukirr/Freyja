@@ -127,6 +127,12 @@ pub enum Error {
     },
     /// The request was malformed before it left the process.
     InvalidRequest { endpoint: Arc<str>, message: String },
+    /// [`crate::Client::from_env`] found no API key: the variable the
+    /// endpoint names is unset or empty, or the endpoint names none.
+    MissingApiKey {
+        endpoint: Arc<str>,
+        variable: Option<String>,
+    },
     /// The HTTP request never completed.
     Http {
         endpoint: Arc<str>,
@@ -325,6 +331,7 @@ impl Error {
         match self {
             Self::UnsupportedCapability { endpoint, .. }
             | Self::InvalidRequest { endpoint, .. }
+            | Self::MissingApiKey { endpoint, .. }
             | Self::Http { endpoint, .. }
             | Self::BadRequest { endpoint, .. }
             | Self::Unauthorized { endpoint, .. }
@@ -350,6 +357,10 @@ impl fmt::Display for Error {
             Self::InvalidRequest { endpoint, message } => {
                 write!(f, "invalid request for {endpoint}: {message}")
             }
+            Self::MissingApiKey { endpoint, variable } => match variable {
+                Some(variable) => write!(f, "{endpoint}: {variable} is unset or empty"),
+                None => write!(f, "{endpoint}: no API key variable is configured"),
+            },
             Self::Http {
                 endpoint,
                 kind,
@@ -447,6 +458,11 @@ impl fmt::Debug for Error {
                 .debug_struct("InvalidRequest")
                 .field("endpoint", endpoint)
                 .field("message", message)
+                .finish(),
+            Self::MissingApiKey { endpoint, variable } => f
+                .debug_struct("MissingApiKey")
+                .field("endpoint", endpoint)
+                .field("variable", variable)
                 .finish(),
             Self::Http {
                 endpoint,

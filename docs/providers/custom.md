@@ -41,7 +41,7 @@ let config = EndpointConfig::new(
     .api_key_env("GATEWAY_API_KEY")
     .default_model("claude-opus-5");
 
-let client = Client::from_env(config).expect("GATEWAY_API_KEY");
+let client = Client::from_env(config)?;
 ```
 
 `base_url` is the **root**. The dialect appends its own path, `/messages` here, so do not include it yourself. Check with `config.url()` if you are unsure. That method is built to be printed, so it withholds credential-shaped query values and never carries the `Auth::Query` key, which makes it differ from the URL a request reaches by exactly those.
