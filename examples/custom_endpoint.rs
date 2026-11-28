@@ -8,7 +8,7 @@
 //! DEEPSEEK_API_KEY=... cargo run --example custom_endpoint
 //! ```
 
-use freyja::{Auth, Client, Dialect, EndpointConfig, GenerateRequest, Message, Role};
+use freyja::{Agent, Auth, Client, Dialect, EndpointConfig};
 
 #[tokio::main]
 async fn main() {
@@ -29,18 +29,16 @@ async fn main() {
         api_key,
     );
 
-    // The endpoint has no default model here, so the request must name one.
+    // The endpoint has no default model here, so the agent must name one.
     // Leaving both unset fails locally rather than at the vendor.
-    let request = GenerateRequest::new()
-        .model("deepseek-chat")
-        .message(Message::text(Role::User, "Say hello in five words."));
+    let agent = Agent::new(client).model("deepseek-chat");
 
-    match client.generate(&request).await {
-        Ok(response) => println!("{}", response.output_text()),
+    match agent.ask("Say hello in five words.").await {
+        Ok(run) => println!("{}", run.answer),
         Err(error) => eprintln!("request failed: {error}"),
     }
 
-    // The builder covers what `custom` does not: a default model so requests
+    // The builder covers what `custom` does not: a default model so agents
     // need not repeat it, a key variable for `Client::from_env`, extra headers,
     // and an auth style that differs from the dialect's convention.
     let _configured = EndpointConfig::new(

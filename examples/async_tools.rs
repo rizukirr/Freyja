@@ -1,19 +1,15 @@
 //! Two slow tools, dispatched at the same time instead of one after another.
 //!
-//! Freyja spawns nothing and depends on no async runtime, so the caller
-//! picks one, this example picks Tokio. That means concurrency is the
-//! caller's job too: `Tool::call` borrows the tool, its arguments and the run
-//! context, so a task that outlives the call must own all of them, a cloned
-//! `Arc<dyn Tool>` and owned strings, before it is spawned.
+//! `Agent` runs every tool call the model asks for in one turn concurrently, so
+//! two calls that each take 300ms finish in about 300ms, not 600ms. The agent
+//! reports the whole run's duration, which this example prints so the overlap
+//! is visible.
 //!
 //! ```sh
 //! cargo run --example async_tools
 //! ```
 
-use freyja::{
-    Client, Context, EndpointPreset, GenerateRequest, Message, OutputContent, Role, Tool, tool,
-};
-use std::sync::Arc;
+use freyja::{Agent, Client, EndpointPreset, tool};
 
 /// Two async tools. Each sleeps to stand in for real I/O: an HTTP call, a
 /// database query, a file read.
@@ -42,83 +38,21 @@ async fn main() {
         }
     };
 
-    let tools: Vec<Arc<dyn Tool>> = vec![Arc::new(fetch_user), Arc::new(fetch_orders)];
-    let definitions = tools
-        .iter()
-        .map(|tool| tool.definition())
-        .collect::<Vec<_>>();
+    let agent = Agent::new(client)
+        .tool(fetch_user)
+        .tool(fetch_orders)
+        .max_turns(5);
 
-    let mut request = GenerateRequest::new()
-        .message(Message::text(
-            Role::User,
-            "Look up both the profile and the recent orders for user 42.",
-        ))
-        .tools(definitions);
-
-    // Bounded loop: call, run whatever tools the model asks for, call again.
-    for _ in 0..5 {
-        let response = match client.generate(&request).await {
-            Ok(response) => response,
-            Err(error) => {
-                eprintln!("request failed: {error}");
-                return;
-            }
-        };
-
-        for content in &response.content {
-            match content {
-                OutputContent::Text(text) => println!("assistant: {text}"),
-                OutputContent::Refusal(text) => eprintln!("refusal: {text}"),
-                OutputContent::ToolCall {
-                    name, arguments, ..
-                } => println!("tool call: {name}({arguments})"),
-                // Opaque provider state, carried back by to_message().
-                OutputContent::Reasoning { .. } => {}
-            }
+    let start = std::time::Instant::now();
+    match agent
+        .ask("Look up both the profile and the recent orders for user 42.")
+        .await
+    {
+        Ok(run) => {
+            println!("assistant: {}", run.answer);
+            println!("{} requests, {:?} in all", run.turns, start.elapsed());
+            println!("usage: {} tokens", run.usage.total_tokens);
         }
-
-        if !response.has_tool_calls() {
-            if let Some(usage) = response.usage {
-                println!("usage: {} tokens", usage.total_tokens);
-            }
-            return;
-        }
-
-        let start = std::time::Instant::now();
-
-        let mut handles = Vec::new();
-        for (id, name, arguments) in response.tool_calls() {
-            let (id, arguments) = (id.to_owned(), arguments.to_owned());
-            let tool = tools
-                .iter()
-                .find(|tool| tool.name() == name)
-                .map(Arc::clone);
-            handles.push(tokio::spawn(async move {
-                let cx = Context::new();
-                let output = match tool {
-                    Some(tool) => tool
-                        .call(&arguments, &cx)
-                        .await
-                        .unwrap_or_else(|error| format!("error: {error}")),
-                    None => "error: unknown tool".to_string(),
-                };
-                (id, output)
-            }));
-        }
-
-        let mut results: Vec<Message> = Vec::new();
-        for handle in handles {
-            let (id, output) = handle.await.expect("tool task panicked");
-            println!("tool result: {output}");
-            results.push(Message::tool_result(id, output));
-        }
-
-        println!("tool round took {:?}", start.elapsed());
-
-        request = request
-            .message(response.to_message())
-            .extend_messages(results);
+        Err(error) => eprintln!("request failed: {error}"),
     }
-
-    eprintln!("stopped: reached the maximum number of tool-calling rounds");
 }

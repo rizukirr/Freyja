@@ -1,4 +1,5 @@
 //! A one-tool agent loop, the pattern every larger agent is built from.
+//! It uses the low-level `Client` calls, and `Agent` is the usual entry point, as the `agent` example shows.
 //!
 //! Asks a question the model cannot answer alone, executes the tool it asks
 //! for, feeds the result back, and prints the final answer.

@@ -1,4 +1,5 @@
 //! Asking for JSON and getting a Rust value back.
+//! It uses the low-level `Client` calls, and `Agent` is the usual entry point.
 //!
 //! `ResponseFormat::JsonSchema` constrains the model's output to a shape you
 //! declare, `strict_schema` makes that shape acceptable to the endpoint, and

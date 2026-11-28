@@ -9,7 +9,7 @@
 //! IMAGE_URL=https://example.com/cat.png cargo run --example images
 //! ```
 
-use freyja::{Client, EndpointPreset, Error, GenerateRequest, InputContent, Message, Role};
+use freyja::{Agent, Client, EndpointPreset, Error, InputContent, Message, Role};
 
 /// A 64×64 PNG: a red circle on white, embedded so the example needs no network
 /// beyond the model call and no third-party URL that might rot.
@@ -49,27 +49,26 @@ async fn main() {
     // One turn, two parts. Order matters: put the text after the image and you
     // are asking about something the model has not seen yet, which reads to it
     // exactly as it reads here.
-    let request = GenerateRequest::new().message(Message::new(
+    let message = Message::new(
         Role::User,
         [
             InputContent::ImageUrl(image),
             InputContent::Text("What shape and colour is this? Answer in five words.".into()),
         ],
-    ));
+    );
 
-    match client.generate(&request).await {
-        Ok(response) => {
-            println!("{}", response.output_text());
-            if let Some(usage) = response.usage {
-                // Images are billed as input tokens, and a large one costs more
-                // than the sentence next to it by a wide margin.
-                println!("\n{} input tokens", usage.input_tokens);
-            }
+    let agent = Agent::new(client);
+    match agent.ask(message).await {
+        Ok(run) => {
+            println!("{}", run.answer);
+            // Images are billed as input tokens, and a large one costs more
+            // than the sentence next to it by a wide margin.
+            println!("\n{} input tokens", run.usage.input_tokens);
         }
         Err(error) => eprintln!("{} failed: {error}", error.endpoint()),
     }
 
-    demonstrate_placement(&client).await;
+    demonstrate_placement(&agent).await;
 }
 
 /// Where an image may not go.
@@ -84,17 +83,12 @@ async fn main() {
 ///
 /// Either way the refusal is local. Freyja will not drop the image and leave
 /// you wondering why the answer ignored it.
-async fn demonstrate_placement(client: &Client) {
-    let request = GenerateRequest::new()
-        .message(Message::new(
-            Role::System,
-            [InputContent::ImageUrl(RED_CIRCLE.into())],
-        ))
-        .message(Message::text(Role::User, "Describe the image above."));
+async fn demonstrate_placement(agent: &Agent) {
+    let message = Message::new(Role::System, [InputContent::ImageUrl(RED_CIRCLE.into())]);
 
     println!("\n== the same image, on a system turn ==");
-    match client.generate(&request).await {
-        Ok(response) => println!("{}", response.output_text()),
+    match agent.ask(message).await {
+        Ok(run) => println!("{}", run.answer),
         Err(Error::UnsupportedCapability { capability, .. }) => {
             println!("refused: cannot express {capability} (no request was sent)");
         }

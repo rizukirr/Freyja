@@ -1,4 +1,5 @@
 //! One request, every vendor, and the honest limits of that.
+//! It uses the low-level `Client` calls, and `Agent` is the usual entry point.
 //!
 //! This is the claim the crate is built on: you describe what you want once,
 //! and changing vendor changes one line. The first section proves it. The

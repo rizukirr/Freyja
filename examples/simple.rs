@@ -4,7 +4,7 @@
 //! cargo run --example simple
 //! ```
 
-use freyja::{Client, EndpointPreset, GenerateRequest, Message, Role};
+use freyja::{Agent, Client, EndpointPreset};
 
 #[tokio::main]
 async fn main() {
@@ -20,16 +20,13 @@ async fn main() {
     };
 
     // No model, no max_tokens, no temperature. Every unset field means "the
-    // endpoint decides", so this same request is valid on every provider.
-    let request =
-        GenerateRequest::new().message(Message::text(Role::User, "Name three Rust crates."));
+    // endpoint decides", so this same agent is valid on every provider.
+    let agent = Agent::new(client);
 
-    match client.generate(&request).await {
-        Ok(response) => {
-            println!("{}", response.output_text());
-            if let Some(usage) = response.usage {
-                println!("\nusage: {} tokens", usage.total_tokens);
-            }
+    match agent.ask("Name three Rust crates.").await {
+        Ok(run) => {
+            println!("{}", run.answer);
+            println!("\nusage: {} tokens", run.usage.total_tokens);
         }
         Err(error) => eprintln!("request failed: {error}"),
     }
