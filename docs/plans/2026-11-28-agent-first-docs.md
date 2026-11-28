@@ -22,11 +22,11 @@
 - Modify: `docs/README.md`
 - Modify: `docs/extending.md`
 
-- [ ] Step 1: Read `docs/getting-started.md`, `docs/building-an-agent.md`, `docs/concepts.md`, `docs/reference/client.md` and `docs/reference/streaming.md` in WEB, and `REPO/examples/tool_loop.rs`, to collect every low-level example the site shows today.
-- [ ] Step 2: Create `docs/calling-the-model-directly.md` with the H1 `# Calling the model directly`. Open with one paragraph saying `Agent` is the way to build with Freyja and this page is the layer under it, for when you want one request and one response, typed output, raw stream events, a pre-flight check, or your own tool loop. Then sections, each with a short explanation and a Rust example: `## One request, one response` (`Client::generate` with a `GenerateRequest`, reading `output_text()` and `usage`), `## Typed output` (`Client::generate_as`), `## Streaming events` (`Client::stream` and draining events, `into_response`), `## Checking a request before sending` (`Client::check`), `## Your own tool loop` (the manual loop: send, run `tool_calls()`, push `Message::tool_result`, repeat, matching `REPO/examples/tool_loop.rs`). End with `## Where to go next` linking `building-an-agent.md`, `reference/client.md`, `reference/requests.md`, `reference/responses.md` and `reference/streaming.md`. Reuse code from the pages read in Step 1 where it exists, and check every method name against `REPO/src/client.rs`.
-- [ ] Step 3: In `sidebars.js`, change `'building-an-agent', 'extending'` to `'building-an-agent', 'calling-the-model-directly', 'extending'`.
-- [ ] Step 4: In `docs/README.md`, in the Learn table, add a row after the Building an agent row: `| [Calling the model directly](calling-the-model-directly.md) | The low-level calls under Agent: one request, typed output, raw streams, your own loop |`.
-- [ ] Step 5: In `docs/extending.md`, in `## Testing with a scripted model`, after the paragraph that starts "`respond` adds any other response shape", add a blank line, then this paragraph on one line: "`Recorder` turns a real run into a script. Wrap the model in it, run the agent once against the real provider, and save what the model answered. `ScriptedModel::replay` loads the file, so the test runs on those answers with no network and no key. Only answers are saved: replay hands them out in order whatever the requests are, and a call that failed is not saved. A recorder answers a streaming caller all at once, after the whole response has arrived." Then a blank line and this block:
+- [x] Step 1: Read `docs/getting-started.md`, `docs/building-an-agent.md`, `docs/concepts.md`, `docs/reference/client.md` and `docs/reference/streaming.md` in WEB, and `REPO/examples/tool_loop.rs`, to collect every low-level example the site shows today.
+- [x] Step 2: Create `docs/calling-the-model-directly.md` with the H1 `# Calling the model directly`. Open with one paragraph saying `Agent` is the way to build with Freyja and this page is the layer under it, for when you want one request and one response, typed output, raw stream events, a pre-flight check, or your own tool loop. Then sections, each with a short explanation and a Rust example: `## One request, one response` (`Client::generate` with a `GenerateRequest`, reading `output_text()` and `usage`), `## Typed output` (`Client::generate_as`), `## Streaming events` (`Client::stream` and draining events, `into_response`), `## Checking a request before sending` (`Client::check`), `## Your own tool loop` (the manual loop: send, run `tool_calls()`, push `Message::tool_result`, repeat, matching `REPO/examples/tool_loop.rs`). End with `## Where to go next` linking `building-an-agent.md`, `reference/client.md`, `reference/requests.md`, `reference/responses.md` and `reference/streaming.md`. Reuse code from the pages read in Step 1 where it exists, and check every method name against `REPO/src/client.rs`.
+- [x] Step 3: In `sidebars.js`, change `'building-an-agent', 'extending'` to `'building-an-agent', 'calling-the-model-directly', 'extending'`.
+- [x] Step 4: In `docs/README.md`, in the Learn table, add a row after the Building an agent row: `| [Calling the model directly](calling-the-model-directly.md) | The low-level calls under Agent: one request, typed output, raw streams, your own loop |`.
+- [x] Step 5: In `docs/extending.md`, in `## Testing with a scripted model`, after the paragraph that starts "`respond` adds any other response shape", add a blank line, then this paragraph on one line: "`Recorder` turns a real run into a script. Wrap the model in it, run the agent once against the real provider, and save what the model answered. `ScriptedModel::replay` loads the file, so the test runs on those answers with no network and no key. Only answers are saved: replay hands them out in order whatever the requests are, and a call that failed is not saved. A recorder answers a streaming caller all at once, after the whole response has arrived." Then a blank line and this block:
 
 ```rust
 use freyja::testing::{Recorder, ScriptedModel};
@@ -42,8 +42,8 @@ let model = ScriptedModel::replay("tests/fixtures/add.jsonl")?;
 let run = Agent::new(model).tool(add).ask("add 1 and 2").await?;
 ```
 
-- [ ] Step 6: Run `npm run build` in WEB.
-- [ ] Step 7: Commit the four files in WEB as "Add Calling the model directly, and the Recorder section".
+- [x] Step 6: Run `npm run build` in WEB.
+- [x] Step 7: Commit the four files in WEB as "Add Calling the model directly, and the Recorder section".
 
 ### Task 2: Stop syncing from the freyja repo (WEB) → verify: in WEB, `npm test` exits 0 and `grep -rn "sync-docs\|rizukirr/freyja/edit" package.json README.md docusaurus.config.js` finds no match
 
@@ -121,13 +121,13 @@ let run = Agent::new(model).tool(add).ask("add 1 and 2").await?;
 - Modify: `src/endpoint/presets.rs`
 - Modify: `src/transport/mod.rs`
 
-- [ ] Step 1: In REPO, run `git rm -r -q $(git ls-files docs)`. The gitignored `docs/specs` and `docs/plans` stay on disk.
-- [ ] Step 2: In `README.md`, rewrite every link target that starts with `docs/` to the website URL using the scheme in Global constraints. The sentence "Full docs in [`docs/`](docs/README.md), written to be read in order:" becomes "Full docs are at [rizukirr.github.io/freyja-web](https://rizukirr.github.io/freyja-web/docs/), written to be read in order:". Add a row for Calling the model directly after the Building an agent row in its table, matching the table's two-column shape, with the text "The low-level calls under Agent".
-- [ ] Step 3: In `CHANGELOG.md`, rewrite each link target that starts with `docs/` to the website URL using the same scheme. Change nothing else.
-- [ ] Step 4: In `Cargo.toml`, read the comment near line 17 that says the package includes `docs/`, and rewrite it to describe what the package includes now, in one or two comment lines.
-- [ ] Step 5: In `src/dialect/refusal.rs`, `src/endpoint/presets.rs` and `src/transport/mod.rs`, replace each mention of a `docs/...md` path in a comment with the website URL for that page.
-- [ ] Step 6: Run `grep -rn "docs/[a-z/-]*\.md" README.md CHANGELOG.md Cargo.toml src examples` and fix any remaining reference to a deleted file. Then run `RUSTDOCFLAGS='-D warnings' cargo --offline doc --no-deps --all-features` and `cargo --offline test --all-features`.
-- [ ] Step 7: Commit in REPO as "Move the docs to freyja-web".
+- [x] Step 1: In REPO, run `git rm -r -q $(git ls-files docs)`. The gitignored `docs/specs` and `docs/plans` stay on disk.
+- [x] Step 2: In `README.md`, rewrite every link target that starts with `docs/` to the website URL using the scheme in Global constraints. The sentence "Full docs in [`docs/`](docs/README.md), written to be read in order:" becomes "Full docs are at [rizukirr.github.io/freyja-web](https://rizukirr.github.io/freyja-web/docs/), written to be read in order:". Add a row for Calling the model directly after the Building an agent row in its table, matching the table's two-column shape, with the text "The low-level calls under Agent".
+- [x] Step 3: In `CHANGELOG.md`, rewrite each link target that starts with `docs/` to the website URL using the same scheme. Change nothing else.
+- [x] Step 4: In `Cargo.toml`, read the comment near line 17 that says the package includes `docs/`, and rewrite it to describe what the package includes now, in one or two comment lines.
+- [x] Step 5: In `src/dialect/refusal.rs`, `src/endpoint/presets.rs` and `src/transport/mod.rs`, replace each mention of a `docs/...md` path in a comment with the website URL for that page.
+- [x] Step 6: Run `grep -rn "docs/[a-z/-]*\.md" README.md CHANGELOG.md Cargo.toml src examples` and fix any remaining reference to a deleted file. Then run `RUSTDOCFLAGS='-D warnings' cargo --offline doc --no-deps --all-features` and `cargo --offline test --all-features`.
+- [x] Step 7: Commit in REPO as "Move the docs to freyja-web".
 
 ### Task 6: Crate docs lead with Agent (REPO) → verify: in REPO, `grep -c "client.generate\|\.generate(&" src/lib.rs` prints 0 and `cargo --offline test --doc --all-features` exits 0
 
