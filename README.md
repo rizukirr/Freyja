@@ -25,7 +25,7 @@ let config = EndpointConfig::new(Dialect::OpenAiChat, "acme-gw", "https://gw.acm
     .secret_header("x-acme-passport", &passport);      // withheld, it is a credential
 ```
 
-Freyja does the URL joining and escaping, so a request never grows a second `?`. A classified value is withheld from `Debug`, from error messages and from `config.url()`. An unclassified one is withheld only if its name happens to look like a credential. For an endpoint that wants the key in the URL rather than a header, `Auth::Query("key")` keeps it out of `config.url()`. See [Custom endpoints](docs/providers/custom.md).
+Freyja does the URL joining and escaping, so a request never grows a second `?`. A classified value is withheld from `Debug`, from error messages and from `config.url()`. An unclassified one is withheld only if its name happens to look like a credential. For an endpoint that wants the key in the URL rather than a header, `Auth::Query("key")` keeps it out of `config.url()`. See [Custom endpoints](https://rizukirr.github.io/freyja-web/docs/providers/custom).
 
 That matters because every vendor invented a different shape for the same ideas. A tool call is a flat item on OpenAI, a typed step on Gemini, a nested block on Anthropic, and a fourth arrangement on the Chat Completions format most other vendors copy. Your code sees none of it.
 
@@ -59,9 +59,9 @@ async fn main() -> Result<(), freyja::Error> {
 }
 ```
 
-`#[tool]` turns an ordinary Rust function into a tool: its parameters become the argument schema, and the model's JSON is checked against the Rust types before the function runs. `Agent` runs the loop, so when the model asks for `add`, Freyja calls it, sends the result back, and repeats until the model answers. `InMemoryStorage` holds the conversation, so the second question can refer to the first. Once conversations get long, `Agent::memory(Window::last(20))` bounds what is sent each turn and keeps the transcript whole. For a conversation that survives a restart, pass a `JsonlStorage` instead, which keeps it in a file. See [Building an agent](docs/building-an-agent.md) and [Storage](docs/reference/storage.md).
+`#[tool]` turns an ordinary Rust function into a tool: its parameters become the argument schema, and the model's JSON is checked against the Rust types before the function runs. `Agent` runs the loop, so when the model asks for `add`, Freyja calls it, sends the result back, and repeats until the model answers. `InMemoryStorage` holds the conversation, so the second question can refer to the first. Once conversations get long, `Agent::memory(Window::last(20))` bounds what is sent each turn and keeps the transcript whole. For a conversation that survives a restart, pass a `JsonlStorage` instead, which keeps it in a file. See [Building an agent](https://rizukirr.github.io/freyja-web/docs/building-an-agent) and [Storage](https://rizukirr.github.io/freyja-web/docs/reference/storage).
 
-`Agent` is built on two calls you can use directly: `Client::generate` sends one request and returns one response, and `Client::stream` delivers the same answer as it arrives, with tool-call arguments assembled for you. See [Requests](docs/reference/requests.md) and [Streaming](docs/reference/streaming.md).
+`Agent` is built on two calls you can use directly: `Client::generate` sends one request and returns one response, and `Client::stream` delivers the same answer as it arrives, with tool-call arguments assembled for you. See [Requests](https://rizukirr.github.io/freyja-web/docs/reference/requests) and [Streaming](https://rizukirr.github.io/freyja-web/docs/reference/streaming).
 
 ```bash
 cargo run --example simple           # one question, one answer
@@ -82,17 +82,18 @@ cargo run --example persist -- "hi"  # a conversation in a file, continued by th
 
 ## Documentation
 
-Full docs in [`docs/`](docs/README.md), written to be read in order:
+Full docs are at [rizukirr.github.io/freyja-web](https://rizukirr.github.io/freyja-web/docs/), written to be read in order:
 
 | Page | What it covers |
 |---|---|
-| [Introduction](docs/introduction.md) | What Freyja is, what it is not, and why it exists |
-| [Features](docs/features.md) | What works today, and what does not |
-| [Getting started](docs/getting-started.md) | Install, set a key, make a call |
-| [Concepts](docs/concepts.md) | The five ideas everything else follows from |
-| [Building an agent](docs/building-an-agent.md) | Tools, the loop, and what will bite you |
+| [Introduction](https://rizukirr.github.io/freyja-web/docs/introduction) | What Freyja is, what it is not, and why it exists |
+| [Features](https://rizukirr.github.io/freyja-web/docs/features) | What works today, and what does not |
+| [Getting started](https://rizukirr.github.io/freyja-web/docs/getting-started) | Install, set a key, make a call |
+| [Concepts](https://rizukirr.github.io/freyja-web/docs/concepts) | The five ideas everything else follows from |
+| [Building an agent](https://rizukirr.github.io/freyja-web/docs/building-an-agent) | Tools, the loop, and what will bite you |
+| [Calling the model directly](https://rizukirr.github.io/freyja-web/docs/calling-the-model) | The low-level calls under Agent |
 
-Then [providers](docs/providers/README.md), the [API reference](docs/README.md#reference), and [internals](docs/internals/architecture.md) for working on Freyja itself.
+Then [providers](https://rizukirr.github.io/freyja-web/docs/providers/), the [API reference](https://rizukirr.github.io/freyja-web/docs/#reference), and [internals](https://rizukirr.github.io/freyja-web/docs/internals/architecture) for working on Freyja itself.
 
 ## Status
 
@@ -117,7 +118,7 @@ Phases 0 through 2 are complete, and Phase 3 has started: the neutral core is st
 | Structured output | `strict_schema()` plus `generate_as::<T>()` |
 | Vendor-only fields | `extra_for()`, without forking |
 
-The workspace test suite covers the core, macro expansion, public typed-tool behavior, examples, and doctests. [Features](docs/features.md) has the honest boundary, including which capabilities each provider refuses.
+The workspace test suite covers the core, macro expansion, public typed-tool behavior, examples, and doctests. [Features](https://rizukirr.github.io/freyja-web/docs/features) has the honest boundary, including which capabilities each provider refuses.
 
 ## Roadmap
 
@@ -129,7 +130,7 @@ The goal: everything you need to build an AI agent in Rust, with no vendor lock-
 
 **Phase 2, the agent.** Complete. `Tool` and `#[tool]` derive schemas from sync or async function signatures and provide typed execution, and `Agent` drives the tool-calling loop automatically, dispatching parallel tool calls concurrently, eight at a time. `Tool` is now a trait, so a tool can hold state in its fields, be built at runtime, and report failure as text the model recovers from; `Context` carries per-run data to every call without exposing it to the model. `Agent::guard` vets every requested call before dispatch, so a policy can refuse one and the model reads why. The model is a `Model` trait, so a provider, a cache or a fake model for tests can stand in for `Client`. `Agent::hook` runs code around every model and tool call, and can stop a run, which is where tracing and budgets attach.
 
-**Phase 3, memory and context.** Started. `Storage` is the backend a conversation reads and writes, and it keeps every turn. What reaches the model is decided by a `Memory` set with `Agent::memory`, which works with any `Storage`, so a backend of your own gets windows and summaries without implementing them. `Window::last` bounds a conversation by turn group, and `window_by_groups` is public, so a memory of your own applies the same group-aware rule rather than cutting mid-pair. `Window::tokens` bounds it by an estimated budget instead, given a caller-supplied `TokenCounter`, and the budget covers the transcript only. `Window::summarize` sends a summary of what either window drops, with one extra model call per summary, kept in the storage state slot, and `Conversation::compact` makes one on demand. `JsonlStorage` keeps a conversation in a file, one JSON record per line, so a later process continues it, with its state beside the turns. A backend can be checked with `freyja::testing`, and [extending Freyja](docs/extending.md) lists the rules. A database backend, and retrieval with embeddings and a vector store, are not built.
+**Phase 3, memory and context.** Started. `Storage` is the backend a conversation reads and writes, and it keeps every turn. What reaches the model is decided by a `Memory` set with `Agent::memory`, which works with any `Storage`, so a backend of your own gets windows and summaries without implementing them. `Window::last` bounds a conversation by turn group, and `window_by_groups` is public, so a memory of your own applies the same group-aware rule rather than cutting mid-pair. `Window::tokens` bounds it by an estimated budget instead, given a caller-supplied `TokenCounter`, and the budget covers the transcript only. `Window::summarize` sends a summary of what either window drops, with one extra model call per summary, kept in the storage state slot, and `Conversation::compact` makes one on demand. `JsonlStorage` keeps a conversation in a file, one JSON record per line, so a later process continues it, with its state beside the turns. A backend can be checked with `freyja::testing`, and [extending Freyja](https://rizukirr.github.io/freyja-web/docs/extending) lists the rules. A database backend, and retrieval with embeddings and a vector store, are not built.
 
 **Phase 4, orchestration.** The namesake. Multi-agent handoff, workflow primitives for chains and fan-out, shared state, propagated cancellation and budgets, and human-in-the-loop pause and resume.
 
@@ -137,7 +138,7 @@ The goal: everything you need to build an AI agent in Rust, with no vendor lock-
 
 Out of scope: prompt-template DSLs, a built-in vector database, a web UI or server, and fine-tuning orchestration. Freyja is a library, not a platform.
 
-Also out of scope: **automatic retries**. Backing off means sleeping, and Freyja exposes `async fn` without spawning so the caller picks the runtime; retrying internally would take that choice away to save ten lines. `Error::is_retryable()` and `retry_after()` make the decision cheap instead, and compose with `backon` or `tower::retry`. See [Errors](docs/reference/errors.md#retries).
+Also out of scope: **automatic retries**. Backing off means sleeping, and Freyja exposes `async fn` without spawning so the caller picks the runtime; retrying internally would take that choice away to save ten lines. `Error::is_retryable()` and `retry_after()` make the decision cheap instead, and compose with `backon` or `tower::retry`. See [Errors](https://rizukirr.github.io/freyja-web/docs/reference/errors#retries).
 
 ## Development
 
@@ -149,7 +150,7 @@ cargo fmt --check
 
 Rust edition 2024, minimum toolchain 1.88, verified in CI. `tokio` and `dotenvy` are dev-dependencies used only by the examples, so a consumer does not inherit them.
 
-Contributions: [Architecture](docs/internals/architecture.md) explains the layout, [Capability model](docs/internals/capability-model.md) explains what Freyja is allowed to refuse and why that is almost nothing, [Adding a dialect](docs/internals/adding-a-dialect.md) covers new wire formats, and reaching a new vendor usually needs no code at all, see [Custom providers](docs/providers/custom.md).
+Contributions: [Architecture](https://rizukirr.github.io/freyja-web/docs/internals/architecture) explains the layout, [Capability model](https://rizukirr.github.io/freyja-web/docs/internals/capability-model) explains what Freyja is allowed to refuse and why that is almost nothing, [Adding a dialect](https://rizukirr.github.io/freyja-web/docs/internals/adding-a-dialect) covers new wire formats, and reaching a new vendor usually needs no code at all, see [Custom providers](https://rizukirr.github.io/freyja-web/docs/providers/custom).
 
 ## License
 

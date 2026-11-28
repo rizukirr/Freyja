@@ -14,7 +14,7 @@ readme = "README.md"
 keywords = ["llm", "ai", "openai", "anthropic", "gemini"]
 categories = ["api-bindings", "asynchronous"]
 # Repository furniture is not part of the crate. Everything else ships,
-# including `docs/`, so a vendored copy carries its own documentation.
+# including the README, examples and tests. The docs live on the website.
 exclude = [".github/", ".gitignore"]
 
 [workspace]
