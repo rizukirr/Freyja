@@ -13,7 +13,7 @@ A crate whose only dependencies are `freyja` and `tokio`, as `docs/getting-start
 ## Goals
 
 1. A crate depending only on `freyja` compiles a `#[tool]` function and uses it as a `freyja::Tool`. Criterion: a new workspace member `downstream/`, whose `[dependencies]` holds only `freyja` by path, defines a `#[tool]` function and a test asserting its `Tool::name`, and `cargo --offline test -p downstream` exits 0.
-2. The guard fails without the fix. Criterion: with the two attribute lines removed from `macros/src/tools.rs`, `cargo --offline build -p downstream` exits non-zero.
+2. The guard fails without the fix. Criterion: with the two attribute lines removed from `macros/src/tools.rs`, `cargo --offline test -p downstream` exits non-zero. The tool lives in the crate's test module, because the macro makes every item it generates private and a tool outside tests would be dead code.
 3. CI runs the guard. Criterion: `.github/workflows/ci.yml`'s test job runs `cargo test -p downstream`.
 4. The guard is never published. Criterion: `downstream/Cargo.toml` has `publish = false`.
 5. Existing behaviour is unchanged. Criterion: `cargo --offline test --all-features` and `cargo --offline clippy --all-features --all-targets -- -D warnings` exit 0.
