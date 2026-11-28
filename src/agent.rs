@@ -312,6 +312,60 @@ impl Agent {
         self
     }
 
+    /// Runs the tool loop over `messages`. See `run_inner`.
+    #[cfg(not(feature = "tracing"))]
+    pub(crate) async fn run_loop(
+        &self,
+        messages: &mut Vec<Message>,
+        cx: &Context,
+        sink: Option<EventSink<'_>>,
+    ) -> Result<Run, Error> {
+        self.run_inner(messages, cx, sink).await
+    }
+
+    /// Runs the tool loop over `messages` inside a `run` span, target
+    /// `freyja`, and records the outcome on it: `stop`, `turns` and the token
+    /// counts when the run returns, or `error` when it fails. Every event
+    /// emitted during the run, tool calls included, nests under the span.
+    #[cfg(feature = "tracing")]
+    pub(crate) async fn run_loop(
+        &self,
+        messages: &mut Vec<Message>,
+        cx: &Context,
+        sink: Option<EventSink<'_>>,
+    ) -> Result<Run, Error> {
+        use tracing::Instrument;
+        use tracing::field::{Empty, debug, display};
+
+        let span = tracing::info_span!(
+            target: "freyja",
+            "run",
+            stop = Empty,
+            turns = Empty,
+            input_tokens = Empty,
+            output_tokens = Empty,
+            total_tokens = Empty,
+            error = Empty,
+        );
+        let result = self
+            .run_inner(messages, cx, sink)
+            .instrument(span.clone())
+            .await;
+        match &result {
+            Ok(run) => {
+                span.record("stop", debug(&run.stop));
+                span.record("turns", run.turns);
+                span.record("input_tokens", run.usage.input_tokens);
+                span.record("output_tokens", run.usage.output_tokens);
+                span.record("total_tokens", run.usage.total_tokens);
+            }
+            Err(error) => {
+                span.record("error", display(error));
+            }
+        }
+        result
+    }
+
     /// Runs the tool loop over `messages`, extending it in place.
     ///
     /// Crate-private: the public way in is [`crate::Conversation::send`],
@@ -330,7 +384,7 @@ impl Agent {
     ///
     /// With a sink, every request streams and its events go to the sink as
     /// they arrive. Without one, every request is a plain `generate`.
-    pub(crate) async fn run_loop(
+    async fn run_inner(
         &self,
         messages: &mut Vec<Message>,
         cx: &Context,

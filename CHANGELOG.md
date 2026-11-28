@@ -10,6 +10,8 @@ Notable changes per release. Freyja is pre-1.0, so a minor version may break.
 
 - **`Agent::token_budget`, which ends a run once its model calls have used that many tokens.** The run stops with the new `StopReason::OverBudget` after the call that reached the budget, before any tool it requested runs. Each run starts from zero.
 
+- **Each agent run is a `run` span under the `tracing` feature.** The `Tracing` hook's events nest under it, and the span records the stop reason, the turn count and the token counts when the run ends, or the error when it fails.
+
 ## 0.5.0 - 2026-11-27
 
 Freyja becomes something a crate outside it can extend. The model, what the model remembers, where a conversation is kept, and the code around each call are now traits with documented rules: `Model`, `Memory`, `Storage` with a state slot, and `Hook`. [Extending Freyja](docs/extending.md) lists what each must honour, and `freyja::testing` holds a storage conformance check and `ScriptedModel` to test against.
