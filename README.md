@@ -91,7 +91,7 @@ Full docs are at [rizukirr.github.io/freyja-web](https://rizukirr.github.io/frey
 | [Getting started](https://rizukirr.github.io/freyja-web/docs/getting-started) | Install, set a key, make a call |
 | [Concepts](https://rizukirr.github.io/freyja-web/docs/concepts) | The five ideas everything else follows from |
 | [Building an agent](https://rizukirr.github.io/freyja-web/docs/building-an-agent) | Tools, the loop, and what will bite you |
-| [Calling the model directly](https://rizukirr.github.io/freyja-web/docs/calling-the-model) | The low-level calls under Agent |
+| [Calling the model directly](https://rizukirr.github.io/freyja-web/docs/calling-the-model-directly) | The low-level calls under Agent |
 
 Then [providers](https://rizukirr.github.io/freyja-web/docs/providers/), the [API reference](https://rizukirr.github.io/freyja-web/docs/#reference), and [internals](https://rizukirr.github.io/freyja-web/docs/internals/architecture) for working on Freyja itself.
 

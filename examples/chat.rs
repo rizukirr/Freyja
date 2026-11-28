@@ -12,7 +12,9 @@
 //! Type a message and press enter. `/reset` starts over, `/history` shows the
 //! transcript, `/exit` quits.
 
-use freyja::{Agent, AgentEvent, Client, EndpointPreset, InMemoryStorage, Message, StreamEvent};
+use freyja::{
+    Agent, AgentEvent, Client, EndpointPreset, InMemoryStorage, Message, StopReason, StreamEvent,
+};
 use std::io::{BufRead, Write};
 
 /// Frames the whole conversation. Freyja puts it wherever the provider expects
@@ -81,7 +83,14 @@ async fn main() {
         let _ = std::io::stdout().flush();
 
         match chat.send_streaming(text, show).await {
-            Ok(run) => println!("\n[{} tokens]", run.usage.total_tokens),
+            Ok(run) => {
+                // A short answer is not always a finished one. Without this
+                // check a reply cut off by a token cap reads as complete.
+                if run.stop == StopReason::Incomplete {
+                    println!("\n[truncated: the answer was cut short]");
+                }
+                println!("\n[{} tokens]", run.usage.total_tokens);
+            }
             Err(error) => {
                 // The failed turn is not stored, so the next question starts
                 // from the transcript as it was before this one.
