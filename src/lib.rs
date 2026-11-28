@@ -5,21 +5,21 @@
 //! Today it is the client layer and the tool-calling round trip that layer needs.
 //!
 //! Freyja's core is a provider-neutral request/response model. You describe what
-//! you want once, and any backend can serve it:
+//! you want once, and an [`Agent`] runs it against any backend:
 //!
 //! ```no_run
 //! # async fn run() -> Result<(), freyja::Error> {
-//! use freyja::{Client, GenerateRequest, Message, EndpointPreset, Role};
+//! use freyja::{Agent, Client, EndpointPreset};
 //!
 //! let client = Client::from_env(EndpointPreset::OpenAi)?;
-//! let response = client
-//!     .generate(&GenerateRequest::new().message(Message::text(Role::User, "Hello")))
-//!     .await?;
+//! let run = Agent::new(client).ask("Hello").await?;
 //!
-//! println!("{}", response.output_text());
+//! println!("{}", run.answer);
 //! # Ok(())
 //! # }
 //! ```
+//!
+//! [`Client::generate`] and [`Client::stream`] are the low-level layer under `Agent`, for when you want one request and one response with no loop. See <https://rizukirr.github.io/freyja-web/docs/calling-the-model-directly>.
 //!
 //! # Design rules
 //!
@@ -50,56 +50,47 @@
 //! # });
 //! ```
 //!
-//! A tool round trip is three turns: the user asks, the model answers with a
-//! [`OutputContent::ToolCall`], and you feed the result back with
-//! [`Message::tool_result`]. [`GenerateResponse::to_message`] converts the
-//! model's answer into the assistant turn that must precede the result.
+//! An [`Agent`] runs the tool round trip for you. When the model asks for a
+//! tool, Freyja calls it, sends the result back, and repeats until the model
+//! answers:
 //!
 //! ```no_run
-//! # async fn run(client: freyja::Client, request: freyja::GenerateRequest) -> Result<(), freyja::Error> {
-//! use freyja::Message;
+//! # async fn run(client: freyja::Client) -> Result<(), freyja::Error> {
+//! use freyja::{Agent, tool};
 //!
-//! let mut request = request;
-//! let response = client.generate(&request).await?;
-//!
-//! if response.has_tool_calls() {
-//!     request = request.message(response.to_message());
-//!     for (id, name, arguments) in response.tool_calls() {
-//!         let output = format!("ran {name} with {arguments}");
-//!         request = request.message(Message::tool_result(id, output));
-//!     }
-//!     let final_response = client.generate(&request).await?;
-//!     println!("{}", final_response.output_text());
+//! #[tool(description = "adds two numbers together")]
+//! fn add(a: i64, b: i64) -> i64 {
+//!     a + b
 //! }
+//!
+//! let agent = Agent::new(client).tool(add);
+//! let run = agent.ask("What is 20 + 22?").await?;
+//! println!("{}", run.answer);
 //! # Ok(())
 //! # }
 //! ```
 //!
 //! # Streaming
 //!
-//! [`Client::stream`] returns the same answer incrementally. Fragments are not
-//! exposed: tool-call arguments and reasoning blobs are assembled internally and
-//! surface only once complete, so no caller ever stitches partial JSON.
+//! [`Conversation::send_streaming`] delivers the same answer as it arrives.
+//! Fragments are not exposed: tool-call arguments and reasoning blobs are
+//! assembled internally and surface only once complete, so no caller ever
+//! stitches partial JSON.
 //!
 //! ```no_run
-//! # async fn run(client: freyja::Client, request: freyja::GenerateRequest)
-//! #     -> Result<(), freyja::Error> {
-//! use freyja::StreamEvent;
+//! # async fn run(client: freyja::Client) -> Result<(), freyja::Error> {
+//! use freyja::{Agent, AgentEvent, InMemoryStorage, StreamEvent};
 //!
-//! let mut stream = client.stream(&request).await?;
-//! while let Some(event) = stream.next().await? {
-//!     match event {
-//!         StreamEvent::TextDelta(text) => print!("{text}"),
-//!         StreamEvent::ToolCall { name, arguments, .. } => {
-//!             println!("\ncalling {name} with {arguments}");
+//! let agent = Agent::new(client);
+//! let mut chat = agent.conversation(InMemoryStorage::new());
+//! let run = chat
+//!     .send_streaming("Hello", |event| {
+//!         if let AgentEvent::Model(StreamEvent::TextDelta(text)) = event {
+//!             print!("{text}");
 //!         }
-//!         _ => {}
-//!     }
-//! }
-//!
-//! // Drained streams convert back to the non-streaming response, so a tool
-//! // loop can reuse `to_message` unchanged.
-//! let response = stream.into_response()?;
+//!     })
+//!     .await?;
+//! println!("\n{} turns", run.turns);
 //! # Ok(())
 //! # }
 //! ```
