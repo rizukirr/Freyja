@@ -7,11 +7,14 @@
 
 mod common;
 use common::serve;
+use freyja::testing::ScriptedModel;
 use freyja::{
     Agent, AgentEvent, Client, Context, Decision, Dialect, EndpointConfig, GenerateRequest,
-    InMemoryStorage, Message, ReasoningEffort, Role, StopReason, Storage, StorageFuture,
-    StreamEvent, Tool, ToolChoice, ToolDefinition, ToolError, ToolFuture, Window, tool,
+    GenerateResponse, InMemoryStorage, Message, OutputContent, ReasoningEffort, ResponseStatus,
+    Role, StopReason, Storage, StorageFuture, StreamEvent, Tool, ToolChoice, ToolDefinition,
+    ToolError, ToolFuture, Usage, Window, tool,
 };
+use serde_json::json;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -1023,4 +1026,117 @@ fn every_send_can_be_spawned() {
     let mut chat = agent.conversation(InMemoryStorage::new());
     assert_send(chat.send("hi"));
     assert_send(chat.send_streaming("hi", |_| {}));
+}
+
+fn used(total: u64, status: ResponseStatus, content: Vec<OutputContent>) -> GenerateResponse {
+    GenerateResponse {
+        id: "scripted".into(),
+        model: "scripted".into(),
+        status,
+        content,
+        usage: Some(Usage {
+            input_tokens: total,
+            output_tokens: 0,
+            total_tokens: total,
+        }),
+        provider_metadata: None,
+    }
+}
+
+fn call(name: &str, total: u64) -> GenerateResponse {
+    used(
+        total,
+        ResponseStatus::RequiresAction,
+        vec![OutputContent::ToolCall {
+            id: "call_1".into(),
+            name: name.into(),
+            arguments: json!({"a": 1, "b": 2}).to_string(),
+        }],
+    )
+}
+
+fn answer(total: u64) -> GenerateResponse {
+    used(
+        total,
+        ResponseStatus::Completed,
+        vec![OutputContent::Text("3".into())],
+    )
+}
+
+#[tokio::test]
+async fn a_run_without_a_budget_answers() {
+    let model = ScriptedModel::new()
+        .respond(call("add", 500))
+        .respond(answer(500));
+    let run = Agent::new(model).tool(add).ask("add").await.unwrap();
+    assert_eq!(run.stop, StopReason::Answered);
+}
+
+#[tokio::test]
+async fn a_run_over_budget_stops_before_its_tools_run() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let model = ScriptedModel::new()
+        .respond(call("counter", 150))
+        .respond(answer(10));
+    let run = Agent::new(model)
+        .tool(Counter {
+            calls: calls.clone(),
+        })
+        .token_budget(100)
+        .ask("add")
+        .await
+        .unwrap();
+    assert_eq!(run.stop, StopReason::OverBudget);
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+    assert_eq!(run.turns, 1);
+    assert_eq!(run.usage.total_tokens, 150);
+}
+
+#[tokio::test]
+async fn a_run_under_budget_answers() {
+    let model = ScriptedModel::new()
+        .respond(call("add", 10))
+        .respond(answer(10));
+    let run = Agent::new(model)
+        .tool(add)
+        .token_budget(100)
+        .ask("add")
+        .await
+        .unwrap();
+    assert_eq!(run.stop, StopReason::Answered);
+    assert_eq!(run.answer, "3");
+}
+
+#[tokio::test]
+async fn a_call_without_usage_counts_as_zero() {
+    let model = ScriptedModel::new()
+        .tool_call("add", json!({"a": 1, "b": 2}))
+        .text("3");
+    let run = Agent::new(model)
+        .tool(add)
+        .token_budget(1)
+        .ask("add")
+        .await
+        .unwrap();
+    assert_eq!(run.stop, StopReason::Answered);
+}
+
+#[tokio::test]
+async fn the_budget_starts_again_for_each_run() {
+    let model = ScriptedModel::new().respond(answer(60)).respond(answer(60));
+    let agent = Agent::new(model).token_budget(100);
+    let mut chat = agent.conversation(InMemoryStorage::new());
+    assert_eq!(chat.send("one").await.unwrap().stop, StopReason::Answered);
+    assert_eq!(chat.send("two").await.unwrap().stop, StopReason::Answered);
+}
+
+#[tokio::test]
+async fn a_streaming_run_honours_the_budget() {
+    let model = ScriptedModel::new()
+        .respond(call("add", 150))
+        .respond(answer(10));
+    let agent = Agent::new(model).tool(add).token_budget(100);
+    let mut chat = agent.conversation(InMemoryStorage::new());
+    let run = chat.send_streaming("add", |_event| {}).await.unwrap();
+    assert_eq!(run.stop, StopReason::OverBudget);
 }

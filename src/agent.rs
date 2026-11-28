@@ -46,6 +46,7 @@ pub struct Agent {
     hooks: Vec<Arc<dyn crate::Hook>>,
     system: Option<String>,
     memory: Option<Arc<dyn crate::Memory>>,
+    token_budget: Option<u64>,
 }
 
 /// What one turn of a [`Conversation`] produced.
@@ -108,6 +109,9 @@ pub enum StopReason {
     Failed,
     /// A [`crate::Hook`] ended the run, for the reason it gave.
     Stopped(String),
+    /// The run's summed `total_tokens` reached the budget set with
+    /// [`Agent::token_budget`].
+    OverBudget,
 }
 
 /// What a guard decided about one requested tool call.
@@ -138,6 +142,7 @@ impl Agent {
             hooks: Vec::new(),
             system: None,
             memory: None,
+            token_budget: None,
         }
     }
 
@@ -248,6 +253,20 @@ impl Agent {
     /// Sets how many requests one run may make before giving up.
     pub fn max_turns(mut self, turns: usize) -> Self {
         self.max_turns = turns;
+        self
+    }
+
+    /// Stops a run once the tokens its model calls report add up to
+    /// `tokens`.
+    ///
+    /// Checked after each model call, against the sum of every call's
+    /// `total_tokens` so far in this run. When it is reached, the run ends
+    /// with [`StopReason::OverBudget`], no requested tool runs, and the
+    /// answer is that call's text. A call that reports no usage counts as
+    /// zero. Each run starts from zero, so a conversation's second message
+    /// has the whole budget again. Unset, a run has no budget.
+    pub fn token_budget(mut self, tokens: u64) -> Self {
+        self.token_budget = Some(tokens);
         self
     }
 
@@ -395,6 +414,15 @@ impl Agent {
             }) {
                 answer = response.output_text();
                 stop = StopReason::Stopped(reason);
+                break;
+            }
+
+            if self
+                .token_budget
+                .is_some_and(|budget| usage.total_tokens >= budget)
+            {
+                answer = response.output_text();
+                stop = StopReason::OverBudget;
                 break;
             }
 
