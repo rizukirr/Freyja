@@ -18,7 +18,7 @@
 - Modify: `src/agent.rs`
 - Modify: `tests/agent.rs`
 
-- [ ] Step 1: In `src/agent.rs`, add the variant to `StopReason`, after `Stopped(String)`:
+- [x] Step 1: In `src/agent.rs`, add the variant to `StopReason`, after `Stopped(String)`:
 
 ```rust
     /// The run's summed `total_tokens` reached the budget set with
@@ -26,9 +26,9 @@
     OverBudget,
 ```
 
-- [ ] Step 2: Add the field `token_budget: Option<u64>,` to `struct Agent` after `memory`, and `token_budget: None,` to the struct literal in `Agent::new` after `memory: None,`.
+- [x] Step 2: Add the field `token_budget: Option<u64>,` to `struct Agent` after `memory`, and `token_budget: None,` to the struct literal in `Agent::new` after `memory: None,`.
 
-- [ ] Step 3: Add this builder right after `pub fn max_turns`:
+- [x] Step 3: Add this builder right after `pub fn max_turns`:
 
 ```rust
     /// Stops a run once the tokens its model calls report add up to
@@ -46,7 +46,7 @@
     }
 ```
 
-- [ ] Step 4: In `run_loop`, directly after the block that runs the `after_model` hooks (the `if let Some(reason) = crate::hook::first_stop(&self.hooks, |hook| { hook.after_model(&response, elapsed, cx) }) { ... break; }` block) and before `if let Some(text) = refusal {`, insert:
+- [x] Step 4: In `run_loop`, directly after the block that runs the `after_model` hooks (the `if let Some(reason) = crate::hook::first_stop(&self.hooks, |hook| { hook.after_model(&response, elapsed, cx) }) { ... break; }` block) and before `if let Some(text) = refusal {`, insert:
 
 ```rust
             if self
@@ -59,7 +59,7 @@
             }
 ```
 
-- [ ] Step 5: In `tests/agent.rs`, add `GenerateResponse`, `OutputContent`, `ResponseStatus` and `Usage` to the `use freyja::{...}` list if absent, add `use freyja::testing::ScriptedModel;` and `use serde_json::json;` if absent, and append these tests at the end of the file:
+- [x] Step 5: In `tests/agent.rs`, add `GenerateResponse`, `OutputContent`, `ResponseStatus` and `Usage` to the `use freyja::{...}` list if absent, add `use freyja::testing::ScriptedModel;` and `use serde_json::json;` if absent, and append these tests at the end of the file:
 
 ```rust
 fn used(total: u64, status: ResponseStatus, content: Vec<OutputContent>) -> GenerateResponse {
@@ -166,8 +166,8 @@ async fn a_streaming_run_honours_the_budget() {
 
 `Counter` is the counting tool already defined in `tests/agent.rs`, named `counter`, with the field `calls: Arc<AtomicUsize>`. `add` is the `#[tool]` function already defined there.
 
-- [ ] Step 6: Run `cargo --offline fmt`, then `cargo --offline test --all-features` and `cargo --offline clippy --all-features --all-targets -- -D warnings`.
-- [ ] Step 7: Commit `src/agent.rs` and `tests/agent.rs` as "Agent::token_budget stops a run that has used enough tokens".
+- [x] Step 6: Run `cargo --offline fmt`, then `cargo --offline test --all-features` and `cargo --offline clippy --all-features --all-targets -- -D warnings`.
+- [x] Step 7: Commit `src/agent.rs` and `tests/agent.rs` as "Agent::token_budget stops a run that has used enough tokens".
 
 ### Task 2: Documentation → verify: `RUSTDOCFLAGS='-D warnings' cargo --offline doc --no-deps --all-features` exits 0 and `grep -l token_budget docs/building-an-agent.md CHANGELOG.md README.md` lists all three files
 
