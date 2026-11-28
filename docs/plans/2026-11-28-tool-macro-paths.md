@@ -22,16 +22,16 @@
 - Modify: `.github/workflows/ci.yml`
 - Modify: `CHANGELOG.md`
 
-- [ ] Step 1: In `macros/src/tools.rs`, inside the `quote!` that generates the argument struct, directly after the closing `)]` of the `#[derive(::freyja::__private::serde::Deserialize, ::freyja::__private::schemars::JsonSchema,)]` attribute and before `struct #arguments_name {`, add:
+- [x] Step 1: In `macros/src/tools.rs`, inside the `quote!` that generates the argument struct, directly after the closing `)]` of the `#[derive(::freyja::__private::serde::Deserialize, ::freyja::__private::schemars::JsonSchema,)]` attribute and before `struct #arguments_name {`, add:
 
 ```rust
         #[serde(crate = "::freyja::__private::serde")]
         #[schemars(crate = "::freyja::__private::schemars")]
 ```
 
-- [ ] Step 2: In the root `Cargo.toml`, change `members = ["macros"]` under `[workspace]` to `members = ["macros", "downstream"]`.
+- [x] Step 2: In the root `Cargo.toml`, change `members = ["macros"]` under `[workspace]` to `members = ["macros", "downstream"]`.
 
-- [ ] Step 3: Create `downstream/Cargo.toml`:
+- [x] Step 3: Create `downstream/Cargo.toml`:
 
 ```toml
 # Compiles `#[tool]` the way a user's crate does, with freyja as the only
@@ -47,7 +47,7 @@ publish = false
 freyja = { path = ".." }
 ```
 
-- [ ] Step 4: Create `downstream/src/lib.rs`:
+- [x] Step 4: Create `downstream/src/lib.rs`:
 
 ```rust
 //! A `#[tool]` function in a crate that depends on nothing but freyja.
@@ -71,15 +71,15 @@ mod tests {
 }
 ```
 
-- [ ] Step 5: In `.github/workflows/ci.yml`, in the test job, directly after the line `      - run: cargo test --all-features`, add the two lines:
+- [x] Step 5: In `.github/workflows/ci.yml`, in the test job, directly after the line `      - run: cargo test --all-features`, add the two lines:
 
 ```yaml
       # A crate with freyja as its only dependency, as a user's would be.
       - run: cargo test -p downstream
 ```
 
-- [ ] Step 6: In `CHANGELOG.md`, under `## Unreleased`, after the last bullet of `### Added` and before `## 0.5.0`, add a blank line, the heading `### Fixed`, a blank line, and this bullet on one line: "- **`#[tool]` compiles in a crate whose only dependency is freyja.** The serde and schemars derives it generates named `serde` and `schemars` directly, so a crate without those two dependencies failed with `can't find crate for serde`. They now go through freyja's re-exports, and a workspace crate with freyja as its only dependency checks this in CI."
+- [x] Step 6: In `CHANGELOG.md`, under `## Unreleased`, after the last bullet of `### Added` and before `## 0.5.0`, add a blank line, the heading `### Fixed`, a blank line, and this bullet on one line: "- **`#[tool]` compiles in a crate whose only dependency is freyja.** The serde and schemars derives it generates named `serde` and `schemars` directly, so a crate without those two dependencies failed with `can't find crate for serde`. They now go through freyja's re-exports, and a workspace crate with freyja as its only dependency checks this in CI."
 
-- [ ] Step 7: Run `cargo --offline fmt --all`, then `cargo --offline test -p downstream`, `cargo --offline test --all-features` and `cargo --offline clippy --all-features --all-targets -- -D warnings`.
+- [x] Step 7: Run `cargo --offline fmt --all`, then `cargo --offline test -p downstream`, `cargo --offline test --all-features` and `cargo --offline clippy --all-features --all-targets -- -D warnings`.
 
-- [ ] Step 8: Commit all files in the Files block, `Cargo.lock` included, as "#[tool] compiles in a crate whose only dependency is freyja".
+- [x] Step 8: Commit all files in the Files block, `Cargo.lock` included, as "#[tool] compiles in a crate whose only dependency is freyja".
