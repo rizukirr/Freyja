@@ -26,7 +26,7 @@ Notable changes per release. Freyja is pre-1.0, so a minor version may break.
 
 ## 0.5.0 - 2026-11-27
 
-Freyja becomes something a crate outside it can extend. The model, what the model remembers, where a conversation is kept, and the code around each call are now traits with documented rules: `Model`, `Memory`, `Storage` with a state slot, and `Hook`. [Extending Freyja](docs/extending.md) lists what each must honour, and `freyja::testing` holds a storage conformance check and `ScriptedModel` to test against.
+Freyja becomes something a crate outside it can extend. The model, what the model remembers, where a conversation is kept, and the code around each call are now traits with documented rules: `Model`, `Memory`, `Storage` with a state slot, and `Hook`. [Extending Freyja](https://rizukirr.github.io/freyja-web/docs/extending) lists what each must honour, and `freyja::testing` holds a storage conformance check and `ScriptedModel` to test against.
 
 Code written for 0.4.0 breaks in three places:
 

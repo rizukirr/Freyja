@@ -319,7 +319,7 @@ pub(crate) async fn read_error_body(
 ///
 /// The clamp is the part that matters. This is a number an endpoint hands the
 /// caller expecting them to sleep for it, and the pattern in
-/// `docs/reference/errors.md` does exactly that, so an unclamped
+/// <https://rizukirr.github.io/freyja-web/docs/reference/errors> does exactly that, so an unclamped
 /// `Retry-After: 99999999999` parks a task for three thousand years. Freyja
 /// already refuses a body and a stream that grow without bound, on the stated
 /// grounds that it is pointed at gateways it has never met. This is the same

@@ -16,7 +16,7 @@
 //! archaeology exercise. The counts are asserted in tests: verifying a refusal
 //! or adding one both fail until this file is updated to match.
 //!
-//! The reasoning behind all of this is in `docs/internals/capability-model.md`.
+//! The reasoning behind all of this is in <https://rizukirr.github.io/freyja-web/docs/internals/capability-model>.
 //!
 //! The rule that follows, and the one this table exists to hold Freyja to:
 //! **refuse only when the wire format has no field for it.** If the field

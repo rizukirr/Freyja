@@ -1,5 +1,6 @@
 //! Asks real endpoints what they do with a transcript whose tool calls and
 //! results are not properly paired.
+//! It uses the low-level `Client` calls, and `Agent` is the usual entry point.
 //!
 //! Nothing in this crate can answer that question. Three claims about provider
 //! pairing rules were written into freyja as comments and enforced as

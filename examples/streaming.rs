@@ -1,4 +1,5 @@
 //! Prints a model's answer as it arrives.
+//! It uses the low-level `Client` calls, and `Agent` is the usual entry point, as the `agent_streaming` example shows.
 //!
 //! Run with: `cargo run --example streaming`
 

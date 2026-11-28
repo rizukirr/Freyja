@@ -1,4 +1,5 @@
 //! Retrying properly: what to retry, how long to wait, and when to stop.
+//! It uses the low-level `Client` calls, and `Agent` is the usual entry point.
 //!
 //! Freyja never retries. Sleeping needs a timer, and the library exposes
 //! `async fn` without spawning so that the caller picks the runtime, this

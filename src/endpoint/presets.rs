@@ -10,7 +10,7 @@
 //! Every other endpoint is reachable, and no less supported for being absent.
 //! Most copy one of these three wire formats, so they need a [`EndpointConfig`]
 //! and nothing more. See the compatible-endpoint list in
-//! `docs/providers/custom.md`.
+//! <https://rizukirr.github.io/freyja-web/docs/providers/custom>.
 //!
 //! ```
 //! use freyja::{EndpointConfig, Dialect};

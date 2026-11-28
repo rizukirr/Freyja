@@ -1,8 +1,9 @@
 //! An interactive multi-turn chat, streamed.
 //!
 //! The other examples each make one call. This one holds a conversation, which
-//! is a different problem: the transcript is yours to keep, every turn re-sends
-//! all of it, and a failed call must not leave a dangling turn behind.
+//! is a different problem: every turn re-sends the whole transcript, and a
+//! failed call must not leave a dangling turn behind. A [`freyja::Conversation`]
+//! keeps the transcript and restores it when a turn fails.
 //!
 //! ```sh
 //! cargo run --example chat
@@ -11,7 +12,9 @@
 //! Type a message and press enter. `/reset` starts over, `/history` shows the
 //! transcript, `/exit` quits.
 
-use freyja::{Client, EndpointPreset, GenerateRequest, Message, ResponseStatus, Role, StreamEvent};
+use freyja::{
+    Agent, AgentEvent, Client, EndpointPreset, InMemoryStorage, Message, StopReason, StreamEvent,
+};
 use std::io::{BufRead, Write};
 
 /// Frames the whole conversation. Freyja puts it wherever the provider expects
@@ -32,16 +35,14 @@ async fn main() {
         }
     };
 
-    // The transcript lives in the request and grows as the conversation does.
-    // There is no session object and no hidden state on the client: what you
-    // send is exactly what the model sees.
-    let mut request = new_conversation();
-
     // The endpoint's configured name, the same one that shows up in errors.
-    println!(
-        "chatting with {}. /reset, /history, /exit",
-        client.config().name
-    );
+    let name = client.config().name.clone();
+
+    // The conversation owns the transcript and grows it as the chat does.
+    let agent = Agent::new(client).system(SYSTEM_PROMPT);
+    let mut chat = agent.conversation(InMemoryStorage::new());
+
+    println!("chatting with {name}. /reset, /history, /exit");
 
     let stdin = std::io::stdin();
     loop {
@@ -60,36 +61,43 @@ async fn main() {
             }
         }
 
-        match line.trim() {
+        let text = match line.trim() {
             "" => continue,
             "/exit" | "/quit" => break,
             "/reset" => {
-                request = new_conversation();
-                println!("transcript cleared");
+                if let Err(error) = chat.clear().await {
+                    eprintln!("could not clear: {error}");
+                } else {
+                    println!("transcript cleared");
+                }
                 continue;
             }
             "/history" => {
-                print_history(&request);
+                print_history(chat.storage().messages());
                 continue;
             }
-            text => request = request.message(Message::text(Role::User, text)),
-        }
+            text => text,
+        };
 
-        match say(&client, &request).await {
-            // The model's turn has to go back into the transcript, or the next
-            // question arrives with no memory of the answer to this one.
-            Ok(reply) => request = request.message(reply),
+        print!("\nbot> ");
+        let _ = std::io::stdout().flush();
 
+        match chat.send_streaming(text, show).await {
+            Ok(run) => {
+                // A short answer is not always a finished one. Without this
+                // check a reply cut off by a token cap reads as complete.
+                if run.stop == StopReason::Incomplete {
+                    println!("\n[truncated: the answer was cut short]");
+                }
+                println!("\n[{} tokens]", run.usage.total_tokens);
+            }
             Err(error) => {
+                // The failed turn is not stored, so the next question starts
+                // from the transcript as it was before this one.
                 eprintln!("\n{} failed: {error}", error.endpoint());
                 if error.is_retryable() {
                     eprintln!("(transient, try again)");
                 }
-
-                // Drop the user turn that was never answered. Leaving it would
-                // send a transcript ending in an unanswered question, which
-                // some providers reject and all of them bill for.
-                request.messages.pop();
             }
         }
     }
@@ -97,55 +105,24 @@ async fn main() {
     println!("bye");
 }
 
-/// Streams one answer, printing it as it arrives, and returns the assistant
-/// turn to append to the transcript.
-async fn say(client: &Client, request: &GenerateRequest) -> Result<Message, freyja::Error> {
-    let mut stream = client.stream(request).await?;
-
-    print!("\nbot> ");
-    let _ = std::io::stdout().flush();
-
-    while let Some(event) = stream.next().await? {
-        match event {
-            StreamEvent::TextDelta(text) | StreamEvent::RefusalDelta(text) => {
-                print!("{text}");
-                // Deltas arrive mid-line, so nothing appears without a flush.
-                let _ = std::io::stdout().flush();
-            }
-            StreamEvent::Done {
-                usage: Some(usage), ..
-            } => println!("\n[{} tokens]", usage.total_tokens),
-            _ => {}
-        }
+/// Prints text as it arrives. Deltas land mid-line, so each one is flushed.
+fn show(event: AgentEvent) {
+    if let AgentEvent::Model(StreamEvent::TextDelta(text) | StreamEvent::RefusalDelta(text)) = event
+    {
+        print!("{text}");
+        let _ = std::io::stdout().flush();
     }
-
-    // A drained stream converts back into the same response `generate` would
-    // have returned, so transcript handling is identical either way.
-    let response = stream.into_response()?;
-
-    // A short answer is not always a finished one. Without this check a reply
-    // truncated by a token cap reads as a complete thought.
-    if response.status == ResponseStatus::Incomplete {
-        println!("\n[truncated: the answer was cut short]");
-    }
-
-    Ok(response.to_message())
 }
 
-/// A fresh transcript, carrying only the system framing.
-fn new_conversation() -> GenerateRequest {
-    GenerateRequest::new().message(Message::text(Role::System, SYSTEM_PROMPT))
-}
-
-/// Shows what the next call will actually send.
+/// Shows what the next call will send after the system prompt.
 ///
 /// Worth looking at once: the whole transcript goes over the wire every turn,
 /// so a long conversation costs more per question than a short one, and the
 /// growth is quadratic rather than linear. Trimming or summarizing old turns is
 /// the caller's job today, see the roadmap's Phase 3.
-fn print_history(request: &GenerateRequest) {
-    println!("{} turns:", request.messages.len());
-    for message in &request.messages {
+fn print_history(messages: &[Message]) {
+    println!("{} turns:", messages.len());
+    for message in messages {
         let text: String = message
             .content
             .iter()
