@@ -146,6 +146,8 @@ pub(crate) fn expand(attributes: TokenStream, input: TokenStream) -> Result<Toke
             ::freyja::__private::serde::Deserialize,
             ::freyja::__private::schemars::JsonSchema,
         )]
+        #[serde(crate = "::freyja::__private::serde")]
+        #[schemars(crate = "::freyja::__private::schemars")]
         struct #arguments_name {
             #( #field_names: #parameter_types, )*
         }

@@ -79,6 +79,8 @@ jobs:
           key: test-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
       - run: cargo build --all-targets
       - run: cargo test --all-features
+      # A crate with freyja as its only dependency, as a user's would be.
+      - run: cargo test -p downstream
       # Doctests run separately on stable; they are not covered by --all-targets.
       - run: cargo test --doc
 
