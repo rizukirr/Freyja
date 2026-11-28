@@ -342,7 +342,7 @@ fn a_bad_response_line_is_rejected_by_number() {
 - Modify: `CHANGELOG.md`
 - Modify: `README.md`
 
-- [ ] Step 1: In `docs/extending.md`, in the section `## Testing with a scripted model`, after the paragraph that starts "`respond` adds any other response shape", add a blank line, then this paragraph on one line: "`Recorder` turns a real run into a script. Wrap the model in it, run the agent once against the real provider, and save what the model answered. `ScriptedModel::replay` loads the file, so the test runs on those answers with no network and no key. Only answers are saved: replay hands them out in order whatever the requests are, and a call that failed is not saved. A recorder answers a streaming caller all at once, after the whole response has arrived." Then a blank line and this code block:
+- [x] Step 1: In `docs/extending.md`, in the section `## Testing with a scripted model`, after the paragraph that starts "`respond` adds any other response shape", add a blank line, then this paragraph on one line: "`Recorder` turns a real run into a script. Wrap the model in it, run the agent once against the real provider, and save what the model answered. `ScriptedModel::replay` loads the file, so the test runs on those answers with no network and no key. Only answers are saved: replay hands them out in order whatever the requests are, and a call that failed is not saved. A recorder answers a streaming caller all at once, after the whole response has arrived." Then a blank line and this code block:
 
 ```rust
 use freyja::testing::{Recorder, ScriptedModel};
@@ -358,7 +358,7 @@ let model = ScriptedModel::replay("tests/fixtures/add.jsonl")?;
 let run = Agent::new(model).tool(add).ask("add 1 and 2").await?;
 ```
 
-- [ ] Step 2: In `CHANGELOG.md`, under `## Unreleased` (which has no subsections yet), add a blank line, the heading `### Added`, a blank line, and this bullet on one line: "- **`freyja::testing::Recorder` saves a real run, and `ScriptedModel::replay` plays it back.** A test runs on answers a real model gave, with no network and no key. The file is JSON Lines with a version header, and `GenerateResponse`, `ResponseStatus`, `OutputContent` and `Usage` now implement `Serialize` and `Deserialize`."
-- [ ] Step 3: In `README.md`, in the line starting "**Phase 5, observability and release.**", replace "Money cost accounting and record and replay for deterministic tests are not built." with "`freyja::testing::Recorder` saves a real run, and `ScriptedModel::replay` plays it back in tests. Money cost accounting is not built."
-- [ ] Step 4: Run `RUSTDOCFLAGS='-D warnings' cargo --offline doc --no-deps --all-features`.
-- [ ] Step 5: Commit the three files as "Document record and replay".
+- [x] Step 2: In `CHANGELOG.md`, under `## Unreleased` (which has no subsections yet), add a blank line, the heading `### Added`, a blank line, and this bullet on one line: "- **`freyja::testing::Recorder` saves a real run, and `ScriptedModel::replay` plays it back.** A test runs on answers a real model gave, with no network and no key. The file is JSON Lines with a version header, and `GenerateResponse`, `ResponseStatus`, `OutputContent` and `Usage` now implement `Serialize` and `Deserialize`."
+- [x] Step 3: In `README.md`, in the line starting "**Phase 5, observability and release.**", replace "Money cost accounting and record and replay for deterministic tests are not built." with "`freyja::testing::Recorder` saves a real run, and `ScriptedModel::replay` plays it back in tests. Money cost accounting is not built."
+- [x] Step 4: Run `RUSTDOCFLAGS='-D warnings' cargo --offline doc --no-deps --all-features`.
+- [x] Step 5: Commit the three files as "Document record and replay".
