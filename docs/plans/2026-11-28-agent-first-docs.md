@@ -56,12 +56,12 @@ let run = Agent::new(model).tool(add).ask("add 1 and 2").await?;
 - Modify: `README.md`
 - Modify: `docusaurus.config.js`
 
-- [ ] Step 1: `git rm scripts/sync-docs.mjs test/sync-docs.test.mjs`.
-- [ ] Step 2: In `package.json`, delete the line `"sync-docs": "node scripts/sync-docs.mjs",`.
-- [ ] Step 3: In `README.md`, replace the whole `## Documentation source` section (its heading through the paragraph that ends "before committing the snapshot.") with the heading `## Documentation source` and this paragraph on one line: "The `docs/` directory is the Freyja documentation. Edit it here. The Rust repository no longer carries a copy."
-- [ ] Step 4: In `docusaurus.config.js`, change `editUrl: 'https://github.com/rizukirr/freyja/edit/main/'` to `editUrl: 'https://github.com/rizukirr/freyja-web/edit/main/'`.
-- [ ] Step 5: Run `npm test` and `npm run build` in WEB.
-- [ ] Step 6: Commit in WEB as "Edit the docs here, and stop syncing from the freyja repo".
+- [x] Step 1: `git rm scripts/sync-docs.mjs test/sync-docs.test.mjs`.
+- [x] Step 2: In `package.json`, delete the line `"sync-docs": "node scripts/sync-docs.mjs",`.
+- [x] Step 3: In `README.md`, replace the whole `## Documentation source` section (its heading through the paragraph that ends "before committing the snapshot.") with the heading `## Documentation source` and this paragraph on one line: "The `docs/` directory is the Freyja documentation. Edit it here. The Rust repository no longer carries a copy."
+- [x] Step 4: In `docusaurus.config.js`, change `editUrl: 'https://github.com/rizukirr/freyja/edit/main/'` to `editUrl: 'https://github.com/rizukirr/freyja-web/edit/main/'`.
+- [x] Step 5: Run `npm test` and `npm run build` in WEB.
+- [x] Step 6: Commit in WEB as "Edit the docs here, and stop syncing from the freyja repo".
 
 ### Task 3: Guide pages lead with Agent (WEB) → verify: in WEB, `npm run build` exits 0 and `grep -ln "client\.generate\|client\.stream" docs/getting-started.md docs/concepts.md docs/building-an-agent.md docs/introduction.md docs/features.md docs/extending.md` finds no match
 
@@ -136,10 +136,10 @@ let run = Agent::new(model).tool(add).ask("add 1 and 2").await?;
 **Files:**
 - Modify: `src/lib.rs`
 
-- [ ] Step 1: Read the `//!` crate documentation in `src/lib.rs`.
-- [ ] Step 2: Rewrite each example that calls `client.generate` to use `Agent` as in Task 3 Step 2, keeping doctest attributes (`no_run` and the like) as they are. The manual tool loop example becomes an `Agent` with a `#[tool]` function. Add one paragraph saying `Client::generate` and `Client::stream` are the low-level layer under `Agent`, linking `https://rizukirr.github.io/freyja-web/docs/calling-the-model-directly`. Mention `Client::generate` in prose only, never as a call in a code block.
-- [ ] Step 3: Run `cargo --offline test --doc --all-features` and `RUSTDOCFLAGS='-D warnings' cargo --offline doc --no-deps --all-features`.
-- [ ] Step 4: Commit in REPO as "Crate docs lead with Agent".
+- [x] Step 1: Read the `//!` crate documentation in `src/lib.rs`.
+- [x] Step 2: Rewrite each example that calls `client.generate` to use `Agent` as in Task 3 Step 2, keeping doctest attributes (`no_run` and the like) as they are. The manual tool loop example becomes an `Agent` with a `#[tool]` function. Add one paragraph saying `Client::generate` and `Client::stream` are the low-level layer under `Agent`, linking `https://rizukirr.github.io/freyja-web/docs/calling-the-model-directly`. Mention `Client::generate` in prose only, never as a call in a code block.
+- [x] Step 3: Run `cargo --offline test --doc --all-features` and `RUSTDOCFLAGS='-D warnings' cargo --offline doc --no-deps --all-features`.
+- [x] Step 4: Commit in REPO as "Crate docs lead with Agent".
 
 ### Task 7: Examples lead with Agent (REPO) → verify: in REPO, `cargo --offline build --examples --all-features` exits 0, `cargo --offline clippy --all-features --all-targets -- -D warnings` exits 0, and `grep -l "\.generate(\|\.generate_as\|\.stream(" examples/*.rs` lists only `examples/tool_loop.rs`, `examples/retry.rs`, `examples/pairing_probe.rs`, `examples/portable.rs`, `examples/structured_output.rs` and `examples/streaming.rs`
 
