@@ -4,6 +4,10 @@ Notable changes per release. Freyja is pre-1.0, so a minor version may break.
 
 ## Unreleased
 
+## 0.5.1 - 2026-11-28
+
+`#[tool]` now compiles in a crate whose only dependency is freyja, which 0.5.0 broke for every crate without its own `serde` and `schemars`. The release also adds observability: the `Tracing` hook, a `run` span around each agent run, and a per-run token budget. Nothing written for 0.5.0 breaks.
+
 ### Added
 
 - **`Tracing`, a hook that reports every model call and tool call as a `tracing` event, behind the `tracing` feature.** A model call reports `model`, `status`, `elapsed_ms` and the token counts, and a tool call reports `tool`, `elapsed_ms` and `output_bytes`. Content is off unless `with_content` is set, and the feature adds no crate because `tracing` is already in the tree.
