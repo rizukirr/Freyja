@@ -163,3 +163,15 @@ let run = Agent::new(model).tool(add).ask("add 1 and 2").await?;
 - [ ] Step 3: In `README.md`, if a table or list describes the examples, update the descriptions of the changed examples to match. Change nothing else.
 - [ ] Step 4: Run `cargo --offline build --examples --all-features`, `cargo --offline clippy --all-features --all-targets -- -D warnings` and `cargo --offline test --all-features`.
 - [ ] Step 5: Commit in REPO as "Examples lead with Agent, and the low-level ones say so".
+
+### Task 8: The chat example uses a Conversation (REPO) → verify: in REPO, `cargo --offline build --examples --all-features` exits 0, `cargo --offline clippy --all-features --all-targets -- -D warnings` exits 0, and `grep -l "\.generate(\|\.generate_as\|\.stream(" examples/*.rs` lists only `examples/tool_loop.rs`, `examples/retry.rs`, `examples/pairing_probe.rs`, `examples/portable.rs`, `examples/structured_output.rs` and `examples/streaming.rs`
+
+**Blocked by:** Task 7
+
+**Files:**
+- Modify: `examples/chat.rs`
+
+- [ ] Step 1: Read `examples/chat.rs`, `examples/agent_streaming.rs`, `REPO/src/conversation.rs` and `REPO/src/builtin/memory.rs`.
+- [ ] Step 2: Rewrite `examples/chat.rs` onto `Agent`: build `Agent::new(client).system(SYSTEM_PROMPT)` and hold `agent.conversation(InMemoryStorage::new())`. Each line the user types goes through `chat.send_streaming(line, |event| ...)`, printing text deltas as they arrive the way `agent_streaming.rs` does. `/reset` calls `chat.clear().await`, `/history` prints `chat.storage().messages()`, and `/exit` quits. A failed turn prints the error and the chat continues. Keep the doc comment accurate: the conversation keeps the transcript, so the point that a failed call leaves no dangling turn now holds because `Conversation` restores it. Keep the commands the first doc paragraph lists.
+- [ ] Step 3: Run `cargo --offline build --examples --all-features` and `cargo --offline clippy --all-features --all-targets -- -D warnings`.
+- [ ] Step 4: Commit in REPO as "The chat example holds its conversation in a Conversation".
