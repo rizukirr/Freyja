@@ -18,9 +18,9 @@
 - Modify: `src/testing.rs`
 - Create: `tests/record_replay.rs`
 
-- [ ] Step 1: In `src/model/response.rs`, add `use serde::{Deserialize, Serialize};` to the imports, and add `Serialize, Deserialize` to the `#[derive(...)]` of `GenerateResponse`, `ResponseStatus`, `OutputContent` and `Usage`. Add no `#[serde(...)]` attributes.
+- [x] Step 1: In `src/model/response.rs`, add `use serde::{Deserialize, Serialize};` to the imports, and add `Serialize, Deserialize` to the `#[derive(...)]` of `GenerateResponse`, `ResponseStatus`, `OutputContent` and `Usage`. Add no `#[serde(...)]` attributes.
 
-- [ ] Step 2: In `src/testing.rs`, add this method inside `impl ScriptedModel`, after `respond`:
+- [x] Step 2: In `src/testing.rs`, add this method inside `impl ScriptedModel`, after `respond`:
 
 ```rust
     /// Loads a script from a file [`Recorder::save`] wrote, answering its
@@ -50,7 +50,7 @@
     }
 ```
 
-- [ ] Step 3: In `src/testing.rs`, after the `impl Model for ScriptedModel` block, add:
+- [x] Step 3: In `src/testing.rs`, after the `impl Model for ScriptedModel` block, add:
 
 ```rust
 /// Wraps a model and keeps a copy of every response it returns, so a run
@@ -130,7 +130,7 @@ impl<M: Model> Model for Recorder<M> {
 
 If the doc example fails to compile because `tokio` is not available to doctests, read `Cargo.toml` `[dev-dependencies]` and the existing doc example on `ScriptedModel` in `src/testing.rs`, and use the same harness that example uses.
 
-- [ ] Step 4: Create `tests/record_replay.rs`:
+- [x] Step 4: Create `tests/record_replay.rs`:
 
 ```rust
 //! `Recorder` saves a run's responses, and `ScriptedModel::replay` plays them
@@ -330,8 +330,8 @@ fn a_bad_response_line_is_rejected_by_number() {
 }
 ```
 
-- [ ] Step 5: Run `cargo --offline fmt`, then `cargo --offline test --all-features` and `cargo --offline clippy --all-features --all-targets -- -D warnings`.
-- [ ] Step 6: Commit `src/model/response.rs`, `src/testing.rs` and `tests/record_replay.rs` as "Recorder saves a run, and ScriptedModel::replay plays it back".
+- [x] Step 5: Run `cargo --offline fmt`, then `cargo --offline test --all-features` and `cargo --offline clippy --all-features --all-targets -- -D warnings`.
+- [x] Step 6: Commit `src/model/response.rs`, `src/testing.rs` and `tests/record_replay.rs` as "Recorder saves a run, and ScriptedModel::replay plays it back".
 
 ### Task 2: Documentation → verify: `RUSTDOCFLAGS='-D warnings' cargo --offline doc --no-deps --all-features` exits 0 and `grep -l Recorder docs/extending.md CHANGELOG.md README.md` lists all three files
 
