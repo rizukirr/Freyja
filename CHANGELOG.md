@@ -12,6 +12,10 @@ Notable changes per release. Freyja is pre-1.0, so a minor version may break.
 
 - **Each agent run is a `run` span under the `tracing` feature.** The `Tracing` hook's events nest under it, and the span records the stop reason, the turn count and the token counts when the run ends, or the error when it fails.
 
+### Fixed
+
+- **`#[tool]` compiles in a crate whose only dependency is freyja.** The serde and schemars derives it generates named `serde` and `schemars` directly, so a crate without those two dependencies failed with `can't find crate for serde`. They now go through freyja's re-exports, and a workspace crate with freyja as its only dependency checks this in CI.
+
 ## 0.5.0 - 2026-11-27
 
 Freyja becomes something a crate outside it can extend. The model, what the model remembers, where a conversation is kept, and the code around each call are now traits with documented rules: `Model`, `Memory`, `Storage` with a state slot, and `Hook`. [Extending Freyja](docs/extending.md) lists what each must honour, and `freyja::testing` holds a storage conformance check and `ScriptedModel` to test against.

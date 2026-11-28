@@ -18,7 +18,7 @@ categories = ["api-bindings", "asynchronous"]
 exclude = [".github/", ".gitignore"]
 
 [workspace]
-members = ["macros"]
+members = ["macros", "downstream"]
 
 
 # The library itself needs only serialization and HTTP. It exposes `async fn`

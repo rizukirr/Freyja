@@ -1,0 +1,11 @@
+# Compiles `#[tool]` the way a user's crate does, with freyja as the only
+# dependency. Freyja's own tests cannot catch a macro that needs more, because
+# they see freyja's dependencies.
+[package]
+name = "downstream"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[dev-dependencies]
+freyja = { path = ".." }
