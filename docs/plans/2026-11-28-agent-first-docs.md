@@ -75,12 +75,12 @@ let run = Agent::new(model).tool(add).ask("add 1 and 2").await?;
 - Modify: `docs/features.md`
 - Modify: `docs/extending.md`
 
-- [ ] Step 1: In each file, find every code example that calls `client.generate`, `client.generate_as` or `client.stream`, and every sentence that tells the reader to start with them.
-- [ ] Step 2: Rewrite each such example with `Agent`: `Agent::new(client)` with builders, then `.ask(...)` for one question, `.conversation(InMemoryStorage::new())` and `.send(...)` for several turns, `.send_streaming(...)` for streaming. Read the answer from `run.answer`, the usage from `run.usage`. Error handling matches on the same `freyja::Error` returned by `ask`. Where `getting-started.md` shows the first call, the first call is `Agent::new(client).ask("...")`.
-- [ ] Step 3: In `building-an-agent.md`, the manual tool loop section moves out: replace its code with one paragraph saying `Agent` runs this loop for you, and linking to [Calling the model directly](calling-the-model-directly.md#your-own-tool-loop) for writing it by hand. Keep the tool loop diagram.
-- [ ] Step 4: Wherever a page explains something only the low-level call can do (typed output with `generate_as`, raw stream events, `check`), replace the example with one sentence linking the matching section of `calling-the-model-directly.md`.
-- [ ] Step 5: Run `npm run build` in WEB.
-- [ ] Step 6: Commit in WEB as "Guide pages lead with Agent".
+- [x] Step 1: In each file, find every code example that calls `client.generate`, `client.generate_as` or `client.stream`, and every sentence that tells the reader to start with them.
+- [x] Step 2: Rewrite each such example with `Agent`: `Agent::new(client)` with builders, then `.ask(...)` for one question, `.conversation(InMemoryStorage::new())` and `.send(...)` for several turns, `.send_streaming(...)` for streaming. Read the answer from `run.answer`, the usage from `run.usage`. Error handling matches on the same `freyja::Error` returned by `ask`. Where `getting-started.md` shows the first call, the first call is `Agent::new(client).ask("...")`.
+- [x] Step 3: In `building-an-agent.md`, the manual tool loop section moves out: replace its code with one paragraph saying `Agent` runs this loop for you, and linking to [Calling the model directly](calling-the-model-directly.md#your-own-tool-loop) for writing it by hand. Keep the tool loop diagram.
+- [x] Step 4: Wherever a page explains something only the low-level call can do (typed output with `generate_as`, raw stream events, `check`), replace the example with one sentence linking the matching section of `calling-the-model-directly.md`.
+- [x] Step 5: Run `npm run build` in WEB.
+- [x] Step 6: Commit in WEB as "Guide pages lead with Agent".
 
 ### Task 4: Reference pages lead with Agent (WEB) → verify: in WEB, `npm run build` exits 0 and `grep -rln "client\.generate\|client\.stream" docs --include=*.md | grep -v "^docs/calling-the-model-directly.md$\|^docs/reference/client.md$\|^docs/reference/wire/\|^docs/specs/\|^docs/plans/"` finds no match
 
@@ -158,11 +158,11 @@ let run = Agent::new(model).tool(add).ask("add 1 and 2").await?;
 - Modify: `examples/streaming.rs`
 - Modify: `README.md`
 
-- [ ] Step 1: Rewrite `simple.rs`, `custom_endpoint.rs`, `images.rs` and `async_tools.rs` to call the model through `Agent` (`ask` for one question). `images.rs` passes its image message to `ask` as a `Message`. `async_tools.rs` registers both tools on the agent, which runs a turn's tool calls concurrently, and keeps its timing output. Keep each file's doc comment accurate and its behaviour otherwise the same.
-- [ ] Step 2: In `tool_loop.rs`, `retry.rs`, `pairing_probe.rs`, `portable.rs`, `structured_output.rs` and `streaming.rs`, change no code. Add to the end of each file's first doc paragraph one sentence containing the word "low-level", saying it uses the low-level `Client` calls and that `Agent` is the usual entry point, and naming the example that shows the `Agent` way where one exists (`agent` for `tool_loop`, `agent_streaming` for `streaming`).
-- [ ] Step 3: In `README.md`, if a table or list describes the examples, update the descriptions of the changed examples to match. Change nothing else.
-- [ ] Step 4: Run `cargo --offline build --examples --all-features`, `cargo --offline clippy --all-features --all-targets -- -D warnings` and `cargo --offline test --all-features`.
-- [ ] Step 5: Commit in REPO as "Examples lead with Agent, and the low-level ones say so".
+- [x] Step 1: Rewrite `simple.rs`, `custom_endpoint.rs`, `images.rs` and `async_tools.rs` to call the model through `Agent` (`ask` for one question). `images.rs` passes its image message to `ask` as a `Message`. `async_tools.rs` registers both tools on the agent, which runs a turn's tool calls concurrently, and keeps its timing output. Keep each file's doc comment accurate and its behaviour otherwise the same.
+- [x] Step 2: In `tool_loop.rs`, `retry.rs`, `pairing_probe.rs`, `portable.rs`, `structured_output.rs` and `streaming.rs`, change no code. Add to the end of each file's first doc paragraph one sentence containing the word "low-level", saying it uses the low-level `Client` calls and that `Agent` is the usual entry point, and naming the example that shows the `Agent` way where one exists (`agent` for `tool_loop`, `agent_streaming` for `streaming`).
+- [x] Step 3: In `README.md`, if a table or list describes the examples, update the descriptions of the changed examples to match. Change nothing else.
+- [x] Step 4: Run `cargo --offline build --examples --all-features`, `cargo --offline clippy --all-features --all-targets -- -D warnings` and `cargo --offline test --all-features`.
+- [x] Step 5: Commit in REPO as "Examples lead with Agent, and the low-level ones say so".
 
 ### Task 8: The chat example uses a Conversation (REPO) → verify: in REPO, `cargo --offline build --examples --all-features` exits 0, `cargo --offline clippy --all-features --all-targets -- -D warnings` exits 0, and `grep -l "\.generate(\|\.generate_as\|\.stream(" examples/*.rs` lists only `examples/tool_loop.rs`, `examples/retry.rs`, `examples/pairing_probe.rs`, `examples/portable.rs`, `examples/structured_output.rs` and `examples/streaming.rs`
 
@@ -171,7 +171,7 @@ let run = Agent::new(model).tool(add).ask("add 1 and 2").await?;
 **Files:**
 - Modify: `examples/chat.rs`
 
-- [ ] Step 1: Read `examples/chat.rs`, `examples/agent_streaming.rs`, `REPO/src/conversation.rs` and `REPO/src/builtin/memory.rs`.
-- [ ] Step 2: Rewrite `examples/chat.rs` onto `Agent`: build `Agent::new(client).system(SYSTEM_PROMPT)` and hold `agent.conversation(InMemoryStorage::new())`. Each line the user types goes through `chat.send_streaming(line, |event| ...)`, printing text deltas as they arrive the way `agent_streaming.rs` does. `/reset` calls `chat.clear().await`, `/history` prints `chat.storage().messages()`, and `/exit` quits. A failed turn prints the error and the chat continues. Keep the doc comment accurate: the conversation keeps the transcript, so the point that a failed call leaves no dangling turn now holds because `Conversation` restores it. Keep the commands the first doc paragraph lists.
-- [ ] Step 3: Run `cargo --offline build --examples --all-features` and `cargo --offline clippy --all-features --all-targets -- -D warnings`.
-- [ ] Step 4: Commit in REPO as "The chat example holds its conversation in a Conversation".
+- [x] Step 1: Read `examples/chat.rs`, `examples/agent_streaming.rs`, `REPO/src/conversation.rs` and `REPO/src/builtin/memory.rs`.
+- [x] Step 2: Rewrite `examples/chat.rs` onto `Agent`: build `Agent::new(client).system(SYSTEM_PROMPT)` and hold `agent.conversation(InMemoryStorage::new())`. Each line the user types goes through `chat.send_streaming(line, |event| ...)`, printing text deltas as they arrive the way `agent_streaming.rs` does. `/reset` calls `chat.clear().await`, `/history` prints `chat.storage().messages()`, and `/exit` quits. A failed turn prints the error and the chat continues. Keep the doc comment accurate: the conversation keeps the transcript, so the point that a failed call leaves no dangling turn now holds because `Conversation` restores it. Keep the commands the first doc paragraph lists.
+- [x] Step 3: Run `cargo --offline build --examples --all-features` and `cargo --offline clippy --all-features --all-targets -- -D warnings`.
+- [x] Step 4: Commit in REPO as "The chat example holds its conversation in a Conversation".
