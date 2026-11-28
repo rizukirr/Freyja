@@ -261,6 +261,8 @@ Freyja ships one hook, `Tracing`, behind the `tracing` feature (`freyja = { vers
 let agent = Agent::new(client).hook(freyja::Tracing::new());
 ```
 
+The same feature puts every run inside a `run` span with target `freyja`, whether or not the hook is installed. The hook's events nest under it, so the calls of two runs happening at once stay apart. When the run ends the span records `stop`, `turns`, `input_tokens`, `output_tokens` and `total_tokens`, or `error` if the run failed.
+
 ### Streaming the loop
 
 `send_streaming` runs the same loop with every request streamed, and hands each event to a callback as it arrives. Text, reasoning and tool calls come through as `AgentEvent::Model(StreamEvent)`, exactly as `Client::stream` yields them. Each tool's output comes through as `AgentEvent::ToolResult` once the turn's calls have finished, before it goes back to the model.
