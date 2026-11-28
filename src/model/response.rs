@@ -1,8 +1,9 @@
 use super::{InputContent, Message, Role};
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 /// A provider-neutral generation response.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GenerateResponse {
     /// Provider-assigned response id.
     pub id: String,
@@ -73,7 +74,7 @@ impl GenerateResponse {
 }
 
 /// Why a response ended.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ResponseStatus {
     /// Finished normally.
     Completed,
@@ -88,7 +89,7 @@ pub enum ResponseStatus {
 }
 
 /// One part of what the model produced.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum OutputContent {
     /// Generated text.
     Text(String),
@@ -111,7 +112,7 @@ pub enum OutputContent {
 }
 
 /// Token accounting for one request.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Usage {
     /// Prompt tokens.
     pub input_tokens: u64,

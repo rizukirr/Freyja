@@ -75,6 +75,22 @@ async fn the_agent_adds() {
 
 `respond` adds any other response shape from a `GenerateResponse`. A call after the script runs out returns `Error::InvalidResponse`.
 
+`Recorder` turns a real run into a script. Wrap the model in it, run the agent once against the real provider, and save what the model answered. `ScriptedModel::replay` loads the file, so the test runs on those answers with no network and no key. Only answers are saved: replay hands them out in order whatever the requests are, and a call that failed is not saved. A recorder answers a streaming caller all at once, after the whole response has arrived.
+
+```rust
+use freyja::testing::{Recorder, ScriptedModel};
+use std::sync::Arc;
+
+// Once, against the real provider.
+let model = Arc::new(Recorder::new(Client::from_env()?));
+Agent::new(model.clone()).tool(add).ask("add 1 and 2").await?;
+model.save("tests/fixtures/add.jsonl")?;
+
+// In the test, from then on.
+let model = ScriptedModel::replay("tests/fixtures/add.jsonl")?;
+let run = Agent::new(model).tool(add).ask("add 1 and 2").await?;
+```
+
 ## Stability
 
 Every trait returns boxed futures, so each stays usable as `dyn`: an agent holds its tools as `Arc<dyn Tool>`, its memory as `Arc<dyn Memory>` and its model as `Arc<dyn Model>`, and a backend can be erased behind `Box<dyn Storage>`. A method added to a trait later arrives with a default, so an implementation written today keeps compiling. Enums and error types that may grow are `#[non_exhaustive]`, so a match on one needs a trailing `_` arm.
