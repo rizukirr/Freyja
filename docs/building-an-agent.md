@@ -251,7 +251,9 @@ let agent = Agent::new(client)
     .max_turns(5);
 ```
 
-`run.stop` tells you why the loop ended, `Answered`, `MaxTurns`, `Refused`, `Incomplete`, `Failed`, or `Stopped` by a hook, and `Conversation::send`, reached through `Agent::conversation`, wraps the same loop with the transcript held in a `Storage` backend instead of a vector you own, for a multi-turn conversation. See `examples/agent.rs`.
+`run.stop` tells you why the loop ended, `Answered`, `MaxTurns`, `Refused`, `Incomplete`, `Failed`, `Stopped` by a hook, or `OverBudget`, and `Conversation::send`, reached through `Agent::conversation`, wraps the same loop with the transcript held in a `Storage` backend instead of a vector you own, for a multi-turn conversation. See `examples/agent.rs`.
+
+`.token_budget(n)` on the builder bounds what one run spends. After each model call the agent adds that call's `total_tokens` to the run's sum, and once the sum reaches `n` the run ends with `StopReason::OverBudget` before any requested tool runs. A provider that reports no usage counts as zero, and each run, including each message of a conversation, starts from zero. `run.usage` holds the sum either way, so the cost of a run is `run.usage` times your provider's prices.
 
 Freyja ships one hook, `Tracing`, behind the `tracing` feature (`freyja = { version = "0.5", features = ["tracing"] }`). It emits one `INFO` event with target `freyja` per model call and per tool call, with durations and token counts, and with no message content unless `.with_content()` is set. Its source, `src/tracing_hook.rs`, is a complete hook to read before writing one.
 
