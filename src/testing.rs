@@ -165,6 +165,35 @@ impl ScriptedModel {
         self
     }
 
+    /// Loads a script from a file [`Recorder::save`] wrote, answering its
+    /// responses in the order they were recorded.
+    ///
+    /// Fails with [`std::io::ErrorKind::InvalidData`] when the first line is
+    /// not a version 1 recording header or a later line is not a response. The
+    /// message names the line.
+    pub fn replay(path: impl AsRef<std::path::Path>) -> std::io::Result<Self> {
+        let text = std::fs::read_to_string(path)?;
+        let invalid = |line: usize, why: String| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("line {line}: {why}"),
+            )
+        };
+        let mut lines = text.lines();
+        let header: serde_json::Value = serde_json::from_str(lines.next().unwrap_or(""))
+            .map_err(|error| invalid(1, error.to_string()))?;
+        if header != json!({ "freyja_recording": 1 }) {
+            return Err(invalid(1, "not a version 1 freyja recording".into()));
+        }
+        let mut script = Self::new();
+        for (index, line) in lines.enumerate() {
+            let response = serde_json::from_str(line)
+                .map_err(|error| invalid(index + 2, error.to_string()))?;
+            script = script.respond(response);
+        }
+        Ok(script)
+    }
+
     /// A clone of every request received, oldest first.
     pub fn requests(&self) -> Vec<GenerateRequest> {
         self.requests.lock().expect("not poisoned").clone()
@@ -201,6 +230,80 @@ impl Model for ScriptedModel {
                     endpoint: "scripted".into(),
                     message: "the script ran out of responses".into(),
                 })
+        })
+    }
+}
+
+/// Wraps a model and keeps a copy of every response it returns, so a run
+/// against a real provider can be saved once and replayed in tests with
+/// [`ScriptedModel::replay`].
+///
+/// It answers exactly as the wrapped model does. A call that fails is passed
+/// through and not recorded. A streaming caller is answered all at once, after
+/// the whole response has arrived, because recording needs the whole
+/// response. Requests are not recorded.
+///
+/// ```
+/// use freyja::testing::{Recorder, ScriptedModel};
+/// use freyja::Agent;
+/// use std::sync::Arc;
+///
+/// # #[tokio::main(flavor = "current_thread")]
+/// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// let file = std::env::temp_dir().join(format!("freyja-doc-{}.jsonl", std::process::id()));
+///
+/// let model = Arc::new(Recorder::new(ScriptedModel::new().text("hi")));
+/// Agent::new(model.clone()).ask("hi").await?;
+/// model.save(&file)?;
+///
+/// let run = Agent::new(ScriptedModel::replay(&file)?).ask("hi").await?;
+/// assert_eq!(run.answer, "hi");
+/// # std::fs::remove_file(&file)?;
+/// # Ok(())
+/// # }
+/// ```
+#[derive(Debug)]
+pub struct Recorder<M> {
+    model: M,
+    responses: Mutex<Vec<GenerateResponse>>,
+}
+
+impl<M: Model> Recorder<M> {
+    /// Wraps `model`, with nothing recorded yet.
+    pub fn new(model: M) -> Self {
+        Self {
+            model,
+            responses: Mutex::new(Vec::new()),
+        }
+    }
+
+    /// Writes every response recorded so far to `path`, replacing the file.
+    ///
+    /// The file is JSON Lines: a header line `{"freyja_recording":1}`, then
+    /// one response per line.
+    pub fn save(&self, path: impl AsRef<std::path::Path>) -> std::io::Result<()> {
+        let mut out = String::from("{\"freyja_recording\":1}\n");
+        for response in self.responses.lock().expect("not poisoned").iter() {
+            out.push_str(&serde_json::to_string(response).map_err(std::io::Error::other)?);
+            out.push('\n');
+        }
+        std::fs::write(path, out)
+    }
+}
+
+impl<M: Model> Model for Recorder<M> {
+    fn name(&self) -> &str {
+        self.model.name()
+    }
+
+    fn generate<'a>(&'a self, request: &'a GenerateRequest) -> ModelFuture<'a, GenerateResponse> {
+        Box::pin(async move {
+            let response = self.model.generate(request).await?;
+            self.responses
+                .lock()
+                .expect("not poisoned")
+                .push(response.clone());
+            Ok(response)
         })
     }
 }
