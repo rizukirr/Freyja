@@ -4,6 +4,10 @@ Notable changes per release. Freyja is pre-1.0, so a minor version may break.
 
 ## Unreleased
 
+### Added
+
+- **`freyja::testing::Recorder` saves a real run, and `ScriptedModel::replay` plays it back.** A test runs on answers a real model gave, with no network and no key. The file is JSON Lines with a version header, and `GenerateResponse`, `ResponseStatus`, `OutputContent` and `Usage` now implement `Serialize` and `Deserialize`.
+
 ## 0.5.1 - 2026-11-28
 
 `#[tool]` now compiles in a crate whose only dependency is freyja, which 0.5.0 broke for every crate without its own `serde` and `schemars`. The release also adds observability: the `Tracing` hook, a `run` span around each agent run, and a per-run token budget. Nothing written for 0.5.0 breaks.
